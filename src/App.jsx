@@ -2253,124 +2253,6 @@ function getConceptsForChallenge(challenge) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CLAUDE API VALIDATORS (Tutor mode)
-// ═══════════════════════════════════════════════════════════════════
-
-// API key: checks Vite env var first, then localStorage
-function getApiKey() {
-  // 1. Vite env variable (from .env file)
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ANTHROPIC_API_KEY) {
-    const k = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (k && !k.startsWith('sk-ant-xxx')) return k;
-  }
-  // 2. localStorage (set via in-game settings)
-  try { const k = localStorage.getItem('cq:api-key'); if (k) return k; } catch(e) {}
-  return null;
-}
-
-async function validateWithClaude(code, challenge, attempts) {
-  const apiKey = getApiKey();
-  if (!apiKey) return {output:"",error:null,passes:false,feedback:"⚙️ API key not set. Go to the World Map → ⚙️ Settings to add your Anthropic API key, or switch to Guide mode."};
-
-  const attemptHistory = attempts.length > 0
-    ? `\n\nPREVIOUS ATTEMPTS (${attempts.length} so far):\n${attempts.map((a,i) => `Attempt ${i+1}: ${a.code.substring(0,200)}${a.code.length>200?"...":""}\nFeedback given: ${a.feedback}`).join("\n\n")}\n\nThis is attempt #${attempts.length+1}. Adjust your feedback accordingly — if they're repeating the same mistake, point it out directly and be more specific. If they're making progress, acknowledge it.`
-    : "\n\nThis is their first attempt.";
-
-  try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST", headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1000,
-        messages: [{role:"user", content:`You are a Python code validator for a kids' coding game (ages 9-14). Execute the code mentally and return ONLY valid JSON (no markdown, no backticks).
-
-CODE:
-\`\`\`python
-${code}
-\`\`\`
-
-CHALLENGE TASK: ${challenge.task}
-EXPECTED BEHAVIOR: ${challenge.expectedBehavior}
-${attemptHistory}
-
-Return ONLY this JSON:
-{"output":"what print() would display","error":null,"passes":true,"feedback":"1-2 sentences"}
-
-Rules:
-- output = exact print output, newline-separated
-- error = null if runs fine, or SHORT kid-friendly error message
-- passes = true ONLY if code meets requirements. Be encouraging but honest.
-- feedback = If passes: celebrate! If not: give a specific, helpful hint. Be warm, like a cool camp counselor.
-- If they've made the same mistake multiple times, name the exact issue directly.
-- Be lenient on formatting, strict on logic.
-- Empty/comment-only code = passes:false
-
-ONLY return the JSON object.`}]
-      })
-    });
-    if(!r.ok){const e=await r.json().catch(()=>({}));console.error("API error:",r.status,e);return {output:"",error:`API error (${r.status}): ${e.error?.message||"Unknown error"}`,passes:false,feedback:"Check your API key in Settings."};}
-    const d = await r.json();
-    const t = d.content.map(i=>i.type==="text"?i.text:"").join("");
-    return JSON.parse(t.replace(/```json|```/g,"").trim());
-  } catch(e) {
-    console.error("Validation error:",e);
-    return {output:"",error:"Connection issue — try again!",passes:false,feedback:"Click Run again!"};
-  }
-}
-
-async function askTutor(code, challenge, question, chatHistory, attempts) {
-  const attemptContext = attempts.length > 0
-    ? `They've made ${attempts.length} attempt(s). Their latest code is below.`
-    : "This is their first attempt.";
-
-  const messages = [
-    { role:"user", content:`You are a Socratic Python tutor for a 12-year-old in a coding game. You NEVER give the answer directly. Instead, ask guiding questions and give small nudges.
-
-CHALLENGE: ${challenge.task}
-EXPECTED: ${challenge.expectedBehavior}
-${attemptContext}
-
-THEIR CURRENT CODE:
-\`\`\`python
-${code}
-\`\`\`
-
-CONVERSATION SO FAR:
-${chatHistory.map(m=>`${m.role==="user"?"STUDENT":"TUTOR"}: ${m.text}`).join("\n")}
-
-STUDENT'S QUESTION: ${question}
-
-Respond as the tutor. Rules:
-- Use Socratic method — guide with questions, don't give answers
-- Keep it short (2-4 sentences max)
-- Use analogies a kid would understand (games, building, cooking)
-- If they're completely stuck (3+ attempts at same issue), give ONE small concrete hint
-- Be warm, patient, encouraging
-- If they ask something unrelated to the challenge, gently redirect
-- Never use code blocks with the full solution`}
-  ];
-
-  try {
-    const apiKey = getApiKey();
-    if (!apiKey) return "⚙️ API key not set. Go to the World Map → ⚙️ Settings to add your key, or switch to Guide mode.";
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST", headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 300,
-        messages
-      })
-    });
-    if(!r.ok){const e=await r.json().catch(()=>({}));console.error("Tutor API error:",r.status,e);return `Connection issue (${r.status}). Check your API key in ⚙️ Settings.`;}
-    const d = await r.json();
-    return d.content.map(i=>i.type==="text"?i.text:"").join("").trim();
-  } catch(e) {
-    console.error("Tutor error:",e);
-    return "Hmm, I'm having trouble connecting right now. Try re-reading the task and your hints — I bet you can figure it out!";
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // CHALLENGE DATA
 // ═══════════════════════════════════════════════════════════════════
 
@@ -4129,46 +4011,6 @@ function TitleScreen({onStart}){
   </div>;
 }
 
-function HelperModeSelect({onSelect}){
-  return <div className="min-h-screen flex items-center justify-center p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
-    <div className="max-w-lg w-full text-center">
-      <div className="text-4xl mb-3">🧙‍♂️</div>
-      <h2 className="text-2xl font-bold mb-2" style={{fontFamily:MONO,color:TEXT}}>Choose Your Helper</h2>
-      <p className="text-sm mb-8" style={{color:DIM}}>This affects how the game checks your code and helps you learn.</p>
-      <div className="flex flex-col gap-4">
-        <button onClick={()=>onSelect("tutor")} className="p-5 rounded-xl text-left cursor-pointer transition-all duration-300"
-          style={{background:PANEL2,border:`2px solid ${ACCENT}44`}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT;e.currentTarget.style.boxShadow=`0 0 20px ${ACCENT}22`}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}44`;e.currentTarget.style.boxShadow="none"}}>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">🤖</span>
-            <span className="text-lg font-bold" style={{color:ACCENT}}>Claude Tutor</span>
-            <span className="text-xs px-2 py-0.5 rounded" style={{background:`${ACCENT}22`,color:ACCENT}}>Recommended</span>
-          </div>
-          <p className="text-sm" style={{color:DIM}}>
-            An AI tutor that checks your code, gives smart feedback, and answers your questions using the Socratic method — guiding you to the answer instead of just telling you.
-          </p>
-          <p className="text-xs mt-2" style={{color:VDIM}}>Requires Claude.ai account (runs in this app)</p>
-        </button>
-
-        <button onClick={()=>onSelect("guide")} className="p-5 rounded-xl text-left cursor-pointer transition-all duration-300"
-          style={{background:PANEL2,border:`2px solid ${GOLD}44`}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor=GOLD;e.currentTarget.style.boxShadow=`0 0 20px ${GOLD}22`}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=`${GOLD}44`;e.currentTarget.style.boxShadow="none"}}>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">📖</span>
-            <span className="text-lg font-bold" style={{color:GOLD}}>Built-in Guide</span>
-          </div>
-          <p className="text-sm" style={{color:DIM}}>
-            A built-in helper that checks your code for common patterns and errors, with progressive hints that get more specific the more you try. No account needed!
-          </p>
-          <p className="text-xs mt-2" style={{color:VDIM}}>Works offline — no AI connection required</p>
-        </button>
-      </div>
-    </div>
-  </div>;
-}
-
 function CharacterCreate({onComplete,existingProfiles}){
   const [name,setName]=useState("");
   const [hair,setHair]=useState(0);
@@ -4235,7 +4077,7 @@ function ProfileSelect({profiles,onSelect,onCreate}){
           <div className="flex-1">
             <div className="font-bold" style={{color:TEXT}}>{p.name}</div>
             <div className="text-xs" style={{color:DIM}}>
-              {p.xp} XP • {(p.badges||[]).length} badges • {p.helperMode==="tutor"?"🤖 Tutor":"📖 Guide"}
+              {p.xp} XP • {(p.badges||[]).length} badges
             </div>
           </div>
           <div className="flex gap-1">{(p.badges||[]).slice(0,3).map((b,i)=><span key={i} className="text-lg">{b.icon}</span>)}</div>
@@ -4254,7 +4096,7 @@ function SessionSetup({onSelect,profile}){
         <PixelAvatar {...profile.avatar} size={64}/>
         <div className="text-left">
           <div className="font-bold" style={{color:TEXT}}>{profile.name}</div>
-          <div className="text-xs" style={{color:DIM}}>{profile.xp} XP • {profile.helperMode==="tutor"?"🤖 Tutor":"📖 Guide"} mode</div>
+          <div className="text-xs" style={{color:DIM}}>{profile.xp} XP</div>
         </div>
       </div>
       <h2 className="text-2xl font-bold mb-6" style={{fontFamily:MONO,color:TEXT}}>Choose Session Length</h2>
@@ -4379,45 +4221,7 @@ function MapBackground() {
 // SETTINGS MODAL (API key management)
 // ═══════════════════════════════════════════════════════════════════
 
-function SettingsModal({onClose}){
-  const [key,setKey]=useState(()=>{try{return localStorage.getItem('cq:api-key')||''}catch{return ''}});
-  const [saved,setSaved]=useState(false);
-  const hasEnvKey=typeof import.meta!=='undefined'&&import.meta.env?.VITE_ANTHROPIC_API_KEY&&!import.meta.env.VITE_ANTHROPIC_API_KEY.startsWith('sk-ant-xxx');
-  const save=()=>{
-    try{if(key.trim())localStorage.setItem('cq:api-key',key.trim());else localStorage.removeItem('cq:api-key')}catch{}
-    setSaved(true);setTimeout(()=>setSaved(false),2000);
-  };
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.85)"}} onClick={onClose}>
-    <div className="p-6 rounded-xl max-w-md w-full mx-4" style={{background:PANEL,border:`1px solid ${ACCENT}33`}} onClick={e=>e.stopPropagation()}>
-      <h2 className="text-lg font-bold mb-4" style={{color:TEXT,fontFamily:MONO}}>⚙️ Settings</h2>
-
-      <div className="mb-4">
-        <label className="text-xs font-bold tracking-wide block mb-2" style={{color:ACCENT}}>ANTHROPIC API KEY</label>
-        <p className="text-xs mb-3" style={{color:DIM}}>
-          Required for Tutor mode (AI-powered hints). Get a key at{' '}
-          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{color:ACCENT,textDecoration:"underline"}}>console.anthropic.com</a>.
-          Guide mode works without a key.
-        </p>
-        {hasEnvKey&&<p className="text-xs mb-3 px-2 py-1 rounded" style={{background:`${ACCENT}11`,color:ACCENT,border:`1px solid ${ACCENT}22`}}>
-          ✓ Key loaded from .env file. The field below overrides it.
-        </p>}
-        <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..."
-          className="w-full px-3 py-2 rounded-lg text-sm" style={{background:DARK,border:`1px solid #ffffff22`,color:TEXT,fontFamily:MONO,outline:"none"}}
-          onFocus={e=>{e.target.style.borderColor=ACCENT}} onBlur={e=>{e.target.style.borderColor="#ffffff22"}}/>
-      </div>
-
-      <div className="flex gap-3">
-        <button onClick={save} className="px-4 py-2 rounded-lg text-sm font-bold cursor-pointer transition-all"
-          style={{background:`${ACCENT}22`,border:`1px solid ${ACCENT}66`,color:ACCENT,fontFamily:MONO}}>
-          {saved?"✓ Saved!":"Save Key"}</button>
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm cursor-pointer transition-all"
-          style={{background:PANEL2,border:`1px solid #ffffff22`,color:DIM,fontFamily:MONO}}>Close</button>
-      </div>
-    </div>
-  </div>;
-}
-
-function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,onSettings,timeRemaining,sessionActive}){
+function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,timeRemaining,sessionActive}){
   const xp=profile.xp,cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const status=ch=>{
     if(ch.comingSoon)return "locked";if(xp<ch.requiredXp)return "locked";
@@ -4454,10 +4258,6 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
           style={{background:PANEL2,border:`1px solid #e67e2233`,color:"#e67e22",fontFamily:MONO}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor="#e67e22";e.currentTarget.style.boxShadow=`0 0 12px #e67e2222`}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor="#e67e2233";e.currentTarget.style.boxShadow="none"}}>⚔️ Practice</button>
-        <button onClick={onSettings} className="px-2 py-1.5 rounded-lg cursor-pointer text-xs font-bold transition-all duration-200"
-          style={{background:PANEL2,border:`1px solid #ffffff22`,color:DIM,fontFamily:MONO}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#ffffff66";e.currentTarget.style.boxShadow=`0 0 12px #ffffff11`}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#ffffff22";e.currentTarget.style.boxShadow="none"}}>⚙️</button>
         <div className="flex gap-1">{(profile.badges||[]).map((b,i)=><span key={i} title={b.name} className="text-lg">{b.icon}</span>)}</div>
       </div>
     </div>
@@ -4560,14 +4360,14 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
   </div>;
 }
 
-function CharacterSheet({profile,onBack,onSwitchMode}){
+function CharacterSheet({profile,onBack}){
   return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <Btn onClick={onBack} color={DIM} className="mb-6">← Map</Btn>
     <div className="max-w-lg mx-auto">
       <div className="flex flex-col items-center mb-6 p-6 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
         <PixelAvatar {...profile.avatar} size={128}/>
         <h2 className="text-xl font-bold mt-3" style={{color:TEXT,fontFamily:MONO}}>{profile.name}</h2>
-        <div className="text-sm" style={{color:DIM}}>Level {Math.floor(profile.xp/100)+1} • {profile.helperMode==="tutor"?"🤖 Tutor":"📖 Guide"} mode</div>
+        <div className="text-sm" style={{color:DIM}}>Level {Math.floor(profile.xp/100)+1}</div>
         <div className="w-full mt-3"><XpBar current={profile.xp%100} next={100} label="Next Level"/></div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -4587,21 +4387,6 @@ function CharacterSheet({profile,onBack,onSwitchMode}){
           style={{background:e?"#e67e2215":`${DARK}88`,border:`1px solid ${e?"#e67e2244":"#ffffff08"}`,opacity:e?1:0.4}}>
           <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?"#e67e22":DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
         </div>})}
-      </div>
-      {/* Helper Mode Switch */}
-      <h3 className="text-sm font-bold mb-3 mt-6 tracking-wider" style={{color:ACCENT}}>⚙️ HELPER MODE</h3>
-      <div className="flex gap-3">
-        {[{id:"tutor",icon:"🤖",label:"Claude Tutor",desc:"AI-powered Socratic guidance"},{id:"guide",icon:"📖",label:"Built-in Guide",desc:"Offline pattern matching"}].map(m=>
-          <button key={m.id} onClick={()=>onSwitchMode(m.id)} className="flex-1 p-3 rounded-lg text-left cursor-pointer transition-all duration-300"
-            style={{background:profile.helperMode===m.id?`${ACCENT}15`:PANEL2,border:`2px solid ${profile.helperMode===m.id?ACCENT:"#ffffff11"}`}}>
-            <div className="flex items-center gap-2 mb-1">
-              <span>{m.icon}</span>
-              <span className="text-sm font-bold" style={{color:profile.helperMode===m.id?ACCENT:TEXT}}>{m.label}</span>
-              {profile.helperMode===m.id&&<span className="text-xs px-1.5 py-0.5 rounded" style={{background:`${ACCENT}22`,color:ACCENT}}>Active</span>}
-            </div>
-            <div className="text-xs" style={{color:DIM}}>{m.desc}</div>
-          </button>
-        )}
       </div>
     </div>
   </div>;
@@ -4698,7 +4483,7 @@ function Codex({profile,onBack}){
 // GRINDING ZONE — Practice Arena
 // ═══════════════════════════════════════════════════════════════════
 
-function GrindingZone({profile,onBack,helperMode}){
+function GrindingZone({profile,onBack}){
   const [challenge,setChallenge]=useState(null);
   const [code,setCode]=useState("");
   const [output,setOutput]=useState(null);
@@ -4724,12 +4509,7 @@ function GrindingZone({profile,onBack,helperMode}){
   const handleRun=async()=>{
     if(isRunning)return;
     setIsRunning(true);setOutput(null);
-    let result;
-    if(helperMode==="tutor"){
-      result=await validateWithClaude(code,challenge,attempts);
-    } else {
-      result=validateOffline(code,challenge,attempts.length);
-    }
+    const result=validateOffline(code,challenge,attempts.length);
     setOutput(result);
     setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
     setIsRunning(false);
@@ -4816,7 +4596,7 @@ function GrindingZone({profile,onBack,helperMode}){
 // CHALLENGE ROOM — The core gameplay loop
 // ═══════════════════════════════════════════════════════════════════
 
-function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue,helperMode}){
+function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
   const [code,setCode]=useState(challenge.starterCode||"");
   const [output,setOutput]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
@@ -4827,28 +4607,13 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
   const [attempts,setAttempts]=useState([]);
   const [dialoguePhase,setDialoguePhase]=useState(chapterIntroDialogue?"chapter-intro":challenge.npcDialogue?"room-intro":"play");
 
-  // Tutor chat state
-  const [showTutor,setShowTutor]=useState(false);
-  const [tutorChat,setTutorChat]=useState([]);
-  const [tutorInput,setTutorInput]=useState("");
-  const [tutorLoading,setTutorLoading]=useState(false);
-  const chatEndRef=useRef(null);
-
-  // Guide mode concept help
   const [showGuideHelp,setShowGuideHelp]=useState(false);
-
-  useEffect(()=>{chatEndRef.current?.scrollIntoView({behavior:"smooth"})},[tutorChat]);
 
   const handleRun=async()=>{
     if(isRunning||passed)return;
     setIsRunning(true);setOutput(null);
 
-    let result;
-    if(helperMode==="tutor"){
-      result=await validateWithClaude(code,challenge,attempts);
-    } else {
-      result=validateOffline(code,challenge,attempts.length);
-    }
+    const result=validateOffline(code,challenge,attempts.length);
 
     setOutput(result);
     setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
@@ -4856,17 +4621,6 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
     if(result.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
     else{try{SFX.codeFail()}catch(e){}}
     setIsRunning(false);
-  };
-
-  const handleAskTutor=async()=>{
-    if(!tutorInput.trim()||tutorLoading)return;
-    const q=tutorInput.trim();
-    setTutorInput("");
-    setTutorChat(prev=>[...prev,{role:"user",text:q}]);
-    setTutorLoading(true);
-    const answer=await askTutor(code,challenge,q,tutorChat,attempts);
-    setTutorChat(prev=>[...prev,{role:"tutor",text:answer}]);
-    setTutorLoading(false);
   };
 
   const handleKeyDown=e=>{
@@ -4879,8 +4633,8 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
   const concepts=getConceptsForChallenge(challenge);
 
   // Dialogue phases
-  if(dialoguePhase==="chapter-intro")return <NPCDialogue npc={chapterIntroNpc} lines={chapterIntroDialogue} onComplete={()=>setDialoguePhase(challenge.npcDialogue?"room-intro":"play")}/>;
-  if(dialoguePhase==="room-intro")return <NPCDialogue npc={challenge.npc||"byte"} lines={challenge.npcDialogue} onComplete={()=>setDialoguePhase("play")}/>;
+  if(dialoguePhase==="chapter-intro")return <NPCDialogue key="chapter-intro" npc={chapterIntroNpc} lines={chapterIntroDialogue} onComplete={()=>setDialoguePhase(challenge.npcDialogue?"room-intro":"play")}/>;
+  if(dialoguePhase==="room-intro")return <NPCDialogue key="room-intro" npc={challenge.npc||"byte"} lines={challenge.npcDialogue} onComplete={()=>setDialoguePhase("play")}/>;
 
   return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,#1a0d2a 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
@@ -4915,50 +4669,16 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
 
         {/* Help buttons */}
         <div className="flex gap-2 flex-wrap">
-          {helperMode==="tutor" ? (
-            <button onClick={()=>setShowTutor(!showTutor)}
-              className="text-xs px-3 py-1.5 rounded cursor-pointer transition-all duration-200"
-              style={{color:ACCENT,background:showTutor?`${ACCENT}22`:`${ACCENT}11`,border:`1px solid ${showTutor?ACCENT:`${ACCENT}33`}`}}>
-              🤖 {showTutor?"Hide Tutor":"Ask the Tutor"}
-            </button>
-          ) : (
-            <button onClick={()=>setShowGuideHelp(!showGuideHelp)}
-              className="text-xs px-3 py-1.5 rounded cursor-pointer transition-all duration-200"
-              style={{color:GOLD,background:showGuideHelp?`${GOLD}22`:`${GOLD}11`,border:`1px solid ${showGuideHelp?GOLD:`${GOLD}33`}`}}>
-              📖 {showGuideHelp?"Hide Guide":"Concept Guide"}
-            </button>
-          )}
+          <button onClick={()=>setShowGuideHelp(!showGuideHelp)}
+            className="text-xs px-3 py-1.5 rounded cursor-pointer transition-all duration-200"
+            style={{color:GOLD,background:showGuideHelp?`${GOLD}22`:`${GOLD}11`,border:`1px solid ${showGuideHelp?GOLD:`${GOLD}33`}`}}>
+            📖 {showGuideHelp?"Hide Guide":"Concept Guide"}
+          </button>
           {attempts.length>0&&<span className="text-xs py-1.5" style={{color:VDIM}}>Attempt #{attempts.length}</span>}
         </div>
 
-        {/* Tutor chat (Claude mode) */}
-        {showTutor&&helperMode==="tutor"&&(
-          <div className="mt-3 rounded-lg overflow-hidden" style={{background:DARK,border:`1px solid ${ACCENT}33`}}>
-            <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${ACCENT}11`,color:ACCENT}}>🤖 SOCRATIC TUTOR</div>
-            <div className="p-3 max-h-48 overflow-y-auto">
-              {tutorChat.length===0&&<div className="text-xs" style={{color:VDIM}}>
-                Ask me anything about this challenge! I'll guide you with questions instead of just giving answers.
-              </div>}
-              {tutorChat.map((m,i)=><div key={i} className={`mb-2 text-xs p-2 rounded ${m.role==="user"?"ml-6":"mr-6"}`}
-                style={{background:m.role==="user"?`${ACCENT}11`:PANEL2,color:m.role==="user"?ACCENT:TEXT}}>
-                <span className="font-bold">{m.role==="user"?"You":"Tutor"}:</span> {m.text}
-              </div>)}
-              {tutorLoading&&<div className="text-xs" style={{color:ACCENT}}>🤖 Thinking...</div>}
-              <div ref={chatEndRef}/>
-            </div>
-            <div className="p-2 flex gap-2 border-t" style={{borderColor:"#ffffff11"}}>
-              <input value={tutorInput} onChange={e=>setTutorInput(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&handleAskTutor()}
-                placeholder="What's confusing you?"
-                className="flex-1 p-2 rounded text-xs focus:outline-none"
-                style={{background:PANEL2,color:TEXT,border:`1px solid #ffffff11`,fontFamily:MONO,caretColor:ACCENT}}/>
-              <Btn onClick={handleAskTutor} disabled={!tutorInput.trim()||tutorLoading} style={{padding:"4px 12px",fontSize:"11px"}}>Ask</Btn>
-            </div>
-          </div>
-        )}
-
-        {/* Concept guide (non-LLM mode) */}
-        {showGuideHelp&&helperMode==="guide"&&(
+        {/* Concept guide */}
+        {showGuideHelp&&(
           <div className="mt-3 rounded-lg overflow-hidden" style={{background:DARK,border:`1px solid ${GOLD}33`}}>
             <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${GOLD}11`,color:GOLD}}>📖 CONCEPT GUIDE</div>
             <div className="p-3 max-h-64 overflow-y-auto">
@@ -5049,8 +4769,6 @@ export default function App(){
   const [profiles,setProfiles]=useState([]);
   const [activeProfileId,setActiveProfileId]=useState(null);
   const [profile,setProfile]=useState(null);
-  const [pendingHelperMode,setPendingHelperMode]=useState(null);
-  const [pendingProfileData,setPendingProfileData]=useState(null);
 
   const [currentChapter,setCurrentChapter]=useState(null);
   const [currentChallenge,setCurrentChallenge]=useState(null);
@@ -5066,7 +4784,6 @@ export default function App(){
   const [pendingBadge,setPendingBadge]=useState(null);
   const [pendingTrophy,setPendingTrophy]=useState(null);
   const [musicMuted,setMusicMuted]=useState(false);
-  const [showSettings,setShowSettings]=useState(false);
 
   // Music: play the right track when screen/context changes
   useEffect(()=>{
@@ -5123,15 +4840,12 @@ export default function App(){
     return{trophies:earned,newTrophies:newT};
   };
 
-  // Profile creation flow: create → pick helper mode → save
-  const handleCharacterCreated=data=>{setPendingProfileData(data);setScreen("helper-mode")};
-  const handleHelperSelected=async mode=>{
-    const data={...pendingProfileData,helperMode:mode};
+  const handleCharacterCreated=async data=>{
     const id=`hero_${Date.now()}`;
     await saveProfile(id,data);
     const list=await loadProfileList();list.push({id,name:data.name});await saveProfileList(list);
     setProfiles(prev=>[...prev,{...data,id}]);setActiveProfileId(id);setProfile(data);
-    setPendingProfileData(null);setScreen("session");
+    setScreen("session");
   };
 
   const handleSelectProfile=async id=>{const d=await loadProfile(id);if(d){setActiveProfileId(id);setProfile(d);setScreen("session")}};
@@ -5187,20 +4901,18 @@ export default function App(){
     {screen==="title"&&<TitleScreen onStart={()=>setScreen("create")}/>}
     {screen==="profiles"&&<ProfileSelect profiles={profiles} onSelect={handleSelectProfile} onCreate={()=>setScreen("create")}/>}
     {screen==="create"&&<CharacterCreate onComplete={handleCharacterCreated} existingProfiles={profiles}/>}
-    {screen==="helper-mode"&&<HelperModeSelect onSelect={handleHelperSelected}/>}
     {screen==="session"&&profile&&<SessionSetup onSelect={startSession} profile={profile}/>}
-    {screen==="map"&&profile&&<WorldMap chapters={CHAPTERS} profile={profile} onSelectChapter={selectChapter} onCharSheet={()=>setScreen("charsheet")} onCodex={()=>setScreen("codex")} onGrind={()=>setScreen("grind")} onSettings={()=>setShowSettings(true)} timeRemaining={timeRemaining} sessionActive={sessionActive}/>}
-    {screen==="charsheet"&&profile&&<CharacterSheet profile={profile} onBack={()=>setScreen("map")} onSwitchMode={async(mode)=>{const updated={...profile,helperMode:mode};setProfile(updated);await saveProfile(activeProfileId,updated)}}/>}
+    {screen==="map"&&profile&&<WorldMap chapters={CHAPTERS} profile={profile} onSelectChapter={selectChapter} onCharSheet={()=>setScreen("charsheet")} onCodex={()=>setScreen("codex")} onGrind={()=>setScreen("grind")} timeRemaining={timeRemaining} sessionActive={sessionActive}/>}
+    {screen==="charsheet"&&profile&&<CharacterSheet profile={profile} onBack={()=>setScreen("map")}/>}
     {screen==="codex"&&profile&&<Codex profile={profile} onBack={()=>setScreen("map")}/>}
-    {screen==="grind"&&profile&&<GrindingZone profile={profile} onBack={()=>setScreen("map")} helperMode={profile.helperMode}/>}
+    {screen==="grind"&&profile&&<GrindingZone profile={profile} onBack={()=>setScreen("map")}/>}
     {screen==="chapter"&&currentChapter&&profile&&<ChapterOverview chapter={currentChapter} profile={profile} onSelectRoom={selectRoom} onSelectBoss={selectBoss} onBack={()=>setScreen("map")}/>}
     {screen==="challenge"&&currentChallenge&&<ChallengeRoom key={currentChallenge.id} challenge={currentChallenge} isBoss={isBossChallenge}
       onComplete={completeChallenge} onBack={()=>setScreen("chapter")} xpMultiplier={xpMultiplier}
-      chapterIntroNpc={chapterIntroNpc} chapterIntroDialogue={chapterIntroDialogue} helperMode={profile?.helperMode||"guide"}/>}
+      chapterIntroNpc={chapterIntroNpc} chapterIntroDialogue={chapterIntroDialogue}/>}
     </ScreenWrap>
     {pendingTrophy&&<TrophyUnlock trophy={pendingTrophy} onContinue={dismissTrophy}/>}
     {pendingBadge&&<BadgeUnlock badge={pendingBadge} onContinue={()=>{setPendingBadge(null);setScreen("chapter")}}/>}
-    {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/>}
     {/* Music controls */}
     <div className="fixed bottom-4 right-4 flex gap-2" style={{zIndex:100}}>
       <button onClick={()=>{const m=Music.toggleMute();setMusicMuted(m)}}

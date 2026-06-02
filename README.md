@@ -7,7 +7,7 @@ An RPG-style game that teaches Python programming through 12 chapters of challen
 - **4 Acts, 12 Chapters, 108 Rooms** — progressive Python curriculum from `print()` to Pybricks robotics
 - **Boss Battles** — test mastery at the end of each chapter
 - **Side Quests** — optional challenges for bonus XP
-- **Dual Helper Modes** — Tutor (AI hints) or Guide (manual hints)
+- **Built-in Guide** — progressive, context-aware hints with no API needed
 - **Code Codex** — 58-entry reference guide
 - **Practice Arena** — 24 standalone challenges
 - **Multi-Profile Saves** — multiple players on one device
@@ -107,10 +107,6 @@ Players can mute/unmute music with the 🎵 button in the bottom-right corner.
 | 2: The Architect's Path | Ch 6-8 | functions, dictionaries, integration |
 | 3: The Arena | Ch 9-10 | game building patterns |
 | 4: The Rover Bay | Ch 11-12 | Pybricks robotics (FLL) |
-
-## 🔑 API Key (for Tutor Mode)
-
-Tutor mode uses Claude AI for personalized hints. The API call is made client-side. For production use, you should proxy API calls through a backend to protect your key. The game works fully without it — Guide mode provides built-in hints with no API needed.
 
 ## License
 
