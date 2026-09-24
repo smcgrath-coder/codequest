@@ -68,9 +68,23 @@ describe("run_visible", () => {
     assert.ok(naps.length >= 4, `napped ${naps.length} times`); assert.ok(naps.every(ms => ms > 0 && ms <= 50));
   });
 
+  test("time.sleep still works after the program swaps out sys.stdout", () => {
+    assert.equal(run("import sys, time\nsys.stdout = None\ntime.sleep(0.01)").ok, true);
+  });
+
   test("exit() ends the program normally", () => {
     const r = run('print("bye")\nexit()\nprint("never")');
     assert.equal(r.ok, true); assert.equal(r.out, "bye\n");
+  });
+
+  test("import __main__ gives the kid's own program, as in real Python", () => {
+    assert.equal(run("score = 7\nimport __main__\nprint(__main__.score, __main__.__name__)").out, "7 __main__\n");
+  });
+
+  test("an error whose message can't be turned into text is still reported", () => {
+    const r = run("class Grumpy(Exception):\n    def __str__(self):\n        raise ValueError('no')\n\nraise Grumpy()");
+    assert.equal(r.kind, "Grumpy"); assert.equal(r.line, 5);
+    assert.equal(r.text, "Grumpy: <exception str() failed>"); assert.equal(r.msg, "<exception str() failed>");
   });
 });
 
@@ -88,10 +102,17 @@ describe("clean slate between runs", () => {
     run("import sys, types\nm = types.ModuleType('helper')\nm.x = 1\nsys.modules['helper'] = m");
     assert.equal(run("import helper").kind, "ModuleNotFoundError");
   });
-  // 3 is the lowest limit Python accepts at the kid's top level, so it leaves clean_slate no room.
-  for (const limit of [50, 3]) test(`a recursion limit lowered to ${limit} by one run is put back for the next`, () => {
-    assert.equal(run(`import sys\nsys.setrecursionlimit(${limit})`).ok, true);   // Python accepted it
-    assert.equal(run("def down(n):\n    return 0 if n == 0 else down(n - 1)\nprint(down(200))").out, "0\n");
+  // The lowest limit Python accepts at the kid's top level leaves the harness no room for its own calls.
+  const LOWEST_LIMIT = "import sys\nfor n in range(1, 20):\n    try:\n        sys.setrecursionlimit(n)\n        break\n    except RecursionError:\n        pass\n";
+  for (const [limit, code] of [["50", "import sys\nsys.setrecursionlimit(50)\n"], ["the lowest Python accepts", LOWEST_LIMIT]]) {
+    test(`a recursion limit lowered to ${limit} by one run is put back for the next`, () => {
+      assert.equal(run(code).ok, true);   // Python accepted it
+      assert.equal(run("def down(n):\n    return 0 if n == 0 else down(n - 1)\nprint(down(200))").out, "0\n");
+    });
+  }
+  test("a program that lowers the recursion limit that far and then crashes still gets its error reported", () => {
+    const r = run(LOWEST_LIMIT + "print(1 / 0)");
+    assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 8);
   });
   test("a program that swaps out sys.stdout still finishes, and the next run prints normally", () => {
     assert.equal(run('import sys\nsys.stdout = None\nprint("lost")').ok, true);
@@ -110,5 +131,37 @@ describe("clean slate between runs", () => {
       return run("import random\nprint(random.randint(1, 1000000))").out;
     }));
     assert.ok(rolls.size > 1);
+  });
+  test("a program that breaks builtins still gets its own error reported, and the next run works", () => {
+    // Python's traceback code uses these too, so they must be put back before the error is described.
+    const r = run("import builtins\nfor name in ['list', 'vars', 'isinstance', 'len', 'str', 'type']:\n    setattr(builtins, name, None)\nprint(1 / 0)");
+    assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 4);
+    assert.equal(run('print("fine")').out, "fine\n");
+  });
+  test("builtins broken after a program has ended, by a __del__, can't break the next run", () => {
+    // s is freed with the traceback, after the program and its error report are done.
+    const saboteur = "import builtins\nclass Saboteur:\n    def __del__(self):\n        builtins.list = None\n        builtins.vars = None\n\n"
+      + "def boom():\n    s = Saboteur()\n    1 / 0\n\nboom()";
+    assert.equal(run(saboteur).kind, "ZeroDivisionError");
+    const r = run('print("fine")');
+    assert.equal(r.ok, true); assert.equal(r.out, "fine\n");
+  });
+  test("a program that breaks the sys and traceback functions the harness uses still gets its error reported, and so does the next", () => {
+    try {
+      const r = run("import sys, traceback\nsys.setrecursionlimit = None\ntraceback.extract_tb = traceback.format_exception = None\nprint(1 / 0)");
+      assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 4);
+      const next = run("print(len(5))");
+      assert.equal(next.kind, "TypeError"); assert.equal(next.line, 1);
+    } finally {   // clean_slate doesn't put back sys or traceback, so do it for the tests after this one
+      py.runPython("sys.setrecursionlimit, traceback.extract_tb, traceback.format_exception = _setrecursionlimit, _extract_tb, _format_exception");
+    }
+  });
+  test("kid code can't rebind the harness's own helpers through __main__", () => {
+    run('import __main__\n__main__.error_info = lambda e: {"ok": True}\n__main__.clean_slate = lambda seed=None: None');
+    assert.equal(run("print(1 / 0)").kind, "ZeroDivisionError");
+    run("import sys, types\nsys.modules['helper'] = types.ModuleType('helper')");
+    assert.equal(run("import helper").kind, "ModuleNotFoundError", "clean_slate still runs");
+    assert.equal(py.runPython('import sys\nsys.modules["__main__"].run_visible is run_visible'), true,
+      "between runs, __main__ is the harness again");
   });
 });

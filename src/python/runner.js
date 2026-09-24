@@ -22,13 +22,22 @@ function spawn() {
   interrupt = new Int32Array(new SharedArrayBuffer(4));
   inputBox = new SharedArrayBuffer(INPUT_BUFFER_BYTES);
   setStatus("loading");
+  let booting = true;
   ready = new Promise((resolve, reject) => {
-    worker.onmessage = ({ data }) => {
-      if (data.type === "ready") { setStatus("ready"); resolve(); }
-      else if (data.type === "fatal") { setStatus("unavailable"); reject(new Error(data.msg)); }
-      else active?.onMessage(data);
+    // Only this worker's own boot report counts. Later, kid code (through `import js`) could post
+    // "ready" or "fatal", or throw in the worker, and none of that must change the status.
+    const booted = err => {
+      if (!booting) return;
+      booting = false;
+      if (err) { setStatus("unavailable"); reject(err); } else { setStatus("ready"); resolve(); }
     };
-    worker.onerror = e => { setStatus("unavailable"); reject(new Error(e.message || "Python worker failed to start")); };
+    worker.onmessage = ({ data }) => {
+      const type = data?.type;
+      if (type === "ready") booted();
+      else if (type === "fatal") booted(new Error(data.msg));
+      else if (type) active?.onMessage(data);
+    };
+    worker.onerror = e => booted(new Error(e.message || "Python worker failed to start"));
   });
   ready.catch(() => {});
   worker.postMessage({ type: "init", interrupt: interrupt.buffer, input: inputBox });
@@ -66,7 +75,9 @@ async function takeTurn(call) {
 }
 
 // Runs code for the kid to see. The time limit pauses while input() waits for the kid.
-// Resolves to { ok, kind, msg, line, text, capped, stdout, inputs, stopped, timedOut }.
+// Resolves to { ok, kind, msg, line, text, capped, stdout, inputs, stopped, timedOut }, plus
+// restarted: true when a stuck worker had to be replaced. Rejects when this device can't run Python
+// or Python fails to load, so the caller can fall back to the keyword grader.
 export async function runCode(code, { onOutput = () => {}, onInputRequest = () => {} } = {}) {
   const id = newId(), inputs = [];
   let stdout = "", stopReason = null, interruptRun = () => {};
@@ -85,28 +96,35 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
       interruptRun = () => {
         Atomics.store(interrupt, 0, 2);
         cancelInput(inputBox);
-        grace = setTimeout(() => { restart(); finish({ restarted: true }); }, STOP_GRACE_MS);
+        grace = setTimeout(() => { try { restart(); } finally { finish({ restarted: true }); } }, STOP_GRACE_MS);
       };
+      let asking = false;   // an input() is waiting for this run's answer
       active = {
         id,
-        answer(text) { inputs.push(text); stdout += text + "\n"; onOutput(text + "\n", "input"); sendAnswer(inputBox, text); startClock(); },
+        answer(text) {
+          if (!asking || stopReason) return;   // a second Enter, or one after Stop, would answer the next input()
+          asking = false;
+          inputs.push(text); stdout += text + "\n"; onOutput(text + "\n", "input"); sendAnswer(inputBox, text); startClock();
+        },
         onMessage(m) {
           if (m.id !== id) return;
           if (m.type === "stdout") { stdout += m.text; onOutput(m.text, "stdout"); }
-          else if (m.type === "input") { clearTimeout(limit); onInputRequest(); }   // the kid's thinking time doesn't count
+          else if (m.type === "input") { asking = true; clearTimeout(limit); onInputRequest(); }   // the kid's thinking time doesn't count
           else if (m.type === "result") finish(m);
         },
       };
-      startClock();
       resetInput(inputBox);   // drop a Stop or answer left from the last run; the worker is idle now
       worker.postMessage({ type: "run", id, code });
+      startClock();           // only once sent: if postMessage throws, no timer is left to stop a later call
     });
   } finally { release(); }
 }
 export const stopCode = () => newest?.stop("stop");
+// Answers the input() the running program is waiting at. Does nothing if none is waiting.
 export const answerInput = text => active?.answer?.(text);
 
 // Hidden grading pass. Resolves to { passed, feedback, failures, timedOut?, stopped? }.
+// Rejects like runCode when this device can't run Python or Python fails to load.
 export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1 }) {
   const id = newId();
   let stopReason = null, interruptGrade = () => {};
@@ -120,15 +138,15 @@ export async function gradeCode(code, { rule, starter = "", inputs = [], attempt
     await warmUp();
     if (stopReason) return stopped();
     return await new Promise(resolve => {
-      let grace = null;
-      const limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);
+      let limit = null, grace = null;
       function finish(res) { clearTimeout(limit); clearTimeout(grace); active = null; resolve(res); }
       interruptGrade = () => {
         Atomics.store(interrupt, 0, 2);
-        grace = setTimeout(() => { restart(); finish(stopped()); }, STOP_GRACE_MS);
+        grace = setTimeout(() => { try { restart(); } finally { finish(stopped()); } }, STOP_GRACE_MS);
       };
       active = { id, onMessage(m) { if (m.id === id && m.type === "graded") finish(stopReason ? stopped() : m); } };
       worker.postMessage({ type: "grade", id, code, rule, starter, inputs, attempt });
+      limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);   // only once sent, as in runCode
     });
   } finally { release(); }
 }

@@ -12,9 +12,14 @@ import { runCode, gradeCode, stopCode, answerInput, pythonStatus } from "../src/
 // Its thread takes one step per slice of fake time (see advance()).
 const workers = [];
 class FakeWorker {
-  constructor() { workers.push(this); this.jobs = []; this.dead = false; }
+  static broken = false;   // new Worker() throws, as when the browser can't start one
+  constructor() {
+    if (FakeWorker.broken) throw new Error("Worker can't start");
+    workers.push(this); this.jobs = []; this.dead = false;
+  }
   postMessage(m) {
     if (m.type === "init") { this.interrupt = new Int32Array(m.interrupt); this.box = new Int32Array(m.input, 0, 2); this.booting = true; return; }
+    structuredClone(m);    // throws DataCloneError for what a real worker couldn't be sent, such as a function
     const steps = m.code.split("\n"), stubborn = steps[0] === "except";
     this.jobs.push({ ...m, steps: stubborn ? steps.slice(1) : steps, stubborn });
   }
@@ -159,3 +164,88 @@ test("a grading pass that runs too long says so, not what grading made of the in
   assert.equal(grade.value.timedOut, true);
   assert.match(grade.value.feedback, /took too long/);
 });
+
+test("only the worker's own boot report counts: a later ready, fatal, error or junk message is ignored", async () => {
+  const first = track(runCode("print hi"));
+  await advance(200);
+  assert.equal(first.value.ok, true);
+  const w = workers.at(-1);
+  // Kid code can post to the page through `import js`, or leave an error for the worker to throw.
+  for (const data of [null, 42, { type: "fatal", msg: "hacked" }, { type: "ready" }]) w.send(data);
+  w.onerror({ message: "thrown later by kid code" });
+  assert.equal(pythonStatus(), "ready");
+  const next = track(runCode("print again"));
+  await advance(200);
+  assert.equal(next.value.stdout, "again\n");
+});
+
+test("a second Enter before the page catches up doesn't answer the next input()", async () => {
+  let asked = 0;
+  const run = track(runCode("ask\nask\nprint done", { onInputRequest: () => asked++ }));
+  await advance(200);
+  assert.equal(asked, 1);
+  answerInput("Sam");
+  await advance(50);    // the worker takes the answer before the page has re-rendered
+  answerInput("Sam");   // Enter again in the same box
+  await advance(3_000);
+  assert.equal(asked, 2);
+  assert.equal(run.done, false, "the second input() still waits for its own answer");
+  answerInput("Max");
+  await advance(200);
+  assert.deepEqual(run.value.inputs, ["Sam", "Max"]);
+  assert.equal(run.value.stdout, "Sam\nMax\ndone\n");
+});
+
+test("an answer typed after Stop is dropped", async () => {
+  let asked = 0;
+  const run = track(runCode("ask\nprint hi", { onInputRequest: () => asked++ }));
+  await advance(200);
+  assert.equal(asked, 1);
+  stopCode();
+  answerInput("late");
+  await advance(200);
+  assert.equal(run.value.stopped, true);
+  assert.deepEqual(run.value.inputs, []);
+  assert.equal(run.value.stdout, "");
+});
+
+test("a call that can't be sent to the worker leaves no timer behind to stop a later call", async () => {
+  const run = track(runCode(() => {}));
+  await advance(100);
+  const grade = track(gradeCode("print hi", { rule: { check: () => {} } }));
+  await advance(100);
+  assert.equal(run.error?.name, "DataCloneError");
+  assert.equal(grade.error?.name, "DataCloneError");
+  const spawned = workers.length;
+  const next = track(runCode("ask\nprint hi"));
+  await advance(12_000);   // past both failed calls' time limits and grace
+  assert.equal(workers.length, spawned, "no restart under the next call");
+  assert.equal(next.done, false, "still waiting for its answer");
+  answerInput("Sam");
+  await advance(200);
+  assert.equal(next.value.ok, true);
+  assert.equal(next.value.stdout, "Sam\nhi\n");
+});
+
+// Last: these leave Python unavailable until a later call starts a worker again.
+for (const [kind, start] of [["run", () => runCode("except\nspin")], ["grading pass", () => gradeCode("except\nspin", { rule: {} })]]) {
+  test(`a stuck ${kind} still ends if its worker can't be restarted, and the next call rejects instead of waiting`, async () => {
+    const stuck = track(start());   // swallows Stop, so only a restart ends it
+    await advance(100);
+    stopCode();
+    await advance(950);
+    FakeWorker.broken = true;
+    try {
+      // The grace timer's restart throws. Mock timers run a callback that threw again on every
+      // tick, so the clock stays put from here on.
+      assert.throws(() => mock.timers.tick(50), /can't start/);
+      await new Promise(r => setImmediate(r));
+      assert.equal(stuck.done, true, "the stuck call still ends");
+      assert.equal(stuck.value.stopped, true);
+      const next = track(runCode("print hi"));
+      await new Promise(r => setImmediate(r));
+      assert.match(next.error?.message ?? "(still waiting)", /can't start/);
+      assert.equal(pythonStatus(), "unavailable");
+    } finally { FakeWorker.broken = false; }
+  });
+}

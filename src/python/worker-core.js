@@ -1,6 +1,11 @@
 // The Python side of the runner: shared by the browser worker (py.worker.js) and the tests.
 const MAX_OUTPUT_CHARS = 100_000;   // about 2,000 lines of typical output
 const FLUSH_MS = 50;
+// Kid code shares this thread and can reach its JavaScript through `import js`. The functions results
+// pass through are captured here, before any kid code runs, which stops accidental and casual tampering
+// such as patching js.JSON.parse. A determined kid can still fake their own local progress: grading
+// runs on the kid's own device by design, so nothing here is proof against its owner.
+const jsonParse = JSON.parse, jsonStringify = JSON.stringify, fromEntries = Object.fromEntries;
 
 export async function createPythonCore({ loadPyodide, indexURL, sources, post, readInput, sleepMs, interruptBuffer }) {
   const py = await loadPyodide(indexURL ? { indexURL } : {});
@@ -43,7 +48,7 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
   const runVisible = py.globals.get("run_visible"), gradeJson = py.globals.get("grade_json");
   const call = (fn, ...args) => {
     const proxy = fn(...args);
-    const value = typeof proxy === "string" ? proxy : proxy.toJs({ dict_converter: Object.fromEntries });
+    const value = typeof proxy === "string" ? proxy : proxy.toJs({ dict_converter: fromEntries });
     proxy?.destroy?.();
     return value;
   };
@@ -72,7 +77,7 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
     grade({ id, code, rule, starter, inputs, attempt }) {
       begin(id, true);
       let res;
-      try { res = JSON.parse(call(gradeJson, code, JSON.stringify(rule), starter || "", JSON.stringify(inputs || []), attempt || 1)); }
+      try { res = jsonParse(call(gradeJson, code, jsonStringify(rule), starter || "", jsonStringify(inputs || []), attempt || 1)); }
       catch (e) { res = { passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: String(e) }; }
       current = null;
       post({ ...res, type: "graded", id });

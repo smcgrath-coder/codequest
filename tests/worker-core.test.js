@@ -65,6 +65,21 @@ test("the cap still reports Stopped when it trips in the harness's final flush",
   assert.equal(stdout(t.run('print("fine")')), "fine\n");
 });
 
+test("a crash still reports its error when the cap trips in the harness's final flush", () => {
+  const msgs = t.run('print("x" * 100_001, end="")\nprint(1 / 0)');
+  const r = result(msgs);
+  assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 2); assert.equal(r.capped, true);
+  assert.equal(stdout(msgs).length, 100_000);
+});
+
+test("a countdown printed on one line shows each number before its nap", () => {
+  const shown = [];
+  t.setSleep(() => { const now = stdout(t.messages); if (shown.at(-1) !== now) shown.push(now); });
+  try { t.run('import time\nfor i in range(3, 0, -1):\n    print(i, end="... ")\n    time.sleep(0.05)\nprint("Go!")'); }
+  finally { t.setSleep(null); }
+  assert.deepEqual(shown, ["3... ", "3... 2... ", "3... 2... 1... "]);
+});
+
 test("output printed just before time.sleep reaches the page before the nap", () => {
   let shownAtNap = null;
   t.setSleep(() => { shownAtNap ??= stdout(t.messages); });
@@ -99,4 +114,27 @@ test("a silent grading run never asks the page for input; it gets end-of-file", 
   // A visible run afterwards still asks for input as usual.
   g.setAnswers(["Alex"]);
   assert.equal(stdout(g.run('print("Hi", input())')), "Hi Alex\n");
+});
+
+// A stand-in grading.py that shows what it was sent.
+const ECHO_GRADING = `import json
+def grade_json(code, rule, starter, inputs, attempt):
+    return json.dumps({"passed": False, "feedback": rule + " " + inputs})
+`;
+
+test("kid code that patches the page's JSON or Object.fromEntries through import js can't change results", async () => {
+  const g = await makeCore({ grading: ECHO_GRADING });
+  const saved = [JSON.parse, JSON.stringify, Object.fromEntries];
+  try {   // this test's process is the page here, so put its JavaScript back afterwards
+    g.run(`import js
+fake = js.Function.new("return { ok: true, passed: true, hacked: true }")
+js.JSON.parse = fake
+js.Object.fromEntries = fake
+js.JSON.stringify = js.Function.new("return '\\"hacked\\"'")`);
+    const r = result(g.run("print(1 / 0)"));
+    assert.equal(r.hacked, undefined); assert.equal(r.kind, "ZeroDivisionError");
+    g.messages.length = 0;
+    g.core.grade({ id: "g1", code: "", rule: { output: "x" }, inputs: ["Sam"] });
+    assert.deepEqual(g.messages, [{ passed: false, feedback: '{"output":"x"} ["Sam"]', type: "graded", id: "g1" }]);
+  } finally { [JSON.parse, JSON.stringify, Object.fromEntries] = saved; }
 });
