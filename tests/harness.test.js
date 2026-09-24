@@ -164,4 +164,16 @@ describe("clean slate between runs", () => {
     assert.equal(py.runPython('import sys\nsys.modules["__main__"].run_visible is run_visible'), true,
       "between runs, __main__ is the harness again");
   });
+  // Describing an error runs kid code too, after the program has ended.
+  const rebind = '        import __main__\n        __main__.error_info = lambda e: {"ok": True}\n';
+  test("nor through __main__ in an error's __str__", () => {
+    const r = run(`class Sneaky(Exception):\n    def __str__(self):\n${rebind}        return "sneaky"\n\nraise Sneaky()`);
+    assert.equal(r.kind, "Sneaky"); assert.equal(r.text, "Sneaky: sneaky");
+    assert.equal(run("print(1 / 0)").kind, "ZeroDivisionError");
+  });
+  test("nor through __main__ in a __del__ that runs when the error is freed", () => {
+    const r = run(`class Sneaky:\n    def __del__(self):\n${rebind}\ndef boom():\n    s = Sneaky()\n    1 / 0\n\nboom()`);
+    assert.equal(r.kind, "ZeroDivisionError");
+    assert.equal(run("print(1 / 0)").kind, "ZeroDivisionError");
+  });
 });

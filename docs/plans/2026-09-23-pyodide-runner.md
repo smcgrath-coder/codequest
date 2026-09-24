@@ -302,6 +302,8 @@ git commit -m "Add the shared-memory mailbox that lets input() wait for the kid"
 
 ### Task 3: `harness.py`, the visible Run
 
+> Done. Reviews and the runner hardening after Task 5 changed `harness.py`, so the committed file is authoritative, not the code below. In particular, `fresh_namespace` is gone; Task 9, item 1 names its replacements.
+
 **Files:**
 - Create: `src/python/harness.py`
 - Test: `tests/harness.test.js`
@@ -1326,12 +1328,15 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
 
 **Step 3: Implement `src/python/grading.py`.** Port `docs/plans/pyodide-prototype/checklib.py` with these changes.
 
-1. **Shared helpers.** `harness.py` has already run in the same Pyodide globals, so call `clean_slate`, `fresh_namespace`, `compile_kid`, `KID_FILE`, `RUN_CODE` and `StopRun` directly. Don't import them.
+1. **Shared helpers.** `harness.py` has already run in the same Pyodide globals, so call `clean_slate`, `fresh_main`, `run_as_main`, `leave_main`, `compile_kid`, `KID_FILE`, `RUN_CODE` and `StopRun` directly. Don't import them. (The runner hardening after Task 5 replaced Task 3's `fresh_namespace` with `fresh_main`, `run_as_main` and `leave_main`. Their docstrings in `harness.py` say what each one does.)
 2. **`Run`** (prototype lines 25-75):
    - Call `clean_slate(seed=seed)` first, then set `time.sleep = lambda s: None`.
+   - Replace the prototype's `ns = {"__name__": "__main__"}` with `main = fresh_main()` and `ns = main.__dict__`. Keep `ns` for the probes.
    - Compile with `compile_kid` (or `compile(tree, KID_FILE, "exec")` for reruns), and trace frames whose `co_filename == KID_FILE`.
    - Capture stdout with the `CappedIO` class below.
-   - Wrap the `RUN_CODE(...)` call in `_arm(2)` / `_disarm()`.
+   - Replace the bare `RUN_CODE(compiled, ns)` with `run_as_main(compiled, main)`. Keep it inside the profiler and the stdout redirect, and wrap it in `_arm(2)` / `_disarm()`. A bare `RUN_CODE` would skip the protections `run_visible` has: the kid gets their own `__main__`, and builtins and the recursion limit are put back before grading's own code runs.
+   - Putting builtins back in `run_as_main`'s `finally` also undoes `builtins.input = fake_input`. So set `fake_input` before the call, as the prototype does, and set it again in any probe that calls a kid function that should get scripted input.
+   - `run_as_main` leaves the kid's module as `__main__`. Building `self.error` runs the error's `__str__`, and probes call kid functions; both should see the kid's own module, as in real Python. So don't call `leave_main()` in `Run`: `grade_json` calls it once grading is done (item 9).
    - Set `self.timed_out = True` when `StopRun` escapes.
    - Keep the prototype's scripted `fake_input` and patches.
 
@@ -1344,14 +1349,17 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
            return super().write(s)
    ```
 
-3. **Watchdog.** It is sticky: once the deadline passes it keeps raising, so a bare `except:` can't escape it.
+3. **Watchdog.** It is sticky: once the deadline passes it keeps raising, so a bare `except:` can't escape it. The events fire in every frame, including the roughly 160 in `run_as_main`'s clean-up. So `_tick` skips the harness's own code. Otherwise, a program that ends just as time runs out takes a `StopRun` in that clean-up and keeps its broken builtins: measured in 161 of 1024 tick phases.
 
    ```python
    _MON = sys.monitoring
    _TOOL = 4
    _deadline = [0.0]
    _ticks = [0]
-   def _tick(*_):
+   _OURS = run_as_main.__code__.co_filename   # harness.py's code, and this file's (both run through runPython)
+   def _tick(code, *_):
+       if code.co_filename == _OURS:
+           return
        _ticks[0] += 1
        if _ticks[0] & 1023 == 0 and time.monotonic() > _deadline[0]:
            raise StopRun("time limit")
@@ -1386,7 +1394,10 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
 
    def grade_json(code, rule_json, starter, inputs_json, attempt):
        rule = json.loads(rule_json)
-       failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or json.loads(inputs_json), seed=rule.get("seed", 0))
+       try:
+           failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or json.loads(inputs_json), seed=rule.get("seed", 0))
+       finally:
+           leave_main()                   # run_as_main left the kid's module as __main__ for the probes
        if not failures:
            return json.dumps({"passed": True, "feedback": "Great work! Your program does exactly what the task asks. 🎉", "failures": []})
        shown = [f["message"] for f in failures][: 2 if attempt >= 3 else 1]

@@ -78,15 +78,23 @@ def fresh_main():
 
 
 def run_as_main(code, main):
-    """Runs compiled kid code in `main`. Meanwhile `import __main__` gives the kid's own module, as in
-    real Python, instead of these globals, so kid code can't rebind the harness's helpers."""
+    """Runs compiled kid code in `main` and makes it __main__, so `import __main__` gives the kid's own
+    module, as in real Python, not these globals. It stays __main__ until leave_main(): describing the
+    error runs kid code too (its __str__, and any __del__ freed with it). This stops casual rebinding of
+    the harness's helpers, not a determined kid, who can still reach these globals through
+    sys._getframe or kid code that runs later (a __del__ run by a later garbage collection, or a
+    replaced stdout.flush when the next run swaps in new streams)."""
     _modules["__main__"] = main
     try:
         RUN_CODE(code, main.__dict__)
     finally:                           # the harness's own code, and traceback's, runs next
-        _modules["__main__"] = _HARNESS_MAIN
         _setrecursionlimit(_RECURSION)
         _restore(*_BUILTINS)
+
+
+def leave_main():
+    """Makes these globals __main__ again. Call it once the kid's run and its error report are done."""
+    _modules["__main__"] = _HARNESS_MAIN
 
 
 def compile_kid(src):
@@ -128,6 +136,8 @@ def run_visible(src):
         result = stopped()
     except BaseException as e:
         result = error_info(e)
+    finally:                           # runs once the error is described and freed
+        leave_main()
     # The panel's own streams, even if the kid swapped sys.stdout. Output held back until now can
     # cross the output cap, whose interrupt lands here: that counts as Stopped, but a real error wins.
     for stream in _STREAMS[:2]:
