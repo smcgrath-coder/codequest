@@ -480,12 +480,14 @@ export const BATCH_C = {
       // polarity() plus more "doesn't fit" words: polarity's \bn't\b can't match inside a word, so it missed
       // "doesn't" and "can't" (ALT_doesnt_fit), and polarity keeps "fits: False" (ALT_bool_status). From the
       // first "doesn't fit" line on (run 2 is the last run, so the summary follows), the output must show
-      // 0:50 left and 1:40 used. A bare 50 counts only when no digit, ':', '.' or '-' comes before it: the
-      // prototype's "50 anywhere" was met by the "-1:50" that format_time(-10) gives after taking away a run
-      // that didn't fit (subtract_anyway, split_totals). The 1:40 check can't stand in for that, since a "not"
+      // 0:50 left and 1:40 used. A bare 50 counts only when no digit, '.' or '-' comes right before it, and a
+      // ':' right before it only rules it out when a digit comes before that ':': the prototype's "50 anywhere"
+      // was met by the "-1:50" that format_time(-10) gives after taking away a run that didn't fit
+      // (subtract_anyway, split_totals), but raw seconds after a bare colon, "Time left:50", are right
+      // (ALT_raw_seconds). The 1:40 check can't stand in for the 50 check, since a "not"
       // on an earlier line starts the window at run 1's "1:40" (header_neg_word). Reading from that line rather
       // than the last 2 lines lets extra summary lines such as "Runs skipped: 1" pass (ALT_run_counts).
-      { expr: py`(lambda t: (lambda k: k is not None and (has('0:50', L=t[k:]) or bool(re.search(r'(?<![\d:.-])50(?!\d)', '\n'.join(t[k:])))) and (has('1:40', L=t[k:]) or has('100', L=t[k:])))(next((i for i, l in enumerate(t) if polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l)), None)))(rerun({'run_times': '[100, 60]'})[0])`,
+      { expr: py`(lambda t: (lambda k: k is not None and (has('0:50', L=t[k:]) or bool(re.search(r'(?<![\d.-])(?<!\d:)50(?!\d)', '\n'.join(t[k:])))) and (has('1:40', L=t[k:]) or has('100', L=t[k:])))(next((i for i, l in enumerate(t) if polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l)), None)))(rerun({'run_times': '[100, 60]'})[0])`,
         hint: "When a run doesn't fit, print that it doesn't fit, and don't take its time away." },
     ],
   },
