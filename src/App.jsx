@@ -3,7 +3,9 @@ import * as Tone from "tone";
 import { Music, getTrackForContext } from "./music.js";
 import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
-import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
+import { CHAPTERS, TROPHIES, CODEX } from "./content.js";
+import { availablePractice, normalizeProfile, afterClear } from "./progress.js";
+import { handleCodeKeyDown, CODE_TEXTAREA_PROPS } from "./editor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -1989,7 +1991,7 @@ function NPCDialogue({ npc, lines, onComplete }) {
             <span style={{color:VDIM,fontSize:"9px"}}>{n.title}</span>
           </div>
           <div className="flex-1 min-h-[80px] flex items-center">
-            <div className="text-sm leading-relaxed" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.7"}}>
+            <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.7"}}>
               {txt}{typing && <span style={{color:n.color,animation:"blink 0.8s infinite"}}>▊</span>}
             </div>
           </div>
@@ -2542,11 +2544,8 @@ function GrindingZone({profile,onBack}){
   const [isRunning,setIsRunning]=useState(false);
   const [attempts,setAttempts]=useState([]);
 
-  // Determine which challenges are available based on completed chapters
-  const cr=new Set(profile.completedRooms||[]);
-  const chOrder=["ch1","ch2","ch3","ch4","ch5","ch6","ch7","ch8"];
-  const maxCh=chOrder.findLastIndex(ch=>CHAPTERS.find(c=>c.id===ch)?.rooms?.some(r=>cr.has(r.id)));
-  const available=GRIND_CHALLENGES.filter(g=>{const idx=chOrder.indexOf(g.minCh);return idx<=maxCh;});
+  // Challenges unlock as the player reaches each chapter
+  const available=availablePractice(profile.completedRooms);
 
   const categories=[...new Set(available.map(g=>g.cat))];
   const catIcons={output:"📤",data:"💾",types:"🔢",operators:"➕",logic:"🔀",loops:"🔄",collections:"📦",functions:"⚙️",modules:"📦",errors:"🛡️"};
@@ -2561,17 +2560,14 @@ function GrindingZone({profile,onBack}){
   const handleRun=async()=>{
     if(isRunning)return;
     setIsRunning(true);setOutput(null);
-    const result=validateOffline(code,challenge,attempts.length);
-    setOutput(result);
-    setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-    setIsRunning(false);
+    try{
+      const result=validateOffline(code,challenge,attempts.length);
+      setOutput(result);
+      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
+    }finally{setIsRunning(false)}
   };
 
-  const handleKeyDown=e=>{
-    if(e.key==="Tab"){e.preventDefault();const s=e.target.selectionStart,end=e.target.selectionEnd;
-      setCode(code.substring(0,s)+"    "+code.substring(end));setTimeout(()=>{e.target.selectionStart=e.target.selectionEnd=s+4},0);}
-    if((e.ctrlKey||e.metaKey)&&e.key==="Enter")handleRun();
-  };
+  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
 
   if(!challenge) return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="flex items-center gap-4 mb-6">
@@ -2584,10 +2580,10 @@ function GrindingZone({profile,onBack}){
     <div className="max-w-lg mx-auto">
       <div className="mb-6 p-4 rounded-xl text-center" style={{background:PANEL2,border:`1px solid #e67e2233`}}>
         <div className="text-3xl mb-2">🎲</div>
-        <Btn onClick={()=>pickRandom(null)} color="#e67e22">Random Challenge</Btn>
-        <div className="text-xs mt-2" style={{color:DIM}}>{available.length} challenges available</div>
+        <Btn onClick={()=>pickRandom(null)} color="#e67e22" disabled={available.length===0}>Random Challenge</Btn>
+        <div className="text-xs mt-2" style={{color:DIM}}>{available.length>0?`${available.length} challenges available`:"Clear your first room to unlock practice challenges"}</div>
       </div>
-      <h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:DIM}}>BY CATEGORY</h3>
+      {categories.length>0&&<h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:DIM}}>BY CATEGORY</h3>}
       <div className="grid grid-cols-2 gap-3">
         {categories.map(cat=>{const count=available.filter(g=>g.cat===cat).length;return <button key={cat}
           onClick={()=>pickRandom(cat)}
@@ -2627,7 +2623,7 @@ function GrindingZone({profile,onBack}){
       {/* Code panel */}
       <div className="flex-1 flex flex-col p-4" style={{maxHeight:"calc(100vh - 56px)"}}>
         <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
-          spellCheck={false} className="flex-1 p-4 rounded-lg text-sm resize-none outline-none mb-3"
+          {...CODE_TEXTAREA_PROPS} className="flex-1 p-4 rounded-lg text-sm resize-none outline-none mb-3"
           style={{background:DARK,color:TEXT,fontFamily:MONO,border:`1px solid ${ACCENT}33`,minHeight:"200px"}}/>
         <div className="flex gap-3 mb-3">
           <Btn onClick={handleRun} disabled={isRunning}>{isRunning?"Running...":"▶ Run (Ctrl+Enter)"}</Btn>
@@ -2648,7 +2644,7 @@ function GrindingZone({profile,onBack}){
 // CHALLENGE ROOM — The core gameplay loop
 // ═══════════════════════════════════════════════════════════════════
 
-function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
+function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
   const [code,setCode]=useState(challenge.starterCode||"");
   const [output,setOutput]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
@@ -2660,28 +2656,25 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
   const [dialoguePhase,setDialoguePhase]=useState(chapterIntroDialogue?"chapter-intro":challenge.npcDialogue?"room-intro":"play");
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
+  const completedRef=useRef(false);
 
   const handleRun=async()=>{
     if(isRunning||passed)return;
     setIsRunning(true);setOutput(null);
+    try{
+      const result=validateOffline(code,challenge,attempts.length);
 
-    const result=validateOffline(code,challenge,attempts.length);
+      setOutput(result);
+      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
 
-    setOutput(result);
-    setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-
-    if(result.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
-    else{try{SFX.codeFail()}catch(e){}}
-    setIsRunning(false);
+      if(result.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
+      else{try{SFX.codeFail()}catch(e){}}
+    }finally{setIsRunning(false)}
   };
 
-  const handleKeyDown=e=>{
-    if(e.key==="Tab"){e.preventDefault();const s=e.target.selectionStart,end=e.target.selectionEnd;
-      setCode(code.substring(0,s)+"    "+code.substring(end));setTimeout(()=>{e.target.selectionStart=e.target.selectionEnd=s+4},0);}
-    if((e.ctrlKey||e.metaKey)&&e.key==="Enter")handleRun();
-  };
+  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
 
-  const earnedXp=Math.round(challenge.xpReward*xpMultiplier);
+  const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
   const concepts=getConceptsForChallenge(challenge);
 
   // Dialogue phases
@@ -2696,7 +2689,7 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
         {isBoss&&<span className="text-xs px-2 py-1 rounded" style={{background:`${GOLD}22`,color:GOLD}}>⚔️ BOSS</span>}
         <span className="text-sm font-bold" style={{color:TEXT}}>{challenge.name}</span>
       </div>
-      <div className="text-xs font-mono" style={{color:ACCENT}}>+{earnedXp} XP</div>
+      <div className="text-xs font-mono" style={{color:replaying?DIM:ACCENT}}>{replaying?"Replay · no XP":`+${earnedXp} XP`}</div>
     </div>
 
     {challenge.scene&&<div className="px-4 pt-2"><SceneBanner scene={challenge.scene}/></div>}
@@ -2704,10 +2697,10 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
     <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
       {/* Left: narrative + task + help */}
       <div className="lg:w-2/5 p-4 overflow-y-auto border-b lg:border-b-0 lg:border-r" style={{borderColor:"#ffffff11"}}>
-        <div className="text-sm mb-3 leading-relaxed whitespace-pre-line" style={{color:DIM,fontStyle:"italic"}}>{challenge.narrative}</div>
+        <div className="text-sm mb-3 leading-relaxed whitespace-pre-wrap" style={{color:DIM,fontStyle:"italic"}}>{challenge.narrative}</div>
         <div className="p-3 rounded-lg mb-3" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
           <div className="text-xs font-bold mb-2 tracking-wider" style={{color:ACCENT}}>YOUR TASK</div>
-          <div className="text-sm whitespace-pre-line leading-relaxed" style={{color:TEXT}}>{challenge.task}</div>
+          <div className="text-sm whitespace-pre-wrap leading-relaxed" style={{color:TEXT}}>{challenge.task}</div>
         </div>
 
         {/* Hints */}
@@ -2715,7 +2708,7 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
           {hintLevel<challenge.hints.length&&<button onClick={()=>{setHintLevel(h=>h+1);setUsedHints(true)}}
             className="text-xs px-3 py-1 rounded cursor-pointer" style={{color:GOLD,background:`${GOLD}11`,border:`1px solid ${GOLD}33`}}>
             💡 Hint ({challenge.hints.length-hintLevel} left)</button>}
-          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs whitespace-pre-line"
+          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs whitespace-pre-wrap"
             style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>💡 {h}</div>)}
         </div>
 
@@ -2737,7 +2730,7 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
               {concepts.map(c=>{const help=CONCEPT_HELP[c];if(!help)return null;
                 return <div key={c} className="mb-4">
                   <div className="text-xs font-bold mb-1 uppercase tracking-wider" style={{color:GOLD}}>{c.replace("-"," ")}</div>
-                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-line" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
+                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
                 </div>})}
             </div>
           </div>
@@ -2754,7 +2747,7 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
           <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
             className="flex-1 w-full p-4 rounded-lg resize-none focus:outline-none"
             style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`,fontFamily:MONO,fontSize:"13px",lineHeight:"1.6",minHeight:"140px",caretColor:ACCENT}}
-            spellCheck={false} placeholder="# Write your Python code here..."/>
+            {...CODE_TEXTAREA_PROPS} placeholder="# Write your Python code here..."/>
           <Btn onClick={handleRun} disabled={isRunning||passed} className="mt-3" color={passed?"#00bfa5":ACCENT}>
             {isRunning?"⟳ Running...":passed?"✓ Passed!":"▶ Run Code"}</Btn>
         </div>
@@ -2762,8 +2755,8 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
           {isRunning&&<div className="text-sm" style={{color:ACCENT}}>⟳ Checking your code...</div>}
           {output&&<div style={{animation:output.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}}>
-            {output.error?<div className="p-3 rounded text-sm font-mono whitespace-pre-line" style={{background:"#ff6b6b11",color:ERR,border:"1px solid #ff6b6b33"}}>❌ {output.error}</div>
-            :output.output?<div className="p-3 rounded text-sm font-mono whitespace-pre-line mb-2" style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`}}>{output.output}</div>:null}
+            {output.error?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap" style={{background:"#ff6b6b11",color:ERR,border:"1px solid #ff6b6b33"}}>❌ {output.error}</div>
+            :output.output?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap mb-2" style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`}}>{output.output}</div>:null}
             {output.feedback&&<div className="p-3 rounded text-sm" style={{background:output.passes?`${ACCENT}11`:`${GOLD}11`,color:output.passes?ACCENT:GOLD,border:`1px solid ${output.passes?`${ACCENT}33`:`${GOLD}33`}`}}>
               {output.passes?"🎉":"💭"} {output.feedback}</div>}
           </div>}
@@ -2777,9 +2770,14 @@ function ChallengeRoom({challenge,isBoss,onComplete,onBack,xpMultiplier,chapterI
       <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?"linear-gradient(135deg,#1a0d2a,#0d1b2a)":`linear-gradient(135deg,${PANEL},#0a1a14)`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
         <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
         <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
-        <div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>
+        {replaying
+          ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
+          :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
         {!usedHints&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
-        <Btn onClick={()=>{try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints)}} color={isBoss?GOLD:ACCENT}>CONTINUE →</Btn>
+        <Btn onClick={()=>{
+          // Once only: the overlay closes so a second Enter/Space can't award XP again
+          if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
+          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints)}} color={isBoss?GOLD:ACCENT}>CONTINUE →</Btn>
       </div>
     </div>}
   </div>;
@@ -2833,8 +2831,10 @@ export default function App(){
   const [xpMultiplier,setXpMultiplier]=useState(1);
   const [roomsThisSession,setRoomsThisSession]=useState(0);
 
+  const [replaying,setReplaying]=useState(false);
   const [pendingBadge,setPendingBadge]=useState(null);
-  const [pendingTrophy,setPendingTrophy]=useState(null);
+  const [pendingTrophies,setPendingTrophies]=useState([]);
+  const [queuedBadge,setQueuedBadge]=useState(null);
   const [musicMuted,setMusicMuted]=useState(false);
 
   // Music: play the right track when screen/context changes
@@ -2845,8 +2845,10 @@ export default function App(){
   },[screen,currentChapter?.id,isBossChallenge]);
 
   useEffect(()=>{(async()=>{
+    // Older versions kept an Anthropic API key here for Tutor mode; it is no longer used.
+    try{localStorage.removeItem("cq:api-key")}catch{}
     const list=await loadProfileList();
-    if(list.length>0){const loaded=[];for(const p of list){const d=await loadProfile(p.id);if(d)loaded.push({...d,id:p.id})}
+    if(list.length>0){const loaded=[];for(const p of list){const d=await loadProfile(p.id);if(d)loaded.push({...normalizeProfile(d),id:p.id})}
       setProfiles(loaded);setScreen("profiles");
     }else setScreen("title");
   })()},[]);
@@ -2862,36 +2864,6 @@ export default function App(){
     setProfiles(prev=>prev.map(x=>x.id===activeProfileId?{...p,id:activeProfileId}:x));
   },[activeProfileId]);
 
-  const checkTrophies=(p,noHints)=>{
-    const earned=[...(p.trophies||[])],newT=[];
-    const add=(id)=>{if(!earned.includes(id)){earned.push(id);const t=TROPHIES.find(t=>t.id===id);if(t)newT.push(t)}};
-    const cr=new Set(p.completedRooms||[]),cb=new Set(p.completedBosses||[]);
-    if(cr.size>=1)add("first_clear");
-    if(cb.size>=1)add("boss_slayer");
-    if(noHints)add("no_hints");
-    if(roomsThisSession+1>=3)add("streak_3");
-    if(p.xp>=100)add("xp_100");
-    if(p.xp>=500)add("xp_500");
-    if(p.xp>=1000)add("xp_1000");
-    // Act 1 graduate — all 5 Act 1 bosses
-    if(["ch1_boss","ch2_boss","ch3_boss","ch4_boss","ch5_boss"].every(b=>cb.has(b)))add("act1_grad");
-    // Explorer — 5 side quests
-    if([...cr].filter(r=>r.includes("_s")).length>=5)add("explorer");
-    // Summit — reached ch8
-    if(CHAPTERS.find(c=>c.id==="ch8")?.rooms?.some(r=>cr.has(r.id))||cb.has("ch8_boss"))add("summit");
-    // Final boss
-    if(cb.has("ch8_boss"))add("final_boss");
-    // Arena trophies
-    if(cb.has("ch9_boss"))add("game_builder");
-    if(cb.has("ch10_boss"))add("arena_champion");
-    if(cb.has("ch9_boss")&&cb.has("ch10_boss"))add("act3_grad");
-    // Rover Bay trophies
-    if(cb.has("ch11_boss"))add("dockmaster");
-    if(cb.has("ch12_boss"))add("mission_control");
-    if(cb.has("ch11_boss")&&cb.has("ch12_boss"))add("rover_complete");
-    return{trophies:earned,newTrophies:newT};
-  };
-
   const handleCharacterCreated=async data=>{
     const id=`hero_${Date.now()}`;
     await saveProfile(id,data);
@@ -2900,7 +2872,7 @@ export default function App(){
     setScreen("session");
   };
 
-  const handleSelectProfile=async id=>{const d=await loadProfile(id);if(d){setActiveProfileId(id);setProfile(d);setScreen("session")}};
+  const handleSelectProfile=async id=>{const d=await loadProfile(id);if(d){setActiveProfileId(id);setProfile(normalizeProfile(d));setScreen("session")}};
 
   const startSession=minutes=>{
     setXpMultiplier(minutes<=10?1:minutes<=15?1.2:minutes<=20?1.5:2);
@@ -2912,36 +2884,30 @@ export default function App(){
     try{SFX.roomEnter()}catch(e){}
     setCurrentChallenge(room);setIsBossChallenge(false);
     const cr=new Set(profile.completedRooms||[]);
+    setReplaying(cr.has(room.id));
     if(isFirst&&!cr.has(room.id)&&currentChapter.introDialogue){
       setChapterIntroNpc(currentChapter.introNpc);setChapterIntroDialogue(currentChapter.introDialogue);
     }else{setChapterIntroNpc(null);setChapterIntroDialogue(null)}
     setScreen("challenge");
   };
-  const selectBoss=boss=>{try{SFX.roomEnter()}catch(e){}setCurrentChallenge(boss);setIsBossChallenge(true);setChapterIntroNpc(null);setChapterIntroDialogue(null);setScreen("challenge")};
+  const selectBoss=boss=>{try{SFX.roomEnter()}catch(e){}setCurrentChallenge(boss);setIsBossChallenge(true);setReplaying((profile.completedBosses||[]).includes(boss.id));setChapterIntroNpc(null);setChapterIntroDialogue(null);setScreen("challenge")};
 
   const completeChallenge=async(earnedXp,noHints)=>{
-    try{SFX.xpGain()}catch(e){}
-    let u={...profile,xp:profile.xp+earnedXp};
-    if(isBossChallenge){
-      u.completedBosses=[...(u.completedBosses||[]),currentChallenge.id];
-      const ch=CHAPTERS.find(c=>c.boss?.id===currentChallenge.id);
-      if(ch?.badge&&!(u.badges||[]).find(b=>b.name===ch.badge.name)){
-        u.badges=[...(u.badges||[]),ch.badge];
-        if(ch.equipment)u.equipment=[...(u.equipment||[]),ch.equipment];
-        const{trophies,newTrophies}=checkTrophies(u,noHints);u.trophies=trophies;
-        await persistProfile(u);setRoomsThisSession(r=>r+1);
-        if(newTrophies.length>0)setPendingTrophy(newTrophies[0]);else setPendingBadge(ch.badge);return;
-      }
-    }else u.completedRooms=[...(u.completedRooms||[]),currentChallenge.id];
-    const{trophies,newTrophies}=checkTrophies(u,noHints);u.trophies=trophies;
-    await persistProfile(u);setRoomsThisSession(r=>r+1);
-    if(newTrophies.length>0)setPendingTrophy(newTrophies[0]);else setScreen("chapter");
+    const r=afterClear(profile,{id:currentChallenge.id,isBoss:isBossChallenge,xp:earnedXp,noHints,roomsThisSession:roomsThisSession+1});
+    if(r.firstClear)try{SFX.xpGain()}catch(e){}
+    if(r.changed)await persistProfile(r.profile);
+    setRoomsThisSession(n=>n+1);
+    if(r.newTrophies.length>0){setPendingTrophies(r.newTrophies);setQueuedBadge(r.badge)}
+    else if(r.badge)setPendingBadge(r.badge);
+    else setScreen("chapter");
   };
 
+  // Show every trophy earned at once, then the boss badge, then the chapter
   const dismissTrophy=()=>{
-    setPendingTrophy(null);
-    if(isBossChallenge){const ch=CHAPTERS.find(c=>c.boss?.id===currentChallenge.id);
-      if(ch?.badge&&!pendingBadge){setPendingBadge(ch.badge);return}}
+    const rest=pendingTrophies.slice(1);
+    setPendingTrophies(rest);
+    if(rest.length>0)return;
+    if(queuedBadge){setPendingBadge(queuedBadge);setQueuedBadge(null);return}
     setScreen("chapter");
   };
 
@@ -2959,11 +2925,11 @@ export default function App(){
     {screen==="codex"&&profile&&<Codex profile={profile} onBack={()=>setScreen("map")}/>}
     {screen==="grind"&&profile&&<GrindingZone profile={profile} onBack={()=>setScreen("map")}/>}
     {screen==="chapter"&&currentChapter&&profile&&<ChapterOverview chapter={currentChapter} profile={profile} onSelectRoom={selectRoom} onSelectBoss={selectBoss} onBack={()=>setScreen("map")}/>}
-    {screen==="challenge"&&currentChallenge&&<ChallengeRoom key={currentChallenge.id} challenge={currentChallenge} isBoss={isBossChallenge}
+    {screen==="challenge"&&currentChallenge&&<ChallengeRoom key={currentChallenge.id} challenge={currentChallenge} isBoss={isBossChallenge} replaying={replaying}
       onComplete={completeChallenge} onBack={()=>setScreen("chapter")} xpMultiplier={xpMultiplier}
       chapterIntroNpc={chapterIntroNpc} chapterIntroDialogue={chapterIntroDialogue}/>}
     </ScreenWrap>
-    {pendingTrophy&&<TrophyUnlock trophy={pendingTrophy} onContinue={dismissTrophy}/>}
+    {pendingTrophies.length>0&&<TrophyUnlock key={pendingTrophies[0].id} trophy={pendingTrophies[0]} onContinue={dismissTrophy}/>}
     {pendingBadge&&<BadgeUnlock badge={pendingBadge} onContinue={()=>{setPendingBadge(null);setScreen("chapter")}}/>}
     {/* Music controls */}
     <div className="fixed bottom-4 right-4 flex gap-2" style={{zIndex:100}}>
