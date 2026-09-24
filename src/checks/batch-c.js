@@ -477,12 +477,13 @@ export const BATCH_C = {
         hint: "format_time(seconds) should return minutes:seconds with 2 digits for the seconds, like '1:05'." },
       { expr: py`val('can_fit_run(100, 28)') is True and val('can_fit_run(30, 28)') is False and val('can_fit_run(33, 28, buffer=0)') is True`,
         hint: "can_fit_run should return True only when the run plus the buffer (5 seconds unless you give another) fits in time_left." },
-      // Its own "doesn't fit" words instead of polarity(): polarity's \bn't\b can't match inside a word, so it
-      // missed "doesn't" and "can't" (ALT_doesnt_fit). The lines from the first "doesn't fit" on (run 2 is the
-      // last run, so that is the summary) must also show 1:40 used, as the prototype's "50 anywhere" was also
-      // met by "-1:50" left after taking away a run that didn't fit (subtract_anyway). Reading from that line
-      // rather than the last 2 lines lets extra summary lines such as "Runs skipped: 1" pass (ALT_run_counts).
-      { expr: py`(lambda t: (lambda k: k is not None and (has('0:50', L=t[k:]) or has('50', L=t[k:])) and (has('1:40', L=t[k:]) or has('100', L=t[k:])))(next((i for i, l in enumerate(t) if re.search(r"(?i)\b(not|no|cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l)), None)))(rerun({'run_times': '[100, 60]'})[0])`,
+      // polarity() plus more "doesn't fit" words: polarity's \bn't\b can't match inside a word, so it missed
+      // "doesn't" and "can't" (ALT_doesnt_fit), and polarity keeps "fits: False" (ALT_bool_status). The lines
+      // from the first "doesn't fit" on (run 2 is the last run, so that is the summary) must also show 1:40
+      // used, as the prototype's "50 anywhere" was also met by "-1:50" left after taking away a run that didn't
+      // fit (subtract_anyway). Reading from that line rather than the last 2 lines lets extra summary lines
+      // such as "Runs skipped: 1" pass (ALT_run_counts).
+      { expr: py`(lambda t: (lambda k: k is not None and (has('0:50', L=t[k:]) or has('50', L=t[k:])) and (has('1:40', L=t[k:]) or has('100', L=t[k:])))(next((i for i, l in enumerate(t) if polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l)), None)))(rerun({'run_times': '[100, 60]'})[0])`,
         hint: "When a run doesn't fit, print that it doesn't fit, and don't take its time away." },
     ],
   },
@@ -513,9 +514,10 @@ export const BATCH_C = {
       { expr: py`(lambda t: len(t) >= 4 and not re.search(r'\b14\b', '\n'.join(t)) and re.search(r'(?i)aligned|squared', '\n'.join(t)))(callf('square_on_line', ns['approach'], ns['align'])[1])`,
         hint: "square_on_line should print both phases, and stop phase 2 as soon as both sensors are below BLACK_LINE." },
       // The prototype stood in for "3+ moves" with 8+ printed lines, which a one-line launch() and end_run()
-      // miss (ALT_own_messages). Run1 must print at least 5 lines more than launch and end_run do: apply_speed,
-      // 3 moves and an arm move. The task names apply_speed, so it is checked too.
-      { expr: py`(lambda r, a, b: (lambda cs: cs[:1] == ['launch'] and cs[-1:] == ['end_run'] and 'apply_speed' in cs and any(c in ('right_arm', 'left_arm') for c in cs))([c for c, p in r[2] if p == 'Run1']) and len(r[1]) >= len(a) + len(b) + 5)(callt('Run1()'), callf('launch')[1], callf('end_run')[1])`,
+      // miss (ALT_own_messages). Run1 must print at least 4 lines (3 moves and an arm move) more than launch,
+      // apply_speed and end_run do. apply_speed's own lines are counted, since the task doesn't say it prints
+      // (ALT_silent_speed). The task names apply_speed, so the call is checked too.
+      { expr: py`(lambda r, a, s, b: (lambda cs: cs[:1] == ['launch'] and cs[-1:] == ['end_run'] and 'apply_speed' in cs and any(c in ('right_arm', 'left_arm') for c in cs))([c for c, p in r[2] if p == 'Run1']) and len(r[1]) >= len(a) + len(s) + len(b) + 4)(callt('Run1()'), callf('launch')[1], callf('apply_speed', ns['SPEED_FAST'])[1], callf('end_run')[1])`,
         hint: "Run1 should call launch() first, then apply_speed, at least 3 moves and one arm move, and end_run() last." },
       { expr: py`(lambda cs: cs[:1] == ['launch'] and 'square_on_line' in cs and cs[-1:] == ['end_run'])([c for c, p in callt('Run2()')[2] if p == 'Run2'])`,
         hint: "Run2 should call launch(), then square_on_line with the test data, and end_run() last." },
