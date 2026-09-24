@@ -127,6 +127,7 @@ The rules live in `src/checks.js`, one per challenge, keyed by id and kept separ
    - Normalization ignores trailing whitespace and trailing blank lines.
    - Characters kids can't easily type count as equal: `—`/`-`, curly/straight quotes, `°`, and a missing emoji.
    - A difference only in capitals or punctuation is a near miss. It does not pass, and the hint names the line: "Line 1 of your output says `hello, world` — so close! Check capital letters and punctuation."
+   - A difference only in spacing is a near miss too, and its hint says "Check the spaces." A line made only of punctuation or symbols, such as `###` for `####`, is not a near miss, because nothing is left to compare once the punctuation is dropped.
 2. **Concepts** (checked with `ast`): requires and forbids, e.g. a `for` loop, an f-string, no f-strings, a function with 2 parameters. Only constructs the task text tells the kid about are enforced (36 challenges); constructs named only in `expectedBehavior` are not.
 3. **Probes** (hidden re-runs):
    - re-run with different starter values

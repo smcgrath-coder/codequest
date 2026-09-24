@@ -32,7 +32,8 @@ function stoppedMessage(r) {
 // kids pick, like numbers, queue or string, so only these get the import advice.
 const TAUGHT = new Set(["random", "math", "time"]);
 const CLOSER = { "(": ")", "[": "]", "{": "}" };
-const JOIN = /can only concatenate str \(not "(int|float)"\) to str|unsupported operand type\(s\) for \+: '(int|float)' and 'str'/;
+// total + "5" and total += "5" (Python says "for +=:" there) as well as "Score: " + 5.
+const JOIN = /can only concatenate str \(not "(int|float)"\) to str|unsupported operand type\(s\) for \+=?: '(int|float)' and 'str'/;
 
 // [error kinds, when it applies, what to say]. The first match wins. Kinds are anchored, so a kid's own
 // class MyNameError(Exception) gets Python's own words, not the NameError message.

@@ -8,6 +8,7 @@ import { runCode, gradeCode, stopCode, answerInput, pythonStatus } from "../src/
 //   ask      waits at input() until the page answers or cancels
 //   print X  prints X
 //   spin     loops until interrupted
+//   internal grading itself fails, as when Python breaks in grading's own code
 //   except   (first line) swallows interrupts, like a bare except:, so only terminate() ends it
 // Its thread takes one step per slice of fake time (see advance()).
 const workers = [];
@@ -45,6 +46,7 @@ class FakeWorker {
     const [op, text] = (job.steps[0] || "end").split(" ");
     if (op === "ask") { job.waiting = true; this.send({ type: "input", id: job.id }); }
     else if (op === "print") { this.send({ type: "stdout", id: job.id, text: text + "\n" }); job.steps.shift(); }
+    else if (op === "internal") this.end({ passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: "PythonError: boom" });
     else if (op !== "spin") this.end(job.type === "grade" ? { passed: true, feedback: "Nice!" } : { ok: true, kind: null });
   }
 }
@@ -240,6 +242,49 @@ test("a grading pass sends its rule and inputs as JSON text, made with the JSON.
   const { type, code, rule, starter, inputs, attempt } = workers.at(-1).sent.at(-1);
   assert.deepEqual({ type, code, rule, starter, inputs, attempt },
     { type: "grade", code: "print hi", rule: `{"output":[{"expr":"lines(['hi'])"}]}`, starter: "# go", inputs: '["Sam"]', attempt: 2 });
+});
+
+test("a grading pass that fails inside grading restarts the worker in the background, so the next Run starts clean", async () => {
+  const spawned = workers.length, old = workers.at(-1);
+  const fine = track(gradeCode("print hi", { rule: {} }));
+  await advance(200);
+  assert.equal(fine.value.passed, true);
+  assert.equal(workers.length, spawned, "a pass without an internal error doesn't restart");
+  const grade = track(gradeCode("internal", { rule: {} }));
+  await advance(100);
+  assert.equal(grade.done, true);
+  assert.equal(grade.value.passed, false);
+  assert.match(grade.value.feedback, /Something went wrong/);
+  assert.equal(grade.value.internal, "PythonError: boom");
+  assert.equal(old.dead, true, "the old worker is gone");
+  assert.equal(workers.length, spawned + 1, "one restart");
+  const next = track(runCode("print hi"));
+  await advance(200);
+  assert.equal(next.value.ok, true);
+  assert.equal(next.value.stdout, "hi\n");
+  assert.equal(old.sent.at(-1).code, "internal", "the old worker got nothing after the failed pass");
+  assert.equal(workers.at(-1).sent.at(-1).code, "print hi", "the next Run went to the new worker");
+  assert.equal(pythonStatus(), "ready");
+});
+
+test("a grading pass that fails inside grading still answers if the worker can't be restarted, and the next call rejects", async () => {
+  const warm = track(runCode("print hi"));
+  await advance(200);
+  assert.equal(warm.value.ok, true);
+  FakeWorker.broken = true;
+  try {
+    const grade = track(gradeCode("internal", { rule: {} }));
+    await advance(100);
+    assert.equal(grade.value.internal, "PythonError: boom");
+    assert.equal(pythonStatus(), "idle", "no worker until the next call starts one");
+    const next = track(runCode("print hi"));
+    await advance(100);
+    assert.match(next.error?.message ?? "(still waiting)", /can't start/);
+    assert.equal(pythonStatus(), "unavailable");
+  } finally { FakeWorker.broken = false; }
+  const again = track(runCode("print again"));
+  await advance(200);
+  assert.equal(again.value.stdout, "again\n");
 });
 
 // Last: these leave Python unavailable until a later call starts a worker again.

@@ -52,6 +52,10 @@ function restart() {
   worker = null; ready = null; active = null;
   spawn();
 }
+// For a restart nobody waits on: if the new worker can't start, the next call tries again and rejects.
+function restartQuietly() {
+  try { restart(); } catch { setStatus("idle"); }
+}
 
 // Starts loading Python in the background. Rejects if this device can't run it.
 export function warmUp() {
@@ -147,7 +151,16 @@ export async function gradeCode(code, { rule, starter = "", inputs = [], attempt
         Atomics.store(interrupt, 0, 2);
         grace = setTimeout(() => { try { restart(); } finally { finish(stopped()); } }, STOP_GRACE_MS);
       };
-      active = { id, onMessage(m) { if (m.id === id && m.type === "graded") finish(stopReason ? stopped() : m); } };
+      active = {
+        id,
+        onMessage(m) {
+          if (m.id !== id || m.type !== "graded") return;
+          // Grading broke in its own code, so Python may be left half put back (builtins, __main__,
+          // stdlib modules). Start a fresh worker now, so the next call waits for it instead.
+          if (m.internal) restartQuietly();
+          finish(stopReason ? stopped() : m);
+        },
+      };
       worker.postMessage({ type: "grade", id, code, rule: ruleJson, starter, inputs: inputsJson, attempt });
       limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);   // only once sent, as in runCode
     });

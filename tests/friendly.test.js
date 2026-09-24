@@ -104,6 +104,23 @@ test("adding a number and what input() gave back explains that input() gives tex
   assert.doesNotMatch(f.headline, /str\(\)/);
 });
 
+// Python words += differently: "unsupported operand type(s) for +=: 'int' and 'str'".
+test("adding what input() gave back to a number with += explains that input() gives text", () => {
+  t.setAnswers(["5"]);
+  const f = explain('total = 0\ntotal += input("n? ")');
+  assert.equal(f.line, 2);
+  assert.match(f.python, /for \+=: 'int' and 'str'/);
+  assert.match(f.headline, /input\(\) always gives text/);
+  assert.match(f.headline, /Turn it into a number with int\(input\(\.\.\.\)\) before doing math with it\./);
+  assert.doesNotMatch(f.headline, /str\(\)/);
+});
+
+test("adding text to a number with += gets the str() advice", () => {
+  const f = explain('score = 10\nscore += " points"');
+  assert.equal(f.line, 2);
+  assert.match(f.headline, /join text and a number with \+\. Turn the number into text with str\(\)/);
+});
+
 test("joining text and a number already made with int(input()) still gets the str() advice", () => {
   t.setAnswers(["5"]);
   const f = explain('print("Next year: " + int(input()) + 1)');

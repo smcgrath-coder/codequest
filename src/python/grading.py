@@ -1,13 +1,13 @@
 # Grades a kid's program by what it does, using the challenge's rule from src/checks.js.
 # Ported from docs/plans/pyodide-prototype/checklib.py. harness.py has already run in these globals,
-# so its helpers (clean_slate, fresh_main, run_as_main, leave_main, compile_kid, KID_FILE, StopRun)
-# are used directly.
+# so its helpers (clean_slate, fresh_main, run_as_main, put_back, leave_main, compile_kid, KID_FILE,
+# StopRun) are used directly.
 #
 # A rule has three groups of checks, each a Python expression evaluated after one run of the kid's code:
 #   output    looks at stdout (L = normalised lines, out = text)
 #   concepts  looks at the source (ast / tokenize helpers)
 #   probes    looks at runtime state: ns (kid globals), call(), rerun(), trace (kid functions called)
-import ast, builtins, contextlib, copy, inspect, io, json, json.encoder, json.scanner, re, string, sys, time, tokenize, types, unicodedata
+import ast, builtins, copy, inspect, io, json, json.encoder, json.scanner, re, string, sys, time, tokenize, types, unicodedata
 
 # Python's built-in expression evaluator, for the rule's check expressions and the probes' calls into
 # kid code. Both run inside the browser's WebAssembly sandbox, like RUN_CODE in harness.py, and it is
@@ -21,9 +21,10 @@ EVAL_EXPR = getattr(builtins, "ev" + "al")
 _setprofile, _getvalue = sys.setprofile, io.StringIO.getvalue
 # json.dumps and json.loads look up JSONEncoder.encode and JSONDecoder.decode each time they run, and
 # class attributes aren't put back, so `json.JSONEncoder.encode = ...` would fake every later grade. These
-# C encoder and parser read none of json's classes or module globals once made. The encoder writes what
-# json.dumps writes by default; the parser, unlike json.loads, doesn't skip leading whitespace, which the
-# page's JSON.stringify never writes.
+# C encoder and parser read none of json's classes once made, and of its module globals only the parser's
+# table for NaN and Infinity, which harness.py refills (its _TABLES). The encoder writes what json.dumps
+# writes by default; the parser, unlike json.loads, doesn't skip leading whitespace, which the page's
+# JSON.stringify never writes.
 def _no_default(o):
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 _scan_json = json.scanner.c_make_scanner(json.JSONDecoder())
@@ -33,6 +34,50 @@ def _loads(s):
     return _scan_json(s, 0)[0]
 def _dumps(o):
     return "".join(_encode_json(o, 0))
+
+
+class _stdout_to:
+    """contextlib.redirect_stdout, but grading's own: kid code gets contextlib's class, and what it does to
+    that class's methods isn't put back (see _REPORTING in harness.py), so it could write the answer."""
+    def __init__(self, buf):
+        self.buf = buf
+    def __enter__(self):
+        self.old, sys.stdout = sys.stdout, self.buf
+    def __exit__(self, *exc):
+        sys.stdout = self.old
+
+
+# Grading never asks the page for input. Kid code it runs gets _scripted_input instead: the first run's
+# answers (see Ctx), each hidden run or call from the start. Kid code that runs outside those, such as a
+# __deepcopy__ when the checks copy the program's variables, or an error's __str__, gets _between_runs[0].
+_REAL_INPUT = builtins.input
+_between_runs = [_REAL_INPUT]
+
+
+def _scripted_input(answers, out=None):
+    """An input() that answers from `answers` in turn, echoing the prompt and answer into `out` as a terminal
+    would, and then raises EOFError, as input() does at the end of a file."""
+    feed = list(answers or [])
+    def input(prompt=""):
+        if out is not None:
+            out.write(str(prompt))
+        if not feed:
+            raise EOFError("EOF when reading a line")
+        answer = feed.pop(0)
+        if out is not None:
+            out.write(answer + "\n")
+        return answer
+    return input
+
+
+def _settle():
+    """Puts back what kid code could have changed and grading's own code uses next: what the harness's
+    put_back does, and grading's input(). It also empties re's caches, where kid code could plant a compiled
+    pattern for the next regex a check uses. Only once the time limit is off: it runs re's own code."""
+    put_back()
+    builtins.input = _between_runs[0]
+    _purge_re()
+
 
 VS16 = "\ufe0f"                # emoji variation selector: invisible, and kids can't type it
 # Characters kids can't easily type count as the ones they can.
@@ -62,9 +107,10 @@ class CappedIO(io.StringIO):
 
 # Watchdog for hidden runs. It is sticky: once the deadline passes it keeps raising, so a bare
 # `except:` can't escape it, and a run counts as timed out once it has fired, even if kid code caught
-# it and went on to finish. The events fire in every frame, including the roughly 160 in run_as_main's
+# it and went on to finish. The events fire in every frame, including the thousand or more in run_as_main's
 # clean-up, so _tick skips the harness's own code: otherwise a program that ends just as time runs out
-# takes a StopRun in that clean-up and keeps its broken builtins.
+# takes a StopRun in that clean-up and keeps its broken builtins. For the same reason that clean-up calls
+# no stdlib code, and re's caches are emptied only once the watchdog is off (see _settle).
 _MON = sys.monitoring
 _TOOL = 4
 _EVENTS = _MON.events.JUMP | _MON.events.PY_START
@@ -110,6 +156,27 @@ def _describe(e):
     return f"{type(e).__name__}: {msg}"
 
 
+def _binds(target, name):
+    """True if assigning to target, such as the `a, b` of `a, b = 15, 27`, sets name."""
+    return any(isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store) for n in ast.walk(target))
+
+
+def _swap_unpacked(target, value, name, new):
+    """In `a, b = 15, 27`, puts new where name's value is written. False if it isn't written out to match
+    the names, as in `a, b = pair` or `first, *rest = 1, 2, 3`."""
+    if not (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List))
+            and len(target.elts) == len(value.elts)
+            and not any(isinstance(e, ast.Starred) for e in target.elts + value.elts)):
+        return False
+    for i, (t, v) in enumerate(zip(target.elts, value.elts)):
+        if isinstance(t, ast.Name) and t.id == name:
+            value.elts[i] = new
+            return True
+        if _binds(t, name):
+            return _swap_unpacked(t, v, name, new)
+    return False
+
+
 class Run:
     """One execution of kid code: stdout, final globals, call trace, error."""
 
@@ -128,18 +195,8 @@ class Run:
                 caller = back.f_code.co_name if back and back.f_code.co_filename == KID_FILE else None
                 edges.append((frame.f_code.co_name, caller))
 
-        feed = list(stdin_lines or [])
         saved = {}
-        old_input = builtins.input
         fired = False
-
-        def fake_input(prompt=""):
-            buf.write(str(prompt))
-            if not feed:
-                raise EOFError("EOF when reading a line")
-            v = feed.pop(0)
-            buf.write(v + "\n")  # echo like a terminal
-            return v
 
         try:
             for dotted, val in (patches or {}).items():
@@ -147,10 +204,9 @@ class Run:
                 m = sys.modules.get(mod) or __import__(mod)
                 saved[dotted] = (m, attr, getattr(m, attr))
                 setattr(m, attr, val)
-            # run_as_main puts builtins back when the program ends, which undoes this too.
-            builtins.input = fake_input
+            builtins.input = _scripted_input(stdin_lines, buf)
             compiled = compile_kid(code) if tree is None else compile(tree, KID_FILE, "exec", dont_inherit=True)
-            with contextlib.redirect_stdout(buf):
+            with _stdout_to(buf):
                 _setprofile(prof)
                 try:
                     _arm(HIDDEN_RUN_SECONDS)
@@ -160,6 +216,7 @@ class Run:
                         run_as_main(compiled, main)
                     finally:
                         fired = _disarm()
+                        builtins.input = _between_runs[0]   # run_as_main put the real one back
                 finally:
                     _setprofile(None)
         except SystemExit:              # exit() ends the program normally, as in a visible Run
@@ -169,9 +226,9 @@ class Run:
         except BaseException as e:      # kid errors are data
             self.error = _describe(e)
         finally:
-            builtins.input = old_input
             for dotted, (m, attr, val) in saved.items():
                 setattr(m, attr, val)
+            _settle()
         self.timed_out = self.timed_out or fired
         self.out = _getvalue(buf)
         self.ns = ns
@@ -218,9 +275,10 @@ class Ctx:
         Returns (value, stdout lines); an error comes back as the value ("__error__", "Kind: message")."""
         buf, fired = CappedIO(), False
         try:
-            with contextlib.redirect_stdout(buf):
+            with _stdout_to(buf):
                 _setprofile(prof)
                 try:
+                    builtins.input = _scripted_input(self.stdin_lines, buf)
                     _arm(HIDDEN_RUN_SECONDS)
                     try:
                         v = fn()
@@ -228,11 +286,7 @@ class Ctx:
                         fired = _disarm()
                 finally:
                     _setprofile(None)
-                    # As run_as_main does: kid functions can change these too, and grading's code runs next.
-                    _setrecursionlimit(_RECURSION)
-                    _restore(*_BUILTINS)
-                    for names, saved in _REPORTING:
-                        _restore(names, saved)
+                    _settle()           # as run_as_main does: kid functions can change these too
         except StopRun as e:
             fired, v = True, ("__error__", f"StopRun: {e}")
         except BaseException as e:
@@ -310,20 +364,37 @@ class Ctx:
     def h_val(self, expr):
         return self.h_call(expr)[0]
 
-    def h_rerun(self, overrides=None, patches=None, stdin_lines=None):
-        """Re-run with the first top-level `name = ...` replaced and/or module
-        attributes patched (e.g. random.randint). It gets the first run's input unless
-        stdin_lines is given: without any, input() would end the program. Returns (lines, Run)."""
+    def h_rerun(self, overrides=None, patches=None, stdin_lines=None, all=False):
+        """Re-run with top-level assignments replaced and/or module attributes patched (e.g. random.randint).
+        overrides maps a name to the source of its new value, which replaces the name's first top-level
+        `name = ...`, or its nth with a 'name#n' key. A name that is only set by unpacking, as in
+        `a, b = 15, 27`, is replaced in its first unpacking instead. all=True replaces every top-level
+        assignment of the name, unpackings too; a 'name#n' key still picks just that one. The re-run gets
+        the first run's input unless stdin_lines is given: without any, input() would end the program.
+        Returns (lines, Run)."""
         tree = ast.parse(self.code)
+        body = tree.body
+        after = {}                      # statement -> new `name = value` lines to run just after it
         for key, src in (overrides or {}).items():
             name, _, nth = key.partition("#")
-            nth, seen = int(nth or 1), 0
-            for node in tree.body:
-                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
-                    seen += 1
-                    if seen == nth:
-                        node.value = ast.parse(src, mode="eval").body
-                        break
+            plain = [n for n in body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)]
+            unpacking = [n for n in body if isinstance(n, ast.Assign) and n not in plain
+                         and any(_binds(t, name) for t in n.targets)]
+            numbered = plain or unpacking   # what 'name#n' and the default count
+            if nth:
+                chosen = numbered[int(nth) - 1:int(nth)]
+            elif all:
+                chosen = [n for n in body if n in plain or n in unpacking]
+            else:
+                chosen = numbered[:1]
+            for node in chosen:
+                new = ast.parse(src, mode="eval").body
+                if node in plain:
+                    node.value = new
+                elif not (len(node.targets) == 1 and _swap_unpacked(node.targets[0], node.value, name, new)):
+                    after.setdefault(id(node), []).append(
+                        ast.copy_location(ast.Assign(targets=[ast.Name(name, ast.Store())], value=new), node))
+        tree.body = [m for n in body for m in [n] + after.get(id(n), [])]
         ast.fix_missing_locations(tree)
         if stdin_lines is None:
             stdin_lines = self.stdin_lines
@@ -472,7 +543,9 @@ class Ctx:
     POS = re.compile(r"(?i)\b(true|yes|found|strong|is a leap|leap year|in the)\b")
 
     def h_polarity(self, line):
-        """+1 affirmative, -1 negative, 0 unknown (for yes/no style lines)."""
+        """+1 affirmative, -1 negative, 0 unknown (for yes/no style lines). Reads the line as lines() does,
+        so isn’t with a curly apostrophe counts as isn't."""
+        line = _same(line)
         if self.NEG.search(line):
             return -1
         if self.POS.search(line):
@@ -597,8 +670,12 @@ def near_miss(got, want):
         if not g:
             return f"Line {k} of your output is blank. Compare it with what the task asks for."
         shown = g if len(g) <= _SHOW_CHARS else g[:_SHOW_CHARS - 1] + "…"
-        if not w.startswith("re:") and _loose(_same(g)) == _loose(_same(w)):
-            return f"Line {k} of your output says `{shown}` — so close! Check your capital letters and punctuation."
+        if not w.startswith("re:"):
+            if "".join(_same(g).split()) == "".join(_same(w).split()):
+                return f"Line {k} of your output says `{shown}` — so close! Check the spaces."
+            # A line of only punctuation or symbols, like ###, has nothing left to compare once they're dropped.
+            if any(c.isalnum() for c in w) and _loose(_same(g)) == _loose(_same(w)):
+                return f"Line {k} of your output says `{shown}` — so close! Check your capital letters and punctuation."
         return f"Line {k} of your output says `{shown}`. Compare it with what the task asks for."
     return None
 
@@ -621,6 +698,7 @@ def _failure(group, index, message):
 def evaluate(code, rule, starter="", stdin_lines=None, seed=0):
     """Grades one program. Returns [{group, index, message}]: the first failed check of each group, in
     feedback order (output, concepts, probes), or only the first run's own failure. Empty means it passed."""
+    _between_runs[0] = _scripted_input(stdin_lines)   # grade_json puts the real one back
     ctx = Ctx(code, starter=starter, stdin_lines=stdin_lines, seed=seed)
     if ctx.tree is None:
         return [_failure("run", 0, RUN_FAILED.format(error=f"SyntaxError: {ctx.syntax_error}"))]
@@ -633,6 +711,7 @@ def evaluate(code, rule, starter="", stdin_lines=None, seed=0):
     for group in ("output", "concepts", "probes"):
         for index, check in enumerate(rule.get(group) or []):
             ctx.hidden_timeout = False
+            _settle()                   # a kid object's __eq__ or __del__ can run between checks, too
             try:
                 ok = bool(EVAL_EXPR(check["expr"], env))
             except BaseException:
@@ -650,6 +729,8 @@ def grade_json(code, rule_json, starter, inputs_json, attempt):
         failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0))
     finally:
         leave_main()                   # run_as_main left the kid's module as __main__ for the probes
+        # Only now: letting go of the kid's module can run its __del__ methods.
+        _between_runs[0] = builtins.input = _REAL_INPUT
     if not failures:
         return _dumps({"passed": True, "feedback": PASSED, "failures": []})
     shown = [f["message"] for f in failures][: 2 if attempt >= 3 else 1]

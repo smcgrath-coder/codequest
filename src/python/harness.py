@@ -3,6 +3,7 @@
 import builtins, linecache, sys, time, traceback, types
 import random, math, string
 import ast, contextlib, copy, inspect, io, json, re, tokenize   # grading.py checks programs with these
+import copyreg, json.decoder, re._casefix, re._compiler, re._constants, re._parser, _sre   # which they use
 import _codequest
 
 KID_FILE = "main.py"
@@ -19,10 +20,37 @@ _BASE_MODULES = dict(sys.modules)                # name -> module, so a replaced
 _BUILTINS = (vars(builtins), dict(vars(builtins)))
 # Put back after every kid run, not only before the next one, because the harness's and grading.py's code
 # use them next: traceback and linecache report errors and compile, and grading.py checks programs with the
-# rest. Kid code gets these same module objects, so `json.dumps = ...` would otherwise change later grades.
+# rest, which do their work with copyreg and re's own modules. Kid code gets these same module objects, so
+# `re.findall = ...` would otherwise fake every later nums() check.
+# The restore is shallow: it puts back each module's names, not the objects they name. What kid code does to
+# a class's attributes, a function's defaults or code, or the contents of a dict or list stays, except for
+# the tables in _TABLES below, which are refilled, and re's caches, which clean_slate and grading.py empty.
+# So where it matters grading.py doesn't rely on those objects: it uses its own json encoder and parser,
+# and its own stdout redirect.
 _REPORTING = [(vars(m), dict(vars(m))) for m in
-              (traceback, linecache, ast, contextlib, copy, inspect, io, json, re, tokenize, types)]
+              (traceback, linecache, ast, contextlib, copy, copyreg, inspect, io, json, re, re._casefix,
+               re._compiler, re._constants, re._parser, _sre, tokenize, types)]
 _PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time)] + _REPORTING
+
+
+def _tables(*mods):
+    """The dicts, lists and sets these modules keep at the top level, each with what it holds now and how
+    to clear and refill it."""
+    found = []
+    for m in mods:
+        for k, v in vars(m).items():
+            if type(v) in (dict, list, set) and not k.startswith("__") and not any(v is t for t, _, _, _ in found):
+                found.append((v, v.copy(), v.clear, v.extend if type(v) is list else v.update))
+    return found
+
+
+# Tables those modules read as they work, such as copy's _deepcopy_dispatch (how to copy each type), copyreg's
+# dispatch_table and re's CATEGORIES (what \d means), and json.decoder's, which grading.py's parser reads for
+# NaN and Infinity. They are refilled in place with what they held at startup. re's compiled-pattern caches
+# are left out: _purge_re (re.purge, taken now) empties them.
+_TABLES = [t for t in _tables(copy, copyreg, re, re._casefix, re._compiler, re._constants, re._parser, json.decoder)
+           if t[0] is not re._cache and t[0] is not re._cache2]
+_purge_re = re.purge
 _STREAMS = [sys.stdout, sys.stderr, sys.stdin]   # this run's; clean_slate makes new ones
 _RECURSION = sys.getrecursionlimit()
 _HARNESS_MAIN = sys.modules["__main__"]          # these globals; kid code gets its own __main__
@@ -60,6 +88,23 @@ def _restore(names, saved):
     names.update(saved)
 
 
+def _refill_tables():
+    for _, saved, clear, fill in _TABLES:
+        clear()
+        fill(saved)
+
+
+def put_back():
+    """Puts back what the harness's and grading.py's own code use once kid code stops: the recursion limit,
+    builtins, and the reporting modules and their tables. It leaves re's caches to its callers: emptying them
+    runs re's own code, which grading.py's time limit could interrupt."""
+    _setrecursionlimit(_RECURSION)     # first: the lowest limit Python allows leaves no room for another call
+    _restore(*_BUILTINS)
+    for names, saved in _REPORTING:
+        _restore(names, saved)
+    _refill_tables()
+
+
 def clean_slate(seed=None):
     """Undo anything a previous run changed: modules, builtins, patched stdlib, streams."""
     _setrecursionlimit(_RECURSION)     # first: the lowest limit Python allows leaves no room for another call
@@ -72,6 +117,8 @@ def clean_slate(seed=None):
     _restore(*_BUILTINS)
     for names, saved in _PATCHABLE:
         _restore(names, saved)
+    _refill_tables()
+    _purge_re()
     time.sleep = interruptible_sleep
     _STREAMS[:] = new_streams()
     sys.stdout, sys.stderr, sys.stdin = _STREAMS
@@ -91,17 +138,16 @@ def run_as_main(code, main):
     """Runs compiled kid code in `main` and makes it __main__, so `import __main__` gives the kid's own
     module, as in real Python, not these globals. It stays __main__ until leave_main(): describing the
     error runs kid code too (its __str__, and any __del__ freed with it). This stops casual rebinding of
-    the harness's helpers, not a determined kid, who can still reach these globals through
-    sys._getframe or kid code that runs later (a __del__ run by a later garbage collection, or a
-    replaced stdout.flush when the next run swaps in new streams)."""
+    the harness's helpers, not a determined kid. These globals are also grading.py's, and kid code can
+    reach them: through the __globals__ of any function of theirs that it can get at, such as time.sleep
+    (interruptible_sleep) or, while grading, input(); through sys._getframe; or through kid code that runs
+    later (a __del__ run by a later garbage collection, or a replaced stdout.flush when the next run swaps
+    in new streams). From there it can change anything the harness and grading do."""
     _modules["__main__"] = main
     try:
         RUN_CODE(code, main.__dict__)
     finally:                           # the harness's own code, and traceback's, runs next
-        _setrecursionlimit(_RECURSION)
-        _restore(*_BUILTINS)
-        for names, saved in _REPORTING:  # so this run's own error can still be described, and graded
-            _restore(names, saved)
+        put_back()                     # so this run's own error can still be described, and graded
 
 
 def leave_main():
