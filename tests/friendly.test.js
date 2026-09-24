@@ -51,16 +51,23 @@ test("a module used without importing it says to add the import, not to use quot
   }
 });
 
-test("a word in print() that happens to be a module's name gets the quotes advice and the import", () => {
-  const f = explain("print(abc)");   // Python: "Did you mean: 'abs'? Or did you forget to import 'abc'?"
-  assert.match(f.headline, /put them in quotes: print\("abc"\)/);
-  assert.match(f.headline, /If you meant the abc module, add import abc at the top of your program\./);
-});
-
-test("when Python guesses a spelling and a missing import, both are offered", () => {
-  const f = explain("strings = ['a']\nprint(string)");
-  assert.match(f.headline, /Did you mean strings\?/);
-  assert.match(f.headline, /add import string at the top of your program\./);
+// Python adds "Did you forget to import 'X'?" whenever the name is also a module's name, and kids often
+// name variables numbers, time or string. Only name.something means the module; a bare name keeps the
+// variable advice, because following import advice there leads to a harder error ('module' object ...).
+test("a bare name that is also a module's name keeps the variable advice, with no import advice", () => {
+  for (const [code, headline] of [
+    ["for n in numbers:\n    print(n)", "Line 1: Python doesn't know numbers. Create it with = before you use it, and check the spelling."],
+    ["x = time * 2", "Line 1: Python doesn't know time. Create it with = before you use it, and check the spelling."],
+    ["print(sum(numbers))", 'Line 1: numbers isn\'t a variable yet. If you meant the words numbers, put them in quotes: print("numbers"). If it\'s a variable, create it with = first.'],
+    // Python: "Did you mean: 'abs'? Or did you forget to import 'abc'?"
+    ["print(abc)", 'Line 1: abc isn\'t a variable yet. If you meant the words abc, put them in quotes: print("abc"). If it\'s a variable, create it with = first.'],
+    // Python: "Did you mean: 'strings'? Or did you forget to import 'string'?"
+    ["strings = ['a']\nprint(string)", "Line 2: Python doesn't know string. Did you mean strings? Check the spelling."],
+  ]) {
+    const f = explain(code);
+    assert.match(f.python, /forget to import/, "Python's own hint is still under 'What Python said'");
+    assert.equal(f.headline, headline);
+  }
 });
 
 test("adding a number and what input() gave back explains that input() gives text", () => {

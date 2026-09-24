@@ -54,19 +54,15 @@ const rules = (r, text, at, src, n) => [
   [/^(NameError|UnboundLocalError)$/, () => true, () => {
     const name = (text.match(/name '(\w+)' is not defined/) || text.match(/local variable '(\w+)'/) || [])[1] || "that name";
     const sug = (text.match(/Did you mean: '(\w+)'\?/) || [])[1];
-    // A module used without importing it: ". Did you forget to import 'math'?", or "Or did you forget" after a guess.
+    // Python adds ". Did you forget to import 'math'?" (or "Or did you forget" after a guess) to every
+    // name that is also a module's name, including variable names kids pick, like numbers, time or string.
     const mod = (text.match(/[Dd]id you forget to import '(\w+)'\?/) || [])[1];
     if (/cannot access local variable/.test(text)) return `${at} uses ${name} before it has been given a value inside this function.`;
+    // Only math.sqrt(4) uses it as a module. A bare name gets the variable advice below.
+    if (mod && new RegExp(`\\b${name}\\s*\\.`).test(src)) return `${at} uses ${mod}, which has to be imported first. Add import ${mod} at the top of your program.`;
     const inPrint = new RegExp(`print\\([^)]*\\b${name}\\b`).test(src);
-    const importIt = `import ${mod} at the top of your program.`;
-    const needsImport = `${at} uses ${mod}, which has to be imported first. Add ${importIt}`;
-    // math.sqrt(4) uses it as a module. A bare print(abc) more likely means the word, which is also a module's name.
-    if (mod && new RegExp(`\\b${name}\\s*\\.`).test(src)) return needsImport;
-    if (sug && !SURPRISING.has(sug)) return `${at}: Python doesn't know ${name}. Did you mean ${sug}? Check the spelling.`
-      + (mod ? ` Or, if you meant the ${mod} module, add ${importIt}` : "");
-    if (inPrint) return `${at}: ${name} isn't a variable yet. If you meant the words ${name}, put them in quotes: print("${name}").`
-      + (mod ? ` If you meant the ${mod} module, add ${importIt}` : " If it's a variable, create it with = first.");
-    if (mod) return needsImport;
+    if (sug && !SURPRISING.has(sug)) return `${at}: Python doesn't know ${name}. Did you mean ${sug}? Check the spelling.`;
+    if (inPrint) return `${at}: ${name} isn't a variable yet. If you meant the words ${name}, put them in quotes: print("${name}"). If it's a variable, create it with = first.`;
     return `${at}: Python doesn't know ${name}. Create it with = before you use it, and check the spelling.`;
   }],
   // input() on this line, not already turned into a number with int(input()) or float(input()).
