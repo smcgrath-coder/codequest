@@ -161,13 +161,20 @@ export const BATCH_C = {
   // the prototype wanted exactly those 4 lines, but the task only says what show_title prints, and the probes
   // check that. Near misses in the game name or the Press ENTER line get their own hints, since this check can't
   // name the line that differs (r3_press_enter_period, r3_mixed_case_name).
+  // The Press ENTER line may be indented, centred like the name (m_ct2_border_var): the task only says what it
+  // says. A line that differs only in its spaces ('Press  ENTER to start', 'DRAGONQUEST') hears about the spaces,
+  // not about capitals and punctuation, so those checks come first.
   ch9_s1: {
     output: [
+      { expr: py`any(l.strip() == 'DRAGON QUEST' for l in L) or not any(''.join(l.split()) == 'DRAGONQUEST' for l in L)`,
+        hint: "So close! Check the spaces in your game name: call show_title with 'DRAGON QUEST', just as the task writes it." },
+      { expr: py`any(l.strip() == 'Press ENTER to start' for l in L) or not any(''.join(l.split()) == 'PressENTERtostart' for l in L)`,
+        hint: "So close! Check the spaces in your 'Press ENTER to start' line: one space between each word, just as the task writes it." },
       { expr: py`any(l.strip() == 'DRAGON QUEST' for l in L) or not any(re.fullmatch(r'(?i)\W*dragon\W*quest\W*', l.strip()) for l in L)`,
         hint: "So close! Check the capital letters and punctuation in your game name: call show_title with 'DRAGON QUEST', just as the task writes it." },
-      { expr: py`'Press ENTER to start' in L or not any(re.fullmatch(r'(?i)\W*press\W+enter\W+to\W+start\W*', l) for l in L)`,
+      { expr: py`any(l.strip() == 'Press ENTER to start' for l in L) or not any(re.fullmatch(r'(?i)\W*press\W+enter\W+to\W+start\W*', l) for l in L)`,
         hint: "So close! Check the capital letters and punctuation in your 'Press ENTER to start' line: it should match the task exactly." },
-      { expr: py`any(L[i] == '=' * 30 and L[i + 3] == '=' * 30 and L[i + 1].strip() == 'DRAGON QUEST' and 8 <= len(L[i + 1]) - len(L[i + 1].lstrip()) <= 10 and L[i + 2] == 'Press ENTER to start' for i in range(len(L) - 3))`,
+      { expr: py`any(L[i] == '=' * 30 and L[i + 3] == '=' * 30 and L[i + 1].strip() == 'DRAGON QUEST' and 8 <= len(L[i + 1]) - len(L[i + 1].lstrip()) <= 10 and L[i + 2].strip() == 'Press ENTER to start' for i in range(len(L) - 3))`,
         hint: "Print 4 lines: 30 '=' signs, the game name in the middle of a 30-character line, 'Press ENTER to start', then 30 '=' again." },
     ],
     // The prototype's two probes, swapped so a program with no show_title at all hears about the function first.
@@ -715,12 +722,18 @@ export const BATCH_C = {
         hint: "Your run should print launch's 'Ready!' first, then the moves (690, 45 right, 130, 90 left, 90, arm -240), and end_run's 'Run complete!' after them." },
       // nums_abs ignores direction, so the left turn done as a right one and the grab at +240 passed
       // (r1_turn_both_right, r1_arm_positive). The turn lines are the first line holding 45 after the 690 drive
-      // and the first holding 90 after the 130 drive; a turn line that names no direction isn't judged.
+      // and the first holding 90 after the 130 drive; a turn line that names no direction is left to the next check.
       // The 690 drive, the first line holding 690, mustn't say backward or show -690 (r2_backward_690), and the
       // grab, the first line showing -240, mustn't name the left arm alone (r2_left_arm_grab). The task names no
       // right_arm function here, so the arm is read from the output.
       { expr: py`(lambda F: not re.search(r'(?i)left', F(690, 45)) or re.search(r'(?i)right', F(690, 45)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda F: not re.search(r'(?i)right', F(130, 90)) or re.search(r'(?i)left|-\s*90', F(130, 90)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, and grab with the right arm at -240°." },
+      // A turn line naming no direction, such as 'Turning -45°', is read by its sign, as turn() takes it: right is
+      // positive and left negative, so turns done the other way round fail (m_wt2_turns_swapped). Only lines that
+      // say they turn (turn, rotate, spin, pivot, ° or deg) are read this way: when a turn shares a line with the
+      // drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn.
+      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+        hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
       { expr: py`'Run1' in trace`, hint: "Call Run1() at the bottom of your program." },
@@ -774,7 +787,9 @@ export const BATCH_C = {
       { expr: py`nums([90, 180, 135, 315, 45]) and (nums([45], L=[l for l in L if re.search(r'\d', l)][-1:]) or nums([90, 180, 135, 315, 45, 45]))`,
         hint: "Print the heading after each of the 5 turns, then the final heading." },
     ],
-    concepts: [{ expr: py`binop('Mod') >= 1`, hint: "The task asks you to wrap the heading into 0-359 with % 360." }],
+    // heading %= 360 is % 360 too: binop only counts a % b (m_cu1_named_dirs).
+    concepts: [{ expr: py`binop('Mod') + sum(isinstance(n, ast.AugAssign) and isinstance(n.op, ast.Mod) for n in ast.walk(TREE)) >= 1`,
+      hint: "The task asks you to wrap the heading into 0-359 with % 360." }],
     probes: [
       { expr: py`val('turn(350, 20)') == 10 and val('turn(10, -30)') == 340 and val('turn(0, 720)') == 0`,
         hint: "turn(heading, angle) should always return a heading from 0 to 359, even when the sum goes past 360 or below 0." },
@@ -797,6 +812,9 @@ export const BATCH_C = {
       // showing -240, mustn't name the left arm alone (r2_left_arm_and_right).
       { expr: py`(lambda F: (not re.search(r'(?i)left', F(690, 45)) or re.search(r'(?i)right', F(690, 45))) and (not re.search(r'(?i)right', F(130, 90)) or re.search(r'(?i)left|-\s*90', F(130, 90))) and (not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, grab with the right arm at -240°, and drive backward 350mm at the end." },
+      // As in ch11_r5: turn lines naming no direction are read by their sign (m_d_turns_swapped).
+      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+        hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
       { expr: py`all({'straight', 'turn'} <= set(ns.get(k, {})) for k in ('SPEED_FAST', 'SPEED_NORMAL'))`,
@@ -1012,17 +1030,25 @@ export const BATCH_C = {
       // as round(threshold) = 46 was rejected (r1_round_int).
       { expr: py`nums_approx([80, 12.4, 46.2], tol=0.5)`, hint: "Print the white average, the black average and the threshold halfway between them." },
       // The reading and its colour in either order: the task sets no format, and the prototype wanted the reading
-      // first, which rejected 'black: 20' (r2_color_first).
-      { expr: py`subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*black).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*'])`,
+      // first, which rejected 'black: 20' (r2_color_first). The readings needn't be on lines of their own either:
+      // all 4 may share a line, printed as a list of pairs (m_cu1_avgs_passed), or be grouped by colour ('Black
+      // readings: [20, 45, 8]', grouped_by_colour). So each reading also counts with the first colour after it on its
+      // line, or, read the other way, the last colour before it, in any order: a group lists its readings in the
+      // order they came, which isn't the task's once the threshold moves.
+      { expr: py`subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*black).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*']) or (lambda t, want: any(set(want) <= {(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', l)] for l in t] for j in range(len(tk)) if tk[j][0]} for m in (True, False)))(L, [(20, 'black'), (45, 'black'), (8, 'black'), (60, 'white')])`,
         hint: "Test each reading against your threshold and print whether it is black or white." },
     ],
     probes: [
       // average([1, 2]) is 1.5, so // passed the whole-number means before (r2_floor_div); rounding only when
       // printing is still fine (r1_round_int). With 3 white samples and 1 black one, the midpoint of the averages
       // (5) isn't the mean of all 4 samples (7.5), which the task's 5 and 5 samples give alike (r2_all_mean).
-      { expr: py`val('average([1, 2, 3])') == 2 and val('average([1, 2])') == 1.5 and val('calibrate([10, 10], [0, 0])') == 5 and val('calibrate([10, 10, 10], [0])') == 5`,
+      // calibrate(white, black) may take the two averages instead of the sample lists, as 'midpoint between
+      // averages' allows (m_cu1_avgs_passed): then calibrate(10, 5) is 7.5, which // gets wrong, and
+      // calibrate(80, 20) is 50, which half the difference (30) gets wrong.
+      { expr: py`val('average([1, 2, 3])') == 2 and val('average([1, 2])') == 1.5 and ((val('calibrate([10, 10], [0, 0])') == 5 and val('calibrate([10, 10, 10], [0])') == 5) or (val('calibrate(10, 5)') == 7.5 and val('calibrate(80, 20)') == 50))`,
         hint: "average should return the mean of the list, and calibrate should return the midpoint between the white and black averages." },
-      { expr: py`subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*white).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*'], L=rerun({'white_samples': '[60, 60]', 'black_samples': '[20, 20]'})[0])`,
+      // Read as in the output check.
+      { expr: py`(lambda t: subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*white).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*'], L=t) or (lambda t, want: any(set(want) <= {(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', l)] for l in t] for j in range(len(tk)) if tk[j][0]} for m in (True, False)))(t, [(20, 'black'), (45, 'white'), (8, 'black'), (60, 'white')]))(rerun({'white_samples': '[60, 60]', 'black_samples': '[20, 20]'})[0])`,
         hint: "Work the threshold out from the samples: when I changed them, the readings should be judged with the new threshold." },
     ],
   },
@@ -1100,7 +1126,9 @@ export const BATCH_C = {
       hint: "Work everything out from the readings list, so the answers change when the readings do." }],
   },
   // content bug: all 4 runs fit in 150 s (136 s in total), so the time limit never matters with the task's data.
-  // The rule accepts all 4 runs, and the MATCH_TIME = 75 rerun tests the limit (greedy and best agree there: 280).
+  // The rule accepts all 4 runs, and the MATCH_TIME = 75 rerun tests the limit: greedy and best agree there, on
+  // Run1 and Run3 (280 points). The task asks only for the optimal order, so no total has to be printed: the
+  // prototype wanted 455 and, in the rerun, 280 (m_ct2_sorted_numbered).
   // The order is the 4 run names next to each other in the output, after repeats of a name in a row are
   // merged ("Run1 ... Run1 fits!"). The prototype took the last 4 names, so a closing "Most efficient run: Run1"
   // broke it (r1_best_run_after); a list in the given order printed before the sorted one is still fine.
@@ -1108,10 +1136,13 @@ export const BATCH_C = {
     output: [
       { expr: py`(lambda N: (lambda n: any(n[i:i + 4] == ['Run1', 'Run3', 'Run4', 'Run2'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))(re.findall(r'\bRun[1-4]\b', out))`,
         hint: "Sort the runs by points per second (points / time), best first, and print them in that order." },
-      { expr: py`has('455')`, hint: "Print the total points of the runs that fit in the match time." },
     ],
     probes: [
-      { expr: py`has('280', L=rerun({'MATCH_TIME': '75'})[0])`,
+      // In the 75 s rerun the runs picked are Run1 then Run3, and Run4 mustn't follow them: it only fits if the
+      // limit is ignored (no_time_check). Names on lines saying a run was skipped don't count ('❌ Run4 doesn't
+      // fit'), so a program may still list all 4 runs, ranked, before or after the ones it picks. A 280 total
+      // passes too, as before.
+      { expr: py`(lambda t: has('280', L=t) or (lambda N: (lambda n: any(n[i:i + 2] == ['Run1', 'Run3'] and n[i + 2:i + 3] != ['Run4'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|over|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))(rerun({'MATCH_TIME': '75'})[0])`,
         hint: "Only add a run if it still fits in MATCH_TIME, so a shorter match picks fewer runs." },
       // Runs whose points per second give another order (Run2, Run4, Run3, Run1), so an order typed in by hand
       // fails (r1_hard_order). All 4 still fit in 150 s.
