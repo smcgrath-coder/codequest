@@ -1,0 +1,6 @@
+print(15)
+print(5)
+print(50)
+print(3.3333333333333335)
+print(3)
+print(16)
