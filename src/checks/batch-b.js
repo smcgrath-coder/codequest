@@ -1,6 +1,21 @@
 // Grading rules for chapters 5-8 and practice grind_8-15 (ported from rules_b.py). Format: see src/checks.js.
 // py`...` is String.raw: each expr is the Python text exactly as written, backslashes and quotes included.
+// Two rules share a Python helper between checks, spliced in with ${...}; no other expr uses ${.
 const py = String.raw;
+
+// ch5_s1: the yes/no answers, 1 or -1, in order.
+// - When exactly 4 lines name a searched book, each answer is its named line plus the lines after it, up
+//   to the next named line (so print(book) then print(book in library) works: fixture ALT_name_then_bool).
+//   The last answer gets as many lines as the first, so a heading or a closing line is left out. An answer
+//   is no if it says so, and yes otherwise: the engine's polarity() gives 0 for "Python exists" or "we have
+//   it", and its n't can't match inside "don't" (fixtures ALT_exists, ALT_have_it).
+// - Otherwise, as for print("Python" in library), the answers are the lines polarity() reads as yes or no
+//   (fixture ALT_bools).
+const CH5_S1_ANSWERS = py`(lambda t: (lambda idx: [-1 if re.search(r"(?i)\b(no|not|nope|false|missing|unavailable|isnt|doesnt|dont|wasnt)\b|n['’]t\b|❌", ' '.join(t[i:j])) else 1 for i, j in zip(idx, idx[1:] + [idx[-1] + idx[1] - idx[0]])] if len(idx) == 4 else [p for p in map(polarity, t) if p])([i for i, l in enumerate(t) if re.search(r'\b(Python|Ruby|Games|Math)\b', l)]))`;
+
+// grind_15: the numbers on a line, leaving out labels such as "Die 1" or "2nd die". Dice are never
+// negative, so "3-5" is two dice.
+const DICE = py`(lambda l: [int(x) for x in re.findall(r'\d+', re.sub(r'(?i)\b(?:die|dice)\s*#?\d+|\b\d+(?:st|nd|rd|th)\b', '', l))])`;
 
 export const BATCH_B = {
   // ---------- Chapter 5: lists ----------
@@ -43,9 +58,9 @@ export const BATCH_B = {
     ],
   },
   ch5_s1: {
-    output: [{ expr: py`[p for p in map(polarity, L) if p] == [1, -1, 1, -1]` }],
+    output: [{ expr: py`${CH5_S1_ANSWERS}(L) == [1, -1, 1, -1]` }],
     probes: [
-      { expr: py`[p for p in map(polarity, rerun({'library': "['Ruby', 'Math']"})[0]) if p] == [-1, 1, -1, 1]`, hint: "Check each name with the in keyword, so your answers would change if the library changed." },
+      { expr: py`${CH5_S1_ANSWERS}(rerun({'library': "['Ruby', 'Math']"})[0]) == [-1, 1, -1, 1]`, hint: "Check each name with the in keyword, so your answers would change if the library changed." },
     ],
   },
   ch5_s2: {
@@ -95,8 +110,13 @@ export const BATCH_B = {
       { expr: py`trace.count('battle_cry') == 3`, hint: "Call battle_cry() exactly 3 times." },
     ],
   },
+  // A line that differs from "[name] — Level [level]" only in capitals or punctuation, like "Knight - level 5",
+  // is a near miss (the design's rule): it still fails, but with a hint that says so (wrong/lowercase_level).
   ch6_r2: {
-    output: [{ expr: py`len(L) == 3 and len(set(L)) == 3 and all(re.fullmatch(r'.+?\s*[—–-]+\s*Level\s+\S+', l) for l in L)` }],
+    output: [
+      { expr: py`len(L) == 3 and len(set(L)) == 3 and all(re.fullmatch(r'(?i).+?\W*level\W*\S+', l) for l in L)` },
+      { expr: py`all(re.fullmatch(r'.+?\s*[—–-]+\s*Level\s+\S+', l) for l in L)`, hint: "So close! Check your capital letters and punctuation: each line should look like [name] — Level [level] from the task (a - is fine for the —)." },
+    ],
     probes: [
       { expr: py`sig('hero_status') == (2, 0)`, hint: "hero_status needs two parameters in its parentheses: one for the name and one for the level." },
       { expr: py`(lambda t: len(t) == 1 and 'Zed' in t[0] and '99' in t[0])(call("hero_status('Zed', 99)")[1])`, hint: "hero_status should print the name and level it is given, using its parameters." },
@@ -116,12 +136,15 @@ export const BATCH_B = {
       { expr: py`sig('power_up') == (2, 1)`, hint: "Give power_up two parameters, name and amount, and make amount 10 unless it's given." },
       { expr: py`call("power_up('Zed')")[0] == 'Zed gained 10 power!'`, hint: "power_up should return the message instead of printing it. Print what it gives back." },
       { expr: py`val("power_up('Zed', 7)") == 'Zed gained 7 power!'`, hint: "Put the amount parameter in the message, so a custom amount shows up in it." },
+      // The output check alone passes a second message typed into print() (fixture wrong/typed_second).
+      { expr: py`{len(n.args) + len(n.keywords) for n in ast.walk(TREE) if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'power_up'} >= {1, 2}`, hint: "Call power_up twice and print what it gives back: once with just a name, and once with a name and your own amount." },
     ],
   },
   ch6_r5: {
     output: [{ expr: py`nums([87.6, 95])` }],
     probes: [
-      { expr: py`val('analyze_scores([1, 2, 3])') == (2.0, 3)`, hint: "analyze_scores should return two things for any list: the average (sum divided by len) and the highest score." },
+      // A list of the two values unpacks just like a tuple (fixture ALT_list_return).
+      { expr: py`(lambda v: isinstance(v, (tuple, list)) and list(v) == [2.0, 3])(val('analyze_scores([1, 2, 3])'))`, hint: "analyze_scores should return two things for any list: the average (sum divided by len) and the highest score." },
       { expr: py`87.6 in [v for k, v in ns.items() if not k.startswith('__') and isinstance(v, float)] and any(v == 95 and type(v) is int for k, v in ns.items() if not k.startswith('__'))`, hint: "Unpack what analyze_scores returns into two separate variables, then print both." },
       { expr: py`nums([15.0, 20], L=rerun({'scores': '[10, 20]'})[0])`, hint: "Work out both answers from the scores list with your function, so they change when the scores do." },
     ],
@@ -165,8 +188,9 @@ export const BATCH_B = {
       { expr: py`called_from('calc_attack', 'hero_report') and called_from('calc_defense', 'hero_report')`, hint: "Inside hero_report, call calc_attack and calc_defense instead of doing their math again." },
     ],
   },
+  // The two tests can come in either order (fixture ALT_reverse_order); the probes check the functions.
   grind_10: {
-    output: [{ expr: py`nums([32.0, 100.0])` }],
+    output: [{ expr: py`numset([32.0, 100.0])` }],
     probes: [
       { expr: py`val('celsius_to_fahrenheit(100)') == 212 and val('celsius_to_fahrenheit(-40)') == -40`, hint: "celsius_to_fahrenheit should return its answer (not print it), so it works for any temperature." },
       { expr: py`val('fahrenheit_to_celsius(32)') == 0 and val('fahrenheit_to_celsius(212)') == 100`, hint: "fahrenheit_to_celsius should return its answer (not print it), so it works for any temperature." },
@@ -176,6 +200,8 @@ export const BATCH_B = {
     output: [{ expr: py`[p for p in map(polarity, L) if p] == [-1, 1]` }],
     probes: [
       { expr: py`[val('is_strong(%r)' % p) for p in ['hello', 'secret42', 'abcdefgh', 'abc1', '12345678']] == [False, True, False, False, True]`, hint: "is_strong should return True only when both rules are met: at least 8 characters AND at least one digit." },
+      // A correct is_strong next to typed-in answers passed without this (fixture wrong/typed_prints).
+      { expr: py`trace.count('is_strong') >= 2`, hint: "Test your function: call is_strong with \"hello\" and with \"secret42\", and print what it tells you." },
     ],
   },
 
@@ -187,11 +213,16 @@ export const BATCH_B = {
       { expr: py`(lambda t: has('Zed', 'Bard', '99', '7', L=t))(rerun({'character': "{'name': 'Zed', 'class': 'Bard', 'level': 99, 'health': 7}"})[0])`, hint: "Print each value by looking it up with its key, like character[\"name\"], instead of typing it." },
     ],
   },
+  // The printed dict can follow a label, as in print("Final player:", player) (fixture ALT_labelled). Its
+  // entries are compared as text, in any order, so a line holding something else in braces can't raise
+  // (ast.literal_eval would, and that fails the whole check).
   ch7_r2: {
-    output: [{ expr: py`any(l.startswith('{') and __import__('ast').literal_eval(l) == {'name': 'Hero', 'xp': 100, 'gold': 75, 'level': 1, 'title': 'Adventurer'} for l in L)` }],
+    output: [{ expr: py`any(m and sorted(re.sub(r'\s*:\s*', ': ', p.strip()) for p in m.group(1).replace('"', "'").split(',')) == ["'gold': 75", "'level': 1", "'name': 'Hero'", "'title': 'Adventurer'", "'xp': 100"] for m in (re.search(r'\{(.*)\}', l) for l in L))` }],
     probes: [
       { expr: py`ns.get('player') == {'name': 'Hero', 'xp': 100, 'gold': 75, 'level': 1, 'title': 'Adventurer'}`, hint: "Change the player dictionary itself, one step at a time, then print player." },
       { expr: py`rerun({'player': "{'name': 'Hero', 'xp': 5, 'gold': 10}"})[1].ns.get('player', {}).get('gold') == 35`, hint: "Increase gold by adding 25 to what it already is, instead of typing the new total." },
+      // xp starts at 0, so xp += 100 also gives 100 in the main run (fixture wrong/xp_added).
+      { expr: py`rerun({'player': "{'name': 'Hero', 'xp': 5, 'gold': 10}"})[1].ns.get('player', {}).get('xp') == 100`, hint: "Set xp to exactly 100 with =, instead of adding 100 to it." },
     ],
   },
   ch7_r3: {
@@ -201,9 +232,13 @@ export const BATCH_B = {
       { expr: py`(lambda t: t[:2] == ['a: 1', 'b: 2'] and nums([3], L=t[2:]))(rerun({'stats': "{'a': 1, 'b': 2}"})[0])`, hint: "Print the keys and values and add up the total straight from the stats dictionary, instead of typing them." },
     ],
   },
+  // A place's name and numbers don't have to share a line: printing the name, then each property on its own
+  // line, is fine (fixture ALT_nested_loop). The task says to loop through and print each location, so the
+  // places do need lines of their own, which print(world) doesn't give them (wrong/print_world).
   ch7_r4: {
     output: [
-      { expr: py`subseq([r're:.*forest.*\b3\b.*\b5\b.*', r're:.*cave.*\b8\b.*\b10\b.*', r're:.*village.*\b1\b.*\b2\b.*'])` },
+      { expr: py`has('forest', '3', '5', 'cave', '8', '10', 'village', '1', '2', L=L[:-1])` },
+      { expr: py`subseq([r're:.*\bforest\b.*', r're:.*\bcave\b.*', r're:.*\bvillage\b.*'], L=L[:-1])`, hint: "Loop through world and print each place on its own line, with its danger and treasure." },
       { expr: py`'cave' in L[-1]` },
     ],
     probes: [
@@ -213,9 +248,10 @@ export const BATCH_B = {
       { expr: py`'mine' in rerun({'world': "{'mine': {'danger': 1, 'treasure': 50}, 'cave': {'danger': 8, 'treasure': 10}}"})[0][-1]`, hint: "Find the place with the most treasure by comparing each place's treasure, so it would work for any world." },
     ],
   },
+  // A member's name and stats don't have to share a line (fixture ALT_multi_line).
   ch7_r5: {
     output: [
-      { expr: py`subseq([r're:.*Knight.*\b15\b.*\b12\b.*', r're:.*Mage.*\b20\b.*\b5\b.*', r're:.*Rogue.*\b12\b.*\b8\b.*'])` },
+      { expr: py`has('Knight', '15', '12', 'Mage', '20', '5', 'Rogue', '12', '8', L=L[:-1])` },
       { expr: py`'Mage' in L[-1]` },
     ],
     probes: [
@@ -266,7 +302,8 @@ export const BATCH_B = {
     output: [{ expr: py`len(globals_of(dict)) >= 1 and (lambda d: len(L) == len(d) and all(str(k) in out and str(v) in out for k, v in d.items()))(globals_of(dict)[0])` }],
     concepts: [
       { expr: py`any(isinstance(n, ast.Dict) and len(n.keys) == 3 for n in ast.walk(TREE))`, hint: "Start with a dictionary that has 3 contacts in it, each one a name: phone pair." },
-      { expr: py`any(isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Subscript) for n in ast.walk(TREE))`, hint: "Add a new contact with square brackets: your_dict[name] = phone." },
+      // The task only says "add one", so .update() and .setdefault() count too (fixture ALT_update).
+      { expr: py`any(isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Subscript) for n in ast.walk(TREE)) or calls('update') >= 1 or calls('setdefault') >= 1`, hint: "Add one new contact to your dictionary, for example with your_dict[name] = phone." },
       { expr: py`count(ast.Delete) >= 1 or calls('pop') >= 1`, hint: "Delete one contact with del or .pop()." },
       { expr: py`calls('items') >= 1`, hint: "Print the contacts by looping over .items(), as the task asks." },
     ],
@@ -303,9 +340,10 @@ export const BATCH_B = {
     ],
   },
   // The last line only has to name Sam: "print the highest scorer" doesn't ask for the score
-  // (fixture ALT_name_only). The prototype also wanted 92 on it.
+  // (fixture ALT_name_only). The prototype also wanted 92 on it. The records don't need a line each:
+  // print(records) prints them all (fixture ALT_print_records).
   ch8_r4: {
-    output: [{ expr: py`subseq([r're:.*Alex.*\b85\b.*', r're:.*Sam.*\b92\b.*', r're:.*Jo.*\b78\b.*', r're:.*Max.*\b88\b.*', r're:.*Sam.*'])` }],
+    output: [{ expr: py`has('Alex', '85', 'Sam', '92', 'Jo', '78', 'Max', '88', L=L[:-1]) and 'Sam' in L[-1]` }],
     probes: [
       { expr: py`ns.get('records') == [{'name': 'Alex', 'score': 85}, {'name': 'Sam', 'score': 92}, {'name': 'Jo', 'score': 78}, {'name': 'Max', 'score': 88}]`, hint: "Store each record in records as a dictionary with a name and a score, and turn the score into a number with int()." },
       // Bob is third in the re-run data. The prototype's 'Ann,1\nBob,5' put him at index 1, where Sam
@@ -355,24 +393,31 @@ export const BATCH_B = {
   // The secret is never seeded by the kid, so the probes patch random.randint to pick it. Grading seeds
   // random with 0, which makes the main run's secret 13: all 4 guesses get used.
   // Changed from the prototype:
-  // - the stop check looks at the first 3 results and then only for more high/low. A summary line such
-  //   as "You got it correct in 3 attempts!" is fine (fixture ALT_result_summary); the prototype's
-  //   [:4] == [3 results] failed it.
+  // - the stop check: with the secret 7, the first 3 results must be high, high, correct, and then the
+  //   loop must stop. It stopped if check_guess ran fewer times than with the secret 13, whatever the
+  //   program prints afterwards, so stats such as "too high: 2, too low: 0" are fine (fixture
+  //   ALT_stats_summary). Failing that (say check_guess ran on every guess before the loop), no high or
+  //   low may follow the correct guess. The prototype's [:4] == [3 results] also failed a summary line
+  //   such as "You got it correct in 3 attempts!" (fixture ALT_result_summary).
   // - the attempts dict can also hold one entry per attempt, like {1: 'low', 2: 'high', ...}
-  //   (fixture ALT_history_dict), not only a count of 4.
+  //   (fixture ALT_history_dict), not only a count of 4. It is read from ns, the globals as the main run
+  //   left them: the first probe calls check_guess, which can count attempts too (fixture
+  //   ALT_count_in_check_guess), and globals_of() would see those calls.
   ch8_boss: {
     output: [{ expr: py`len([l for l in L if re.search(r'(?i)high|low|correct', l)]) >= 1` }],
     probes: [
       { expr: py`[val('check_guess(%d, 3)' % g) for g in (5, 1, 3)] == ['high', 'low', 'correct']`, hint: "check_guess should return \"high\", \"low\" or \"correct\" by comparing the guess with the secret." },
       { expr: py`[re.search(r'(?i)high|low|correct', l).group().lower() for l in rerun(patches={'random.randint': lambda a, b: 13})[0] if re.search(r'(?i)\b(high|low|correct)\b', l)][:4] == ['low', 'high', 'low', 'correct']`, hint: "Pick the secret with random.randint(1, 20), then check every guess against it with check_guess and print each result." },
-      { expr: py`(lambda r: r[:3] == ['high', 'high', 'correct'] and not {'high', 'low'} & set(r[3:]))([re.search(r'(?i)high|low|correct', l).group().lower() for l in rerun(patches={'random.randint': lambda a, b: 7})[0] if re.search(r'(?i)\b(high|low|correct)\b', l)])`, hint: "Stop the game loop with break once a guess is correct." },
-      { expr: py`any(4 in d.values() or len(d) == 4 for d in globals_of(dict))`, hint: "Keep track of the attempts in a dictionary, like stats = {\"attempts\": 0}." },
+      { expr: py`(lambda V, s7, s13: V(s7[0])[:3] == ['high', 'high', 'correct'] and (s7[1].trace.count('check_guess') < s13[1].trace.count('check_guess') or not {'high', 'low'} & set(V(s7[0])[3:])))(lambda t: [re.search(r'(?i)high|low|correct', l).group().lower() for l in t if re.search(r'(?i)\b(high|low|correct)\b', l)], rerun(patches={'random.randint': lambda a, b: 7}), rerun(patches={'random.randint': lambda a, b: 13}))`, hint: "Stop the game loop with break once a guess is correct." },
+      { expr: py`any(isinstance(d, dict) and (4 in d.values() or len(d) == 4) for k, d in ns.items() if not k.startswith('__'))`, hint: "Keep track of the attempts in a dictionary, like stats = {\"attempts\": 0}." },
     ],
   },
   // len(L) >= 2, not == 2: a safe_divide that prints its own warning and returns None prints 3 lines
-  // (fixture ALT_prints_message).
+  // (fixture ALT_prints_message). The task doesn't say what to give back for b = 0, so returning 0 is
+  // fine (fixture ALT_return_zero; the prototype wanted a message), and 10 / 3 can print rounded
+  // (fixture ALT_rounded). The probes check the function itself.
   grind_14: {
-    output: [{ expr: py`len(L) >= 2 and nums([10/3], L=L[:1]) and not re.fullmatch(r'-?\d+(\.\d+)?', L[1])` }],
+    output: [{ expr: py`len(L) >= 2 and nums_approx([10/3], tol=0.05, L=L[:1])` }],
     concepts: [{ expr: py`count(ast.Try) >= 1`, hint: "Use try: and except: inside safe_divide to catch the divide-by-zero error." }],
     probes: [
       { expr: py`val('safe_divide(10, 4)') == 2.5`, hint: "safe_divide should return a / b when b isn't zero." },
@@ -381,10 +426,12 @@ export const BATCH_B = {
   },
   // The rolls are the lines before the last one that hold 2 or more numbers, not simply the first 10 lines,
   // so an extra "Doubles!" line after a roll is fine (fixture ALT_doubles_line; seed 0 rolls doubles first).
+  // A roll's dice are its last 2 numbers once DICE drops labels, so "Die 1: 3, Die 2: 5" is a 3 and a 5
+  // (fixture ALT_die_labels).
   grind_15: {
     output: [
-      { expr: py`(lambda r: len(r) == 10 and all(1 <= d <= 6 for l in r for d in ints(l)[-2:]))([l for l in L[:-1] if len(ints(l)) >= 2])` },
-      { expr: py`ints(L[-1])[-1:] == [sum(1 for l in L[:-1] if len(ints(l)) >= 2 and ints(l)[-2] == ints(l)[-1])]` },
+      { expr: py`(lambda D: (lambda r: len(r) == 10 and all(1 <= d <= 6 for l in r for d in D(l)[-2:]))([l for l in L[:-1] if len(D(l)) >= 2]))(${DICE})` },
+      { expr: py`(lambda D: ints(L[-1])[-1:] == [sum(1 for l in L[:-1] if len(D(l)) >= 2 and D(l)[-2] == D(l)[-1])])(${DICE})` },
     ],
     probes: [
       { expr: py`ints(rerun(patches={'random.randint': lambda a, b: 3})[0][-1])[-1:] == [10]`, hint: "Roll both dice with random.randint inside your loop, and add 1 to your count every time they match." },
