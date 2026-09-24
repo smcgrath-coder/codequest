@@ -27,6 +27,10 @@ function stoppedMessage(r) {
   return "You stopped the program.";
 }
 
+// Modules the course uses: its challenges import random and math, and time.sleep works. Python adds
+// "Did you forget to import 'X'?" to any name that is also a module's name, including variable names
+// kids pick, like numbers, queue or string, so only these get the import advice.
+const TAUGHT = new Set(["random", "math", "time"]);
 const CLOSER = { "(": ")", "[": "]", "{": "}" };
 const JOIN = /can only concatenate str \(not "(int|float)"\) to str|unsupported operand type\(s\) for \+: '(int|float)' and 'str'/;
 
@@ -54,19 +58,20 @@ const rules = (r, text, at, src, n) => [
   [/^(NameError|UnboundLocalError)$/, () => true, () => {
     const name = (text.match(/name '(\w+)' is not defined/) || text.match(/local variable '(\w+)'/) || [])[1] || "that name";
     const sug = (text.match(/Did you mean: '(\w+)'\?/) || [])[1];
-    // Python adds ". Did you forget to import 'math'?" (or "Or did you forget" after a guess) to every
-    // name that is also a module's name, including variable names kids pick, like numbers, time or string.
+    // ". Did you forget to import 'math'?" (or "Or did you forget" after a guess). See TAUGHT.
     const mod = (text.match(/[Dd]id you forget to import '(\w+)'\?/) || [])[1];
     if (/cannot access local variable/.test(text)) return `${at} uses ${name} before it has been given a value inside this function.`;
-    // Only math.sqrt(4) uses it as a module. A bare name gets the variable advice below.
-    if (mod && new RegExp(`\\b${name}\\s*\\.`).test(src)) return `${at} uses ${mod}, which has to be imported first. Add import ${mod} at the top of your program.`;
-    const inPrint = new RegExp(`print\\([^)]*\\b${name}\\b`).test(src);
+    // math.sqrt(4) uses it as a module. A bare time * 2, or numbers.append(n) before numbers = [], gets the
+    // variable advice below: import numbers would only lead to "module 'numbers' has no attribute 'append'".
+    const dotted = new RegExp(`\\b${name}\\s*\\.`).test(src);
+    if (mod && TAUGHT.has(mod) && dotted) return `${at} uses ${mod}, which has to be imported first. Add import ${mod} at the top of your program.`;
+    const inPrint = !dotted && new RegExp(`print\\([^)]*\\b${name}\\b`).test(src);   // print(scores.pop()) isn't the word scores
     if (sug && !SURPRISING.has(sug)) return `${at}: Python doesn't know ${name}. Did you mean ${sug}? Check the spelling.`;
     if (inPrint) return `${at}: ${name} isn't a variable yet. If you meant the words ${name}, put them in quotes: print("${name}"). If it's a variable, create it with = first.`;
     return `${at}: Python doesn't know ${name}. Create it with = before you use it, and check the spelling.`;
   }],
   // input() on this line, not already turned into a number with int(input()) or float(input()).
-  [/^TypeError$/, () => JOIN.test(text) && /\binput\(/.test(src.replace(/\b(int|float)\(\s*input\(/g, "")), () => `${at} adds a number and what input() gave back. input() always gives text, even when someone types digits. Turn it into a number with int(input(...)) before doing maths with it.`],
+  [/^TypeError$/, () => JOIN.test(text) && /\binput\(/.test(src.replace(/\b(int|float)\(\s*input\(/g, "")), () => `${at} adds a number and what input() gave back. input() always gives text, even when someone types digits. Turn it into a number with int(input(...)) before doing math with it.`],
   [/^TypeError$/, () => JOIN.test(text), () => `${at} tries to join text and a number with +. Turn the number into text with str(), or use an f-string like f"Score: {score}".`],
   [/^ZeroDivisionError$/, () => true, () => `${at} divides by zero, and nobody can do that, not even a computer. Check the number after / or %.`],
   [/^IndexError$/, () => true, () => `${at} asks for a spot in the list that doesn't exist. Lists start counting at 0, so a list with 3 items has spots 0, 1 and 2.`],

@@ -17,7 +17,8 @@ class StopRun(BaseException):
 _BASE_MODULES = dict(sys.modules)                # name -> module, so a replaced or removed entry can be put back
 _BUILTINS = (vars(builtins), dict(vars(builtins)))
 # traceback and linecache too: the harness reports errors and compiles with them.
-_PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time, traceback, linecache)]
+_REPORTING = [(vars(m), dict(vars(m))) for m in (traceback, linecache)]
+_PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time)] + _REPORTING
 _STREAMS = [sys.stdout, sys.stderr, sys.stdin]   # this run's; clean_slate makes new ones
 _RECURSION = sys.getrecursionlimit()
 _HARNESS_MAIN = sys.modules["__main__"]          # these globals; kid code gets its own __main__
@@ -95,6 +96,8 @@ def run_as_main(code, main):
     finally:                           # the harness's own code, and traceback's, runs next
         _setrecursionlimit(_RECURSION)
         _restore(*_BUILTINS)
+        for names, saved in _REPORTING:  # so this run's own error can still be described
+            _restore(names, saved)
 
 
 def leave_main():

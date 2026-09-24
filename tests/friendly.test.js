@@ -44,7 +44,7 @@ for (const [code, line, message] of cases) test(`explains ${JSON.stringify(code)
 });
 
 test("a module used without importing it says to add the import, not to use quotes", () => {
-  for (const [code, name] of [["print(random.randint(1, 6))", "random"], ["x = math.sqrt(4)", "math"]]) {
+  for (const [code, name] of [["print(random.randint(1, 6))", "random"], ["x = math.sqrt(4)", "math"], ["time.sleep(1)", "time"]]) {
     const f = explain(code);
     assert.match(f.headline, new RegExp(`Add import ${name} at the top of your program\\.`));
     assert.doesNotMatch(f.headline, /quotes|Create it with =/);
@@ -52,8 +52,8 @@ test("a module used without importing it says to add the import, not to use quot
 });
 
 // Python adds "Did you forget to import 'X'?" whenever the name is also a module's name, and kids often
-// name variables numbers, time or string. Only name.something means the module; a bare name keeps the
-// variable advice, because following import advice there leads to a harder error ('module' object ...).
+// name variables numbers, time or string. A bare name keeps the variable advice, because following
+// import advice there leads to a harder error ('module' object ...).
 test("a bare name that is also a module's name keeps the variable advice, with no import advice", () => {
   for (const [code, headline] of [
     ["for n in numbers:\n    print(n)", "Line 1: Python doesn't know numbers. Create it with = before you use it, and check the spelling."],
@@ -70,12 +70,37 @@ test("a bare name that is also a module's name keeps the variable advice, with n
   }
 });
 
+// Python's import hint comes with any module's name, but only modules the course uses get import advice.
+// A kid who forgot numbers = [] and then wrote numbers.append(n) needs the variable advice: import numbers
+// would lead to "module 'numbers' has no attribute 'append'".
+test("a variable used with a dot that shares a module's name the course doesn't use keeps the variable advice", () => {
+  const create = (line, name) => `Line ${line}: Python doesn't know ${name}. Create it with = before you use it, and check the spelling.`;
+  for (const [code, headline] of [
+    ["for n in [1, 2]:\n    numbers.append(n)", create(2, "numbers")],
+    ["string.upper()", create(1, "string")],
+    ["queue.append(5)", create(1, "queue")],
+    ["code = code.lower()", create(1, "code")],
+    ["wave.append(1)", create(1, "wave")],
+    // Not the quotes advice either: numbers.pop() isn't the word numbers.
+    ["print(numbers.pop())", create(1, "numbers")],
+  ]) {
+    const f = explain(code);
+    assert.match(f.python, /forget to import/, "Python's own hint is still under 'What Python said'");
+    assert.equal(f.headline, headline);
+  }
+});
+
+test("a name used with a dot inside print() isn't taken for words to put in quotes", () => {
+  assert.equal(explain("print(scores.pop())").headline,
+    "Line 1: Python doesn't know scores. Create it with = before you use it, and check the spelling.");
+});
+
 test("adding a number and what input() gave back explains that input() gives text", () => {
   t.setAnswers(["5"]);
   const f = explain('total = 0\ntotal = total + input("n? ")');
   assert.equal(f.line, 2);
   assert.match(f.headline, /input\(\) always gives text/);
-  assert.match(f.headline, /Turn it into a number with int\(input\(\.\.\.\)\) before/);
+  assert.match(f.headline, /Turn it into a number with int\(input\(\.\.\.\)\) before doing math with it\./);
   assert.doesNotMatch(f.headline, /str\(\)/);
 });
 

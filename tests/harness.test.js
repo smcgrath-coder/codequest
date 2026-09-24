@@ -187,6 +187,13 @@ describe("clean slate between runs", () => {
     const r = run('print("fine")\nprint(1 / 0)');
     assert.equal(r.out, "fine\n"); assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 2);
   });
+  for (const harm of ["import traceback\ntraceback.TracebackException = None", "import linecache\nlinecache.cache = None",
+    "import linecache\nlinecache.getline = None"]) {
+    test(`a program that runs ${JSON.stringify(harm)} and then crashes still gets its own error reported`, () => {
+      const r = run(`${harm}\nprint(1 / 0)`);
+      assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 3); assert.equal(r.text, "ZeroDivisionError: division by zero");
+    });
+  }
   test("a module replaced in sys.modules is put back for the next run", () => {
     assert.equal(run("import sys\nsys.modules['math'] = None").ok, true);
     assert.equal(run("import math\nprint(math.sqrt(16))").out, "4.0\n");
