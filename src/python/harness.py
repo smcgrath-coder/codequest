@@ -38,6 +38,7 @@ def new_streams():
 
 def clean_slate(seed=None):
     """Undo anything a previous run changed: modules, builtins, patched stdlib, streams."""
+    sys.setrecursionlimit(_RECURSION)  # first: a limit as low as 3 leaves no room for another call
     for name in list(sys.modules):
         if name not in _BASE_MODULES:
             del sys.modules[name]
@@ -56,7 +57,6 @@ def clean_slate(seed=None):
     _STREAMS[:] = new_streams()
     sys.stdout, sys.stderr, sys.stdin = _STREAMS
     sys.__stdout__, sys.__stderr__, sys.__stdin__ = _STREAMS
-    sys.setrecursionlimit(_RECURSION)
     random.seed(seed)
 
 

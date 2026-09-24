@@ -88,8 +88,9 @@ describe("clean slate between runs", () => {
     run("import sys, types\nm = types.ModuleType('helper')\nm.x = 1\nsys.modules['helper'] = m");
     assert.equal(run("import helper").kind, "ModuleNotFoundError");
   });
-  test("a recursion limit lowered by one run is put back for the next", () => {
-    run("import sys\nsys.setrecursionlimit(50)");
+  // 3 is the lowest limit Python accepts at the kid's top level, so it leaves clean_slate no room.
+  for (const limit of [50, 3]) test(`a recursion limit lowered to ${limit} by one run is put back for the next`, () => {
+    assert.equal(run(`import sys\nsys.setrecursionlimit(${limit})`).ok, true);   // Python accepted it
     assert.equal(run("def down(n):\n    return 0 if n == 0 else down(n - 1)\nprint(down(200))").out, "0\n");
   });
   test("a program that swaps out sys.stdout still finishes, and the next run prints normally", () => {
