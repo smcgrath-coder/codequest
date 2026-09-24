@@ -125,9 +125,10 @@ export const BATCH_A = {
   ch2_s1: {
     output: [
       // Swapped from rules_a.py so an even/odd mix-up gets this hint, not the generic one below.
-      // \D* (rules_a.py had .*) stops at the next number, so "15 is odd, 42 is even" on one line
-      // isn't read as 15 ... even.
-      { expr: "not re.search(r'(?i)\\b15\\b\\D*\\beven|\\b42\\b\\D*\\bodd|\\b7\\b\\D*\\beven', out)", hint: "One of your numbers says the wrong thing: a number is even when number % 2 is 0." },
+      // [^\d\n]* (rules_a.py had .*) stops at the next number or the end of the line, so
+      // "15 is odd, 42 is even" on one line isn't read as 15 ... even, and a later line without
+      // numbers ("Even numbers are cool!") isn't read as part of the 7 line.
+      { expr: "not re.search(r'(?i)\\b15\\b[^\\d\\n]*\\beven|\\b42\\b[^\\d\\n]*\\bodd|\\b7\\b[^\\d\\n]*\\beven', out)", hint: "One of your numbers says the wrong thing: a number is even when number % 2 is 0." },
       { expr: "subseq([r're:(?i).*\\b15\\b.*\\bodd\\b.*', r're:(?i).*\\b42\\b.*\\beven\\b.*', r're:(?i).*\\b7\\b.*\\bodd\\b.*'])", hint: "For each number, print the number and the word even or odd." },
     ],
     concepts: [{ expr: "binop('Mod') >= 1", hint: "Use % 2 to let Python work out whether each number is even or odd." }],
