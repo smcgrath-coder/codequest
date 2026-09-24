@@ -1,0 +1,6 @@
+a = int("42")
+b = float("3.14")
+c = str(100)
+print(a, "<class 'int'>")
+print(b, "<class 'float'>")
+print(c, "<class 'str'>")
