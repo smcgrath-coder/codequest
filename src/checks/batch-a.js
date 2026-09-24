@@ -67,7 +67,9 @@ export const BATCH_A = {
       // because the probe only asks that each value is also stored in some variable.
       { expr: "count(ast.FormattedValue) >= 3", hint: "Put all three of your variables inside {curly braces} in the f-string, instead of typing their values." },
     ],
-    probes: [{ expr: "all(any(str(v) == cap for k, v in ns.items() if not k.startswith('__')) for cap in re.fullmatch(r'My name is (.+), I am (.+), and I love (.+)', L[0]).groups())", hint: "Store your name, age and favorite game in variables, and use those variables in your sentence." }],
+    // With three {variables} already required, this mostly fails on extra text in a blank that the
+    // output regex's (.+) let through, like "{age} years old" or "{game}!", so the hint names that.
+    probes: [{ expr: "all(any(str(v) == cap for k, v in ns.items() if not k.startswith('__')) for cap in re.fullmatch(r'My name is (.+), I am (.+), and I love (.+)', L[0]).groups())", hint: "Fill each ___ blank with just one variable in {curly braces}, and add no extra words or punctuation, not even at the end." }],
   },
   grind_0: { output: [{ expr: "lines(['####','#  #','#  #','####'])" }] },
   grind_1: {
@@ -122,8 +124,11 @@ export const BATCH_A = {
   },
   ch2_s1: {
     output: [
+      // Swapped from rules_a.py so an even/odd mix-up gets this hint, not the generic one below.
+      // \D* (rules_a.py had .*) stops at the next number, so "15 is odd, 42 is even" on one line
+      // isn't read as 15 ... even.
+      { expr: "not re.search(r'(?i)\\b15\\b\\D*\\beven|\\b42\\b\\D*\\bodd|\\b7\\b\\D*\\beven', out)", hint: "One of your numbers says the wrong thing: a number is even when number % 2 is 0." },
       { expr: "subseq([r're:(?i).*\\b15\\b.*\\bodd\\b.*', r're:(?i).*\\b42\\b.*\\beven\\b.*', r're:(?i).*\\b7\\b.*\\bodd\\b.*'])", hint: "For each number, print the number and the word even or odd." },
-      { expr: "not re.search(r'(?i)\\b15\\b.*\\beven|\\b42\\b.*\\bodd|\\b7\\b.*\\beven', out)", hint: "One of your numbers says the wrong thing: a number is even when number % 2 is 0." },
     ],
     concepts: [{ expr: "binop('Mod') >= 1", hint: "Use % 2 to let Python work out whether each number is even or odd." }],
   },
