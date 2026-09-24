@@ -25,11 +25,16 @@ export async function runAndGrade({ code, challenge, rule, attempt, runner, fall
 
 const pick = r => ({ passes: !!r.passes, feedback: r.feedback, keywordError: r.error || null });
 
-// A "stuck" Run: the program ran cleanly (no crash, not stopped) but didn't pass, so the grader may be
-// the one that's wrong. Without Python, a keyword error counts as a real mistake. STUCK_TRIES_TO_MARK_DONE
-// of these unlock the room's "mark it done" button.
+// A "stuck" Run: the kid's own code ran cleanly (no crash, not stopped) but didn't pass, so the grader may
+// be the one that's wrong. Without Python, a keyword error counts as a real mistake. Empty code, or the
+// starter left as it was, can't be a misgraded answer. STUCK_TRIES_TO_MARK_DONE of these unlock the room's
+// "mark it done" button.
 export const STUCK_TRIES_TO_MARK_DONE = 3;
-export function countsAsStuck(result) {
+export function countsAsStuck(result, { code, starter = "" } = {}) {
   if (!result || result.passes) return false;
+  if (code !== undefined && (!codeLines(code) || codeLines(code) === codeLines(starter))) return false;
   return result.mode === "fallback" ? !result.keywordError : !!result.run?.ok;
 }
+
+// The lines that do something: no blank lines, comment-only lines or trailing spaces.
+const codeLines = src => src.split("\n").map(l => l.trimEnd()).filter(l => l.trim() && !l.trim().startsWith("#")).join("\n");

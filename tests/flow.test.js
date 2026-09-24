@@ -140,4 +140,26 @@ describe("stuck attempts (they unlock the Mark it done button)", () => {
     assert.equal(countsAsStuck(null), false);
     assert.equal(countsAsStuck(undefined), false);
   });
+
+  // Unchanged or empty code can't be a correct answer the grader got wrong, so it never unlocks the button.
+  const rejected = { mode: "python", passes: false, run: { ok: true } };
+  const starter = "name = \"Alex\"\n# Print a greeting below\n";
+
+  test("running the untouched starter code is not stuck", () => {
+    assert.equal(countsAsStuck(rejected, { code: starter, starter }), false);
+  });
+
+  test("the starter with only blank lines, comments or spaces changed is still untouched", () => {
+    assert.equal(countsAsStuck(rejected, { code: "name = \"Alex\"   \n\n# my idea\n", starter }), false);
+  });
+
+  test("code that is empty or only comments is not stuck", () => {
+    assert.equal(countsAsStuck(rejected, { code: "", starter }), false);
+    assert.equal(countsAsStuck(rejected, { code: "# Type your code below\n\n  # still thinking\n", starter }), false);
+  });
+
+  test("the kid's own code on top of the starter is stuck", () => {
+    assert.equal(countsAsStuck(rejected, { code: starter + "print(f\"Hi {name}\")\n", starter }), true);
+    assert.equal(countsAsStuck({ mode: "fallback", passes: false, keywordError: null }, { code: "print('hi')", starter }), true);
+  });
 });

@@ -2712,7 +2712,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       if(seq!==runSeq.current)return;   // the kid left the room
       setWaiting(false);setResult(r);
       setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
-      if(countsAsStuck(r))setStuck(n=>n+1);
+      if(countsAsStuck(r,{code,starter:challenge.starterCode}))setStuck(n=>n+1);
       if(r.passes)win();
       else{try{SFX.codeFail()}catch(e){}}
     }finally{setIsRunning(false);setChecking(false)}
