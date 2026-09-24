@@ -2,6 +2,7 @@
 # The clean-slate helpers are shared with grading.py (same Pyodide globals).
 import builtins, linecache, sys, time, traceback, types
 import random, math, string
+import ast, contextlib, copy, inspect, io, json, re, tokenize   # grading.py checks programs with these
 import _codequest
 
 KID_FILE = "main.py"
@@ -16,8 +17,11 @@ class StopRun(BaseException):
 # What a clean interpreter looks like, captured once at startup.
 _BASE_MODULES = dict(sys.modules)                # name -> module, so a replaced or removed entry can be put back
 _BUILTINS = (vars(builtins), dict(vars(builtins)))
-# traceback and linecache too: the harness reports errors and compiles with them.
-_REPORTING = [(vars(m), dict(vars(m))) for m in (traceback, linecache)]
+# Put back after every kid run, not only before the next one, because the harness's and grading.py's code
+# use them next: traceback and linecache report errors and compile, and grading.py checks programs with the
+# rest. Kid code gets these same module objects, so `json.dumps = ...` would otherwise change later grades.
+_REPORTING = [(vars(m), dict(vars(m))) for m in
+              (traceback, linecache, ast, contextlib, copy, inspect, io, json, re, tokenize, types)]
 _PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time)] + _REPORTING
 _STREAMS = [sys.stdout, sys.stderr, sys.stdin]   # this run's; clean_slate makes new ones
 _RECURSION = sys.getrecursionlimit()
@@ -96,7 +100,7 @@ def run_as_main(code, main):
     finally:                           # the harness's own code, and traceback's, runs next
         _setrecursionlimit(_RECURSION)
         _restore(*_BUILTINS)
-        for names, saved in _REPORTING:  # so this run's own error can still be described
+        for names, saved in _REPORTING:  # so this run's own error can still be described, and graded
             _restore(names, saved)
 
 

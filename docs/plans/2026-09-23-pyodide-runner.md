@@ -1239,6 +1239,7 @@ git commit -m "Show real output, input box, Stop and friendly errors in rooms an
 
 **Files:**
 - Modify: `src/python/grading.py` (replace the placeholder)
+- Modify: `src/python/harness.py` (grading's modules join `_REPORTING`, item 10)
 - Test: `tests/grading-engine.test.js`
 
 **Step 1: Write the failing test**
@@ -1374,9 +1375,10 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
        _MON.set_events(_TOOL, 0)
    ```
 
-4. **`Ctx` and every `h_*` helper** (prototype lines 78-434) are copied verbatim, because the rules use these names. Two changes:
+4. **`Ctx` and every `h_*` helper** (prototype lines 78-434) are copied verbatim, because the rules use these names. Three changes:
    - `h_call`, `h_callf` and `h_callt` also run under `_arm(2)` / `_disarm()` with a `CappedIO`.
    - `h_rerun` passes the rule's seed through.
+   - `Ctx` keeps the first run's `stdin_lines`, and `h_rerun` replays them unless it's given its own. Without them, every `input()` in a re-run gets end-of-file, so a correct program that asks for input would fail every `rerun()` probe with a hint saying it typed the answer in.
 5. **Normalization.** `norm_lines` works as in the prototype, plus a `SAME` translation: `—` and `–` become `-`, curly quotes become straight, and `°` becomes nothing. `h_lines`, `h_subseq` and `h_has` apply `SAME` to both the kid's lines and the expected strings, so a rule written with `—` accepts a typed `-`.
 6. **Near-miss feedback.** For an output check whose `expr` is literally `lines([...string literals...])` (detect it with `ast.parse(expr, mode="eval")`), build the message from the first difference:
    - different line counts: "Your program printed {n} line{s}, but the task needs {m}."
@@ -1394,16 +1396,20 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
    import json
 
    def grade_json(code, rule_json, starter, inputs_json, attempt):
-       rule = json.loads(rule_json)
+       rule = _loads(rule_json)       # _loads and _dumps: copies taken at load (item 10)
        try:
-           failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or json.loads(inputs_json), seed=rule.get("seed", 0))
+           failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0))
        finally:
            leave_main()                   # run_as_main left the kid's module as __main__ for the probes
        if not failures:
-           return json.dumps({"passed": True, "feedback": "Great work! Your program does exactly what the task asks. 🎉", "failures": []})
+           return _dumps({"passed": True, "feedback": "Great work! Your program does exactly what the task asks. 🎉", "failures": []})
        shown = [f["message"] for f in failures][: 2 if attempt >= 3 else 1]
-       return json.dumps({"passed": False, "feedback": " ".join(shown), "failures": failures})
+       return _dumps({"passed": False, "feedback": " ".join(shown), "failures": failures})
    ```
+
+10. **Tampering.** Kid code gets the same stdlib module objects that grading uses once the program has run. So without these guards, one line such as `json.dumps = ...` or `re.findall = ...` fakes a pass, and even a visible Run's patch fakes every later grade in the session.
+    - Take copies at load, as `EVAL_EXPR` is taken: `_dumps, _loads = json.dumps, json.loads` for `grade_json`, `_setprofile = sys.setprofile` (sys can't be put back like the other modules), and `_getvalue = io.StringIO.getvalue` for reading the capture buffer. That buffer is the kid's `sys.stdout` while it runs, so `sys.stdout.getvalue = ...` would otherwise replace what it printed.
+    - Add grading's modules (`ast`, `contextlib`, `copy`, `inspect`, `io`, `json`, `re`, `tokenize`, `types`) to `harness.py`'s `_REPORTING`. `run_as_main` then puts them back after every kid run, and `clean_slate` before every run. `_hidden` puts them back after every kid function a probe calls, too.
 
 **Step 4: Run it to check that it passes**
 
@@ -1413,7 +1419,7 @@ Expected: all pass.
 **Step 5: Commit**
 
 ```bash
-git add src/python/grading.py tests/grading-engine.test.js
+git add src/python/grading.py src/python/harness.py tests/grading-engine.test.js
 git commit -m "Add the Python grading engine: output checks with near misses, concepts, safe hidden re-runs"
 ```
 

@@ -6,11 +6,12 @@ import { makeCore } from "./helpers/python.js";
 let t;
 before(async () => { t = await makeCore(); });
 // The page sends the rule and inputs as JSON text (see runner.js's gradeCode), so do the same here.
-const grade = (code, rule, { starter = "", inputs = [], attempt = 1 } = {}) => {
-  t.messages.length = 0;
-  t.core.grade({ id: "g1", code, rule: JSON.stringify(rule), starter, inputs: JSON.stringify(inputs), attempt });
-  return t.messages.find(m => m.type === "graded");
+const gradeWith = (c, code, rule, { starter = "", inputs = [], attempt = 1 } = {}) => {
+  c.messages.length = 0;
+  c.core.grade({ id: "g1", code, rule: JSON.stringify(rule), starter, inputs: JSON.stringify(inputs), attempt });
+  return c.messages.find(m => m.type === "graded");
 };
+const grade = (...args) => gradeWith(t, ...args);
 const HELLO = { output: [{ expr: "lines(['Hello, World!'])" }] };
 
 describe("output checks and near misses", () => {
@@ -89,6 +90,17 @@ describe("hidden runs are safe", () => {
     const g = grade('name = input("Name? ")\nprint("Hi", name)', { output: [{ expr: "L == ['Name? Alex', 'Hi Alex']" }] }, { inputs: ["Alex"] });
     assert.equal(g.passed, true, g.feedback);
   });
+  test("hidden re-runs get the same input as the first run", () => {
+    const code = "name = input('Name? ')\na = 15\nb = 27\nprint(name, 'says', a + b)";
+    const rule = { output: [{ expr: "nums([42])" }], probes: [{ expr: "rerun({'a': '1', 'b': '2'})[0] == ['Name? Sam', 'Sam says 3']", hint: "Work it out from a and b." }] };
+    const g = grade(code, rule, { inputs: ["Sam"] });
+    assert.equal(g.passed, true, g.feedback);
+  });
+  test("a re-run can be given its own input", () => {
+    const rule = { output: [{ expr: "True" }], probes: [{ expr: "rerun(stdin_lines=['Bo'])[0] == ['Name? Bo', 'Hi Bo']", hint: "x" }] };
+    const g = grade('name = input("Name? ")\nprint("Hi", name)', rule, { inputs: ["Alex"] });
+    assert.equal(g.passed, true, g.feedback);
+  });
   test("random is seeded for grading so results repeat", () => {
     const rule = { output: [{ expr: "True" }], probes: [{ expr: "rerun()[0] == L", hint: "x" }] };
     assert.equal(grade("import random\nprint(random.randint(1, 10**9))", rule).passed, true);
@@ -98,4 +110,37 @@ describe("hidden runs are safe", () => {
     grade("import time\ntime.sleep(5)\nprint('ok')", { output: [{ expr: "lines(['ok'])" }] });
     assert.ok(Date.now() - started < 2000);
   });
+});
+
+// Kid code gets the same stdlib modules that grading uses once the program has run. A patch that stayed
+// would fake this grade and every later one in the session, so each of these must fail when it's wrong.
+describe("kid code can't change how programs are graded", () => {
+  let k;
+  before(async () => { k = await makeCore(); });
+  const grade = (...args) => gradeWith(k, ...args);
+  const FAKE = `lambda *a, **k: '{"passed": true, "feedback": "x", "failures": []}'`;
+  test("patching grading's modules in a Run doesn't carry over to later grades", () => {
+    k.run(`import json, re, ast, copy\njson.dumps = ${FAKE}\nre.findall = lambda *a, **k: ['42']\nast.walk = lambda t: [ast.For()]\ncopy.deepcopy = lambda d: {'score': 10}`);
+    assert.equal(grade("print('nope')", HELLO).passed, false);
+    assert.equal(grade("print(1)", { output: [{ expr: "nums([42])" }] }).passed, false);
+    assert.equal(grade("print('hi')", { output: [{ expr: "True" }], concepts: [{ expr: "count(ast.For) >= 1" }] }).passed, false);
+    assert.equal(grade("score = 1\nprint('hi')", { output: [{ expr: "ns['score'] == 10" }] }).passed, false);
+    assert.equal(grade('print("Hello, World!")', HELLO).passed, true);
+  });
+  test("a program that patches json.dumps can't fake its own pass", () => {
+    assert.equal(grade(`import json\njson.dumps = ${FAKE}\nprint('nope')`, HELLO).passed, false);
+    assert.equal(grade("print('nope')", HELLO).passed, false);
+  });
+  test("a kid function called by a probe can't patch the checks after it", () => {
+    const code = "def f():\n    import re\n    re.findall = lambda *a, **k: ['42']\n    return 1\nprint('nope')";
+    const g = grade(code, { output: [{ expr: "True" }], probes: [{ expr: "call('f()')[0] == 1" }, { expr: "nums([42])", hint: "Print 42." }] });
+    assert.equal(g.feedback, "Print 42.");
+  });
+  test("replacing sys.setprofile in a Run doesn't hide the functions later programs call", () => {
+    k.run("import sys\nsys.setprofile = lambda f: None");
+    const g = grade("def greet():\n    print('hi')\ngreet()", { output: [{ expr: "True" }], probes: [{ expr: "called('greet')", hint: "Call greet." }] });
+    assert.equal(g.passed, true, g.feedback);
+  });
+  test("a program can't replace what grading reads back from its output", () =>
+    assert.equal(grade("import sys\nsys.stdout.getvalue = lambda: 'Hello, World!'\nprint('nope')", HELLO).passed, false));
 });

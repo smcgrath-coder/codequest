@@ -14,6 +14,12 @@ import ast, builtins, contextlib, copy, inspect, io, json, re, string, sys, time
 # looked up by name for the same reason: security linters that look for eval calls misfire on it.
 # Taken now, so kid code that rebinds builtins.eval can't change how its checks are evaluated.
 EVAL_EXPR = getattr(builtins, "ev" + "al")
+# Copies taken now too. Kid code gets the same module objects as this file, and harness.py puts back the
+# modules grading uses after every kid run (its _REPORTING), but the result grade_json sends and what a
+# run printed shouldn't depend on that. sys can't be put back that way, and the capture buffer is the kid's
+# sys.stdout while it runs, so `sys.stdout.getvalue = ...` would otherwise replace what it printed.
+_dumps, _loads = json.dumps, json.loads
+_setprofile, _getvalue = sys.setprofile, io.StringIO.getvalue
 
 VS16 = "\ufe0f"                # emoji variation selector: invisible, and kids can't type it
 # Characters kids can't easily type count as the ones they can.
@@ -132,7 +138,7 @@ class Run:
             builtins.input = fake_input
             compiled = compile_kid(code) if tree is None else compile(tree, KID_FILE, "exec", dont_inherit=True)
             with contextlib.redirect_stdout(buf):
-                sys.setprofile(prof)
+                _setprofile(prof)
                 try:
                     _arm(HIDDEN_RUN_SECONDS)
                     try:
@@ -142,7 +148,7 @@ class Run:
                     finally:
                         fired = _disarm()
                 finally:
-                    sys.setprofile(None)
+                    _setprofile(None)
         except SystemExit:              # exit() ends the program normally, as in a visible Run
             pass
         except StopRun:                 # time limit or output cap
@@ -154,7 +160,7 @@ class Run:
             for dotted, (m, attr, val) in saved.items():
                 setattr(m, attr, val)
         self.timed_out = self.timed_out or fired
-        self.out = buf.getvalue()
+        self.out = _getvalue(buf)
         self.ns = ns
         self.edges = [e for e in edges if e[0] != "<module>"]
         self.trace = [e[0] for e in self.edges]
@@ -162,7 +168,8 @@ class Run:
 
 class Ctx:
     def __init__(self, code, starter="", stdin_lines=None, seed=0):
-        self.code, self.starter, self.seed = code, starter, seed
+        # The first run's input, kept so hidden re-runs can answer the same input() calls.
+        self.code, self.starter, self.stdin_lines, self.seed = code, starter, stdin_lines, seed
         self.hidden_timeout = False     # a hidden run or call made by the current check never finished
         try:
             self.tree = ast.parse(code)
@@ -199,7 +206,7 @@ class Ctx:
         buf, fired = CappedIO(), False
         try:
             with contextlib.redirect_stdout(buf):
-                sys.setprofile(prof)
+                _setprofile(prof)
                 try:
                     _arm(HIDDEN_RUN_SECONDS)
                     try:
@@ -207,17 +214,19 @@ class Ctx:
                     finally:
                         fired = _disarm()
                 finally:
-                    sys.setprofile(None)
+                    _setprofile(None)
                     # As run_as_main does: kid functions can change these too, and grading's code runs next.
                     _setrecursionlimit(_RECURSION)
                     _restore(*_BUILTINS)
+                    for names, saved in _REPORTING:
+                        _restore(names, saved)
         except StopRun as e:
             fired, v = True, ("__error__", f"StopRun: {e}")
         except BaseException as e:
             v = ("__error__", _describe(e))
         if fired:
             self.hidden_timeout = True
-        return v, norm_lines(buf.getvalue())
+        return v, norm_lines(_getvalue(buf))
 
     # ---------- output helpers ----------
     @staticmethod
@@ -290,7 +299,8 @@ class Ctx:
 
     def h_rerun(self, overrides=None, patches=None, stdin_lines=None):
         """Re-run with the first top-level `name = ...` replaced and/or module
-        attributes patched (e.g. random.randint). Returns (lines, Run)."""
+        attributes patched (e.g. random.randint). It gets the first run's input unless
+        stdin_lines is given: without any, input() would end the program. Returns (lines, Run)."""
         tree = ast.parse(self.code)
         for key, src in (overrides or {}).items():
             name, _, nth = key.partition("#")
@@ -302,6 +312,8 @@ class Ctx:
                         node.value = ast.parse(src, mode="eval").body
                         break
         ast.fix_missing_locations(tree)
+        if stdin_lines is None:
+            stdin_lines = self.stdin_lines
         r = Run(self.code, stdin_lines=stdin_lines, patches=patches, tree=tree, seed=self.seed)
         if r.timed_out:
             self.hidden_timeout = True
@@ -620,12 +632,12 @@ def evaluate(code, rule, starter="", stdin_lines=None, seed=0):
 
 
 def grade_json(code, rule_json, starter, inputs_json, attempt):
-    rule = json.loads(rule_json)
+    rule = _loads(rule_json)
     try:
-        failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or json.loads(inputs_json), seed=rule.get("seed", 0))
+        failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0))
     finally:
         leave_main()                   # run_as_main left the kid's module as __main__ for the probes
     if not failures:
-        return json.dumps({"passed": True, "feedback": PASSED, "failures": []})
+        return _dumps({"passed": True, "feedback": PASSED, "failures": []})
     shown = [f["message"] for f in failures][: 2 if attempt >= 3 else 1]
-    return json.dumps({"passed": False, "feedback": " ".join(shown), "failures": failures})
+    return _dumps({"passed": False, "feedback": " ".join(shown), "failures": failures})
