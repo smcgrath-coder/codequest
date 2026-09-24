@@ -58,6 +58,14 @@ npm run build
 
 Output goes to `dist/` — deploy anywhere that serves static files.
 
+### 5. Run the tests
+
+```bash
+npm test
+```
+
+The suite checks the code grader against a hand-written reference solution for every challenge (`tests/fixtures/solutions/`), and runs those solutions in real Python when `python3` is installed. CI runs the tests and a build on every push.
+
 ## 🌐 Deploy to Vercel (Free)
 
 1. Push to GitHub
@@ -75,10 +83,16 @@ codequest/
 ├── public/
 │   └── music/           ← Your MP3 files go here
 ├── src/
-│   ├── App.jsx          ← Main game (5100+ lines)
+│   ├── App.jsx          ← Screens, pixel art and game flow
+│   ├── content.js       ← Chapters, challenges, trophies, Codex, practice
+│   ├── grader.js        ← Checks a kid's code (without running it)
+│   ├── progress.js      ← XP, trophies, practice unlocks, save repair
+│   ├── editor.js        ← Code editor keys (Tab / Shift+Tab / Ctrl+Enter)
+│   ├── theme.js         ← Colours and fonts
 │   ├── music.js         ← Music player system
 │   ├── main.jsx         ← React entry point
 │   └── index.css        ← Tailwind + base styles
+├── tests/               ← `npm test` (grader, progress, editor, solutions)
 ├── index.html
 ├── package.json
 ├── vite.config.js
