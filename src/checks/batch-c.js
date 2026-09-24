@@ -13,26 +13,34 @@ export const BATCH_C = {
     output: [
       { expr: py`any(re.fullmatch(r'\W*Game Over!\W*', l) for l in L) or not any(re.fullmatch(r'(?i)\W*game\W*over\W*', l) for l in L)`,
         hint: "So close! Check the capital letters and punctuation in your Game Over line: it should say 'Game Over!'." },
+      // The same for the Round lines: '⚔️ round 1!' only differs in its capitals (r3_round_lower).
+      { expr: py`subseq([r're:.*Round 1!', r're:.*Round 2!', r're:.*Round 3!', r're:.*Round 4!']) or not subseq([r're:(?i).*\bround\W*1\W*', r're:(?i).*\bround\W*2\W*', r're:(?i).*\bround\W*3\W*', r're:(?i).*\bround\W*4\W*'])`,
+        hint: "So close! Check the capital letters and punctuation in your Round lines: they should look like '⚔️ Round 1!'." },
       { expr: py`subseq([r're:.*Round 1!', r're:.*Round 2!', r're:.*Round 3!', r're:.*Round 4!', r're:\W*Game Over!\W*']) and not has('Round 5') and not any(re.search(r'Round \d', l) for l in L[[i for i, l in enumerate(L) if re.fullmatch(r'\W*Game Over!\W*', l)][0] + 1:])`,
         hint: "Print 'Round 1!' up to 'Round 4!' as the game goes, then 'Game Over!' when the answer is 'n'." },
     ],
     concepts: [{ expr: py`count(ast.Break) >= 1`, hint: "The task asks you to use break to stop the loop when the answer is 'n'." }],
-    // Game Over's capitals are left to the near-miss check above, so a near miss gets only that hint.
-    probes: [{ expr: py`(lambda t: subseq([r're:.*Round 1!', r're:.*Round 2!', r're:(?i)\W*game\W*over\W*'], L=t) and not has('Round 3', L=t))(rerun({'responses': "['y', 'n']"})[0])`,
+    // The capitals of Game Over and the Round lines are left to the near-miss checks above, so a near miss gets
+    // only that hint.
+    probes: [{ expr: py`(lambda t: subseq([r're:(?i).*\bround\W*1\W*', r're:(?i).*\bround\W*2\W*', r're:(?i)\W*game\W*over\W*'], L=t) and not any(re.search(r'(?i)\bround\W*3\b', l) for l in t))(rerun({'responses': "['y', 'n']"})[0])`,
       hint: "Read each answer from responses[i] and stop when it is 'n', so the game works for any list of answers." }],
   },
   // The flips are the first 10 lines naming one side of the coin; the tally is whatever comes after them.
   // The prototype counted exactly 10 such lines and read the tally from the last 2 lines, which rejected a
   // tally printed as "Heads: 4" / "Tails: 6" (ALT_two_line_tally).
+  // W reads a line's flip: the side it names that isn't a count label ('Heads: 3', 'Tails so far: 1'), if it
+  // names just one, so 'Flip 1: Tails (Heads so far: 0, Tails so far: 1)' is a Tails flip (r3_running_tally),
+  // while a tally such as 'Heads: 4 Tails: 6' and a question such as 'Heads or Tails?' aren't flips. The
+  // prototype skipped every line naming both sides.
   ch9_r2: {
     output: [
-      { expr: py`len([l for l in L if re.search(r'\b(Heads|Tails)\b', l) and not (('Heads' in l) and ('Tails' in l))]) >= 10`,
+      { expr: py`(lambda W: len([l for l in L if W(l)]) >= 10)((lambda l: (lambda nc: nc[0] if len(set(nc)) == 1 else None)(re.findall(r'\b(Heads|Tails)\b(?!\s*[:=]\s*\d|\s+(?:so far|count|total)\s*[:=]?\s*\d)', l))))`,
         hint: "Print every flip on its own line, so I can see all 10 Heads or Tails results." },
       // Each count must sit with its own label, read three ways: the number after each label ("Heads: 3"),
       // the number before it ("3 heads"), or the labels' order matching the numbers' order ("Heads/Tails: 3/7").
       // The prototype's numset took the two numbers in either order, so counters swapped between Heads and Tails
       // passed (r1_tally_no_labels_swapped). A tally with no labels at all still only needs both numbers.
-      { expr: py`(lambda k: (lambda T, nh, nt: (not re.search(r'(?i)\b(heads?|tails?)\b', T) and numset([nh, nt], L=T.split('\n'))) or [[int(x) for x in re.findall(r'(?i)\b%s\b[^\d\n]*?(\d+)' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or [[int(x) for x in re.findall(r'(?i)(\d+)[^\d\n]*?\b%s\b' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or (lambda a, b, n: a is not None and b is not None and len(n) >= 2 and (n[:2] == [nh, nt] if a.start() < b.start() else n[:2] == [nt, nh]))(re.search(r'(?i)\bheads?\b', T), re.search(r'(?i)\btails?\b', T), [int(x) for x in re.findall(r'\d+', T)]))('\n'.join(L[k[9] + 1:]), sum('Heads' in L[j] for j in k[:10]), sum('Tails' in L[j] for j in k[:10])))([j for j, l in enumerate(L) if re.search(r'\b(Heads|Tails)\b', l) and not (('Heads' in l) and ('Tails' in l))])`,
+      { expr: py`(lambda W: (lambda k: (lambda T, nh, nt: (not re.search(r'(?i)\b(heads?|tails?)\b', T) and numset([nh, nt], L=T.split('\n'))) or [[int(x) for x in re.findall(r'(?i)\b%s\b[^\d\n]*?(\d+)' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or [[int(x) for x in re.findall(r'(?i)(\d+)[^\d\n]*?\b%s\b' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or (lambda a, b, n: a is not None and b is not None and len(n) >= 2 and (n[:2] == [nh, nt] if a.start() < b.start() else n[:2] == [nt, nh]))(re.search(r'(?i)\bheads?\b', T), re.search(r'(?i)\btails?\b', T), [int(x) for x in re.findall(r'\d+', T)]))('\n'.join(L[k[9] + 1:]), sum(W(L[j]) == 'Heads' for j in k[:10]), sum(W(L[j]) == 'Tails' for j in k[:10])))([j for j, l in enumerate(L) if W(l)]))((lambda l: (lambda nc: nc[0] if len(set(nc)) == 1 else None)(re.findall(r'\b(Heads|Tails)\b(?!\s*[:=]\s*\d|\s+(?:so far|count|total)\s*[:=]?\s*\d)', l))))`,
         hint: "After the 10 flips, print how many Heads and how many Tails you counted. They must match the flips you printed." },
     ],
     probes: [
@@ -42,12 +50,16 @@ export const BATCH_C = {
       // flip_coin that is defined but never used passed them (r2_function_unused).
       { expr: py`trace.count('flip_coin') >= 10`,
         hint: "Call flip_coin() for each of the 10 flips, instead of calling random.choice in your loop." },
+      // Before the scripted probes, which a flip_coin using random.randint instead fails too, with a hint about
+      // calling it once per flip (r3_randint_coin). Every flip that passes them calls random.choice.
+      { expr: py`(lambda w: (rerun(patches={'random.choice': w[0]}), len(w[1]) >= 10)[1])(rec('random.choice'))`,
+        hint: "Make flip_coin() pick its answer with random.choice(['Heads', 'Tails']), as the task says." },
       // Scripted flips instead of the prototype's "always Tails", which a program that prints one flip and
       // counts another also passes (double_flip).
-      { expr: py`(lambda t: (lambda k: [('Heads' if 'Heads' in t[j] else 'Tails') for j in k[:10]] == ['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'] and numset([3, 7], L=t[k[9] + 1:]))([j for j, l in enumerate(t) if re.search(r'\b(Heads|Tails)\b', l) and not (('Heads' in l) and ('Tails' in l))]))(rerun(patches={'random.choice': seq(['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'])})[0])`,
+      { expr: py`(lambda W: (lambda t: (lambda k: [W(t[j]) for j in k[:10]] == ['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'] and numset([3, 7], L=t[k[9] + 1:]))([j for j, l in enumerate(t) if W(l)]))(rerun(patches={'random.choice': seq(['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'])})[0]))((lambda l: (lambda nc: nc[0] if len(set(nc)) == 1 else None)(re.findall(r'\b(Heads|Tails)\b(?!\s*[:=]\s*\d|\s+(?:so far|count|total)\s*[:=]?\s*\d)', l))))`,
         hint: "Call flip_coin() once for each flip, then print and count that same result." },
       // The same 3 Heads and 7 Tails, now read label by label as in the output check (r1_tally_no_labels_swapped).
-      { expr: py`(lambda t: (lambda k: (lambda T, nh, nt: (not re.search(r'(?i)\b(heads?|tails?)\b', T) and numset([nh, nt], L=T.split('\n'))) or [[int(x) for x in re.findall(r'(?i)\b%s\b[^\d\n]*?(\d+)' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or [[int(x) for x in re.findall(r'(?i)(\d+)[^\d\n]*?\b%s\b' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or (lambda a, b, n: a is not None and b is not None and len(n) >= 2 and (n[:2] == [nh, nt] if a.start() < b.start() else n[:2] == [nt, nh]))(re.search(r'(?i)\bheads?\b', T), re.search(r'(?i)\btails?\b', T), [int(x) for x in re.findall(r'\d+', T)]))('\n'.join(t[k[9] + 1:]), 3, 7))([j for j, l in enumerate(t) if re.search(r'\b(Heads|Tails)\b', l) and not (('Heads' in l) and ('Tails' in l))]))(rerun(patches={'random.choice': seq(['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'])})[0])`,
+      { expr: py`(lambda W: (lambda t: (lambda k: (lambda T, nh, nt: (not re.search(r'(?i)\b(heads?|tails?)\b', T) and numset([nh, nt], L=T.split('\n'))) or [[int(x) for x in re.findall(r'(?i)\b%s\b[^\d\n]*?(\d+)' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or [[int(x) for x in re.findall(r'(?i)(\d+)[^\d\n]*?\b%s\b' % w, T)][:1] for w in ('heads?', 'tails?')] == [[nh], [nt]] or (lambda a, b, n: a is not None and b is not None and len(n) >= 2 and (n[:2] == [nh, nt] if a.start() < b.start() else n[:2] == [nt, nh]))(re.search(r'(?i)\bheads?\b', T), re.search(r'(?i)\btails?\b', T), [int(x) for x in re.findall(r'\d+', T)]))('\n'.join(t[k[9] + 1:]), 3, 7))([j for j, l in enumerate(t) if W(l)]))(rerun(patches={'random.choice': seq(['Heads', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails', 'Tails', 'Heads', 'Tails', 'Tails'])})[0]))((lambda l: (lambda nc: nc[0] if len(set(nc)) == 1 else None)(re.findall(r'\b(Heads|Tails)\b(?!\s*[:=]\s*\d|\s+(?:so far|count|total)\s*[:=]?\s*\d)', l))))`,
         hint: "When I picked 3 Heads and 7 Tails, your Heads and Tails counts came out swapped: add 1 to heads only when the flip is 'Heads'." },
     ],
   },
@@ -84,22 +96,28 @@ export const BATCH_C = {
       // (r2_overall_always_you, r2_overall_by_last_round). One side wins rounds 1-4 and the other round 5, and the
       // counters say which side is which, since the enemy may roll first. From the last line holding a 4 (the
       // final score: the rolls are 6 and 1), nothing may say the side that won 1 round won the battle. Scores
-      // such as "Enemy wins: 1" don't count as claims, nor does "Winner: Player 2" for the player.
-      { expr: py`(lambda P, E: all((lambda t, pw, ew: not any((P if ew > pw else E)(l) for l in t[max([i for i, l in enumerate(t) if 4 in ints(l)] or [len(t)]):]))(r[0], r[1].ns.get('player_wins'), r[1].ns.get('enemy_wins')) for r in (rerun(patches={'random.randint': seq([6, 1, 6, 1, 6, 1, 6, 1, 1, 6])}), rerun(patches={'random.randint': seq([1, 6, 1, 6, 1, 6, 1, 6, 6, 1])}))))(lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(you|player|hero|human)\s+(are\s+|is\s+|were\s+|was\s+|have\s+|has\s+)?(the\s+)?(overall\s+|big\s+|grand\s+|ultimate\s+|final\s+)?(wins?|won|winner|champion|champ|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(winner|champion|champ|victor)\b\W*(is\s+|was\s+)?(the\s+)?(you|player|hero|human)\b(?!\s*2)|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(enemy|monster|foe|opponent|computer|cpu|villain|rival)\s+(loses|lost|is\s+defeated|was\s+defeated)\b(?!\W*(\d|no\b|none|zero))", l), lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(enemy|monster|foe|opponent|computer|cpu|villain|rival)\s+(is\s+|was\s+|has\s+)?(the\s+)?(overall\s+|big\s+|grand\s+|ultimate\s+|final\s+)?(wins?|won|winner|champion|champ|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(winner|champion|champ|victor)\b\W*(is\s+|was\s+)?(the\s+)?(enemy|monster|foe|opponent|computer|cpu|villain|rival|player\s*2)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\s+(lose|lost)\b(?!\W*(\d|no\b|none|zero))", l))`,
+      // such as "Enemy wins: 1" or "You won only 1 rounds" don't count as claims (r3_you_won_only), nor does
+      // "Winner: Player 2" for the player.
+      { expr: py`(lambda P, E: all((lambda t, pw, ew: not any((P if ew > pw else E)(l) for l in t[max([i for i, l in enumerate(t) if 4 in ints(l)] or [len(t)]):]))(r[0], r[1].ns.get('player_wins'), r[1].ns.get('enemy_wins')) for r in (rerun(patches={'random.randint': seq([6, 1, 6, 1, 6, 1, 6, 1, 1, 6])}), rerun(patches={'random.randint': seq([1, 6, 1, 6, 1, 6, 1, 6, 6, 1])}))))(lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(you|player|hero|human)\s+(are\s+|is\s+|were\s+|was\s+|have\s+|has\s+)?(the\s+)?(overall\s+|big\s+|grand\s+|ultimate\s+|final\s+)?(wins?|won|winner|champion|champ|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(winner|champion|champ|victor)\b\W*(is\s+|was\s+)?(the\s+)?(you|player|hero|human)\b(?!\s*2)|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(enemy|monster|foe|opponent|computer|cpu|villain|rival)\s+(loses|lost|is\s+defeated|was\s+defeated)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))", l), lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(enemy|monster|foe|opponent|computer|cpu|villain|rival)\s+(is\s+|was\s+|has\s+)?(the\s+)?(overall\s+|big\s+|grand\s+|ultimate\s+|final\s+)?(wins?|won|winner|champion|champ|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(winner|champion|champ|victor)\b\W*(is\s+|was\s+)?(the\s+)?(enemy|monster|foe|opponent|computer|cpu|villain|rival|player\s*2)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\s+(lose|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))", l))`,
         hint: "When one side won 4 rounds and the other won 1, your program named the wrong overall winner: pick it from player_wins and enemy_wins after all 5 rounds." },
     ],
   },
   ch9_r4: {
     output: [
+      // A near miss first: lines that match once capitals and punctuation are ignored, but not as printed, such as
+      // 'guess 5 accepted!', get a hint about the lines' spelling (r3_lower_guess). subseq can't name the line.
+      { expr: py`(lambda P, lo: subseq(P) or not subseq([lo(p) for p in P], L=[lo(l) for l in L]))(['Guess 5 accepted!', '15 is out of range! Must be 1-10.', '0 is out of range! Must be 1-10.', 'Guess 8 accepted!', 'Guess 3 accepted!', '-1 is out of range! Must be 1-10.', 'Guess 10 accepted!'], lambda x: ' '.join(re.sub(r'[^\w\s-]', ' ', x).lower().split()))`,
+        hint: "So close! Check the capital letters and punctuation in your guess lines: they should look like 'Guess 5 accepted!' and '15 is out of range! Must be 1-10.'" },
       { expr: py`subseq(['Guess 5 accepted!', '15 is out of range! Must be 1-10.', '0 is out of range! Must be 1-10.', 'Guess 8 accepted!', 'Guess 3 accepted!', '-1 is out of range! Must be 1-10.', 'Guess 10 accepted!'])`,
         hint: "For each guess in the list, print 'Guess 5 accepted!' or '15 is out of range! Must be 1-10.', in the same order as the list." },
       // subseq lets other lines in between, so 'accepted' printed for every guess before the range check passed
       // (r2_accept_printed_first).
-      { expr: py`not re.search(r'Guess (15|0|-1) accepted', out)`,
+      { expr: py`not re.search(r'(?i)Guess (15|0|-1) accepted', out)`,
         hint: "Print 'Guess ... accepted!' only for guesses from 1 to 10, not for the ones that are out of range." },
     ],
     // The prototype wanted exactly 4 printed lines; a heading printed by the function is fine (ALT_and_check).
-    probes: [{ expr: py`(lambda r: r[0] == [1, 10] and subseq(['Guess 1 accepted!', '11 is out of range! Must be 1-10.', 'Guess 10 accepted!', '0 is out of range! Must be 1-10.'], L=r[1]) and not any(re.search(r'Guess (11|0) accepted', l) for l in r[1]))(callf('validate_guess', [1, 11, 10, 0]))`,
+    // Capitals and punctuation are left to the near-miss check above, so a near miss gets only that hint.
+    probes: [{ expr: py`(lambda r, lo: r[0] == [1, 10] and subseq([lo(p) for p in ['Guess 1 accepted!', '11 is out of range! Must be 1-10.', 'Guess 10 accepted!', '0 is out of range! Must be 1-10.']], L=[lo(l) for l in r[1]]) and not any(re.search(r'(?i)Guess (11|0) accepted', l) for l in r[1]))(callf('validate_guess', [1, 11, 10, 0]), lambda x: ' '.join(re.sub(r'[^\w\s-]', ' ', x).lower().split()))`,
       hint: "validate_guess(guesses) should print a line for every guess and return a list of only the good guesses (1 to 10)." }],
   },
   // The score is read from the last line that has a number and says score, points, total, right or correct,
@@ -132,41 +150,79 @@ export const BATCH_C = {
         hint: "When I picked cards that go up and down, your score was wrong: compare each round's new card with the card just before it, using that round's guess." },
       { expr: py`(lambda w: (rerun(patches={'random.seed': w[0]}), (42,) in w[1])[1])(rec('random.seed'))`,
         hint: "Keep random.seed(42) at the top of your program, as the task says." },
+      // The score probes patch randint, and the one above only looks for a seed call, so random.seed(42) inside
+      // draw_card, which makes every card the same, passed (r3_seed_inside_draw). No seed call may come after
+      // the first randint, as in grind_16.
+      { expr: py`(lambda log, sd, ri: (rerun(patches={'random.seed': lambda *a, **k: (log.append('seed'), sd(*a, **k))[1], 'random.randint': lambda *a, **k: (log.append('randint'), ri(*a, **k))[1]}), 'randint' not in log or 'seed' not in log[log.index('randint'):])[1])([], rec('random.seed')[0], rec('random.randint')[0])`,
+        hint: "Call random.seed(42) once at the top of your program, not inside draw_card or your loop, so the cards can come out different." },
     ],
   },
+  // The title screen may be anywhere in the output, so a 'Loading game...' line before it is fine (r3_welcome_before):
+  // the prototype wanted exactly those 4 lines, but the task only says what show_title prints, and the probes
+  // check that. Near misses in the game name or the Press ENTER line get their own hints, since this check can't
+  // name the line that differs (r3_press_enter_period, r3_mixed_case_name).
   ch9_s1: {
-    output: [{ expr: py`len(L) == 4 and L[0] == '=' * 30 and L[3] == '=' * 30 and L[1].strip() == 'DRAGON QUEST' and 8 <= len(L[1]) - len(L[1].lstrip()) <= 10 and L[2] == 'Press ENTER to start'`,
-      hint: "Print 4 lines: 30 '=' signs, the game name in the middle of a 30-character line, 'Press ENTER to start', then 30 '=' again." }],
+    output: [
+      { expr: py`any(l.strip() == 'DRAGON QUEST' for l in L) or not any(re.fullmatch(r'(?i)\W*dragon\W*quest\W*', l.strip()) for l in L)`,
+        hint: "So close! Check the capital letters and punctuation in your game name: call show_title with 'DRAGON QUEST', just as the task writes it." },
+      { expr: py`'Press ENTER to start' in L or not any(re.fullmatch(r'(?i)\W*press\W+enter\W+to\W+start\W*', l) for l in L)`,
+        hint: "So close! Check the capital letters and punctuation in your 'Press ENTER to start' line: it should match the task exactly." },
+      { expr: py`any(L[i] == '=' * 30 and L[i + 3] == '=' * 30 and L[i + 1].strip() == 'DRAGON QUEST' and 8 <= len(L[i + 1]) - len(L[i + 1].lstrip()) <= 10 and L[i + 2] == 'Press ENTER to start' for i in range(len(L) - 3))`,
+        hint: "Print 4 lines: 30 '=' signs, the game name in the middle of a 30-character line, 'Press ENTER to start', then 30 '=' again." },
+    ],
     // The prototype's two probes, swapped so a program with no show_title at all hears about the function first.
     probes: [
       // One parameter, with or without a default value: show_title(game_name="MY GAME") is still show_title(game_name)
       // (r2_default_param).
       { expr: py`sig('show_title')[0] == 1`, hint: "Make a function show_title with exactly one parameter, game_name, and call it with 'DRAGON QUEST'." },
+      // A show_title that returns the title screen for its caller to print prints nothing itself, and was told to
+      // use .center(30), which it did (r3_returns_string).
+      { expr: py`len(callf('show_title', 'HI')[1]) > 0`,
+        hint: "show_title should print the title screen itself, with print() inside the function, instead of returning it." },
       { expr: py`(lambda t: len(t) == 4 and t[1].strip() == 'HI' and 13 <= len(t[1]) - len(t[1].lstrip()) <= 15)(callf('show_title', 'HI')[1])`,
         hint: "show_title should center any name you give it, not only DRAGON QUEST. Try the string method .center(30)." },
     ],
   },
   // Other lines may come before the countdown, such as 'Get ready...' (r2_ready_line): the prototype's lines([...])
   // wanted exactly 7. The numbers must still be the only number lines, one per line and right before BLAST OFF!,
-  // with the returned 'launched' printed after it. That check can't name a differing line the way lines([...])
-  // does, so a BLAST OFF line that only matches once capitals and punctuation are ignored gets its own hint.
+  // with the returned 'launched' printed after it, alone or with a label ('The rocket was launched', 'Status:
+  // launched', r3_while_param_label, r3_result_label_colon). That check can't name a differing line the way
+  // lines([...]) does, so near misses get their own hints: a BLAST OFF line that only matches once capitals and
+  // punctuation are ignored, and number lines with punctuation around them, such as '5...' (r3_dots).
   ch9_s2: {
     output: [
       { expr: py`any(re.fullmatch(r'.*BLAST OFF!', l) for l in L) or not any(re.search(r'(?i)blast\W*off', l) for l in L)`,
         hint: "So close! Check the capital letters and punctuation in your BLAST OFF line: it should say '🚀 BLAST OFF!'." },
-      { expr: py`(lambda D: D(L, 5) and 'launched' in L[[i for i, l in enumerate(L) if re.fullmatch(r'.*BLAST OFF!', l)][-1] + 1:])(lambda T, n: [l for l in T if re.fullmatch(r'-?\d+', l)] == [str(i) for i in range(n, 0, -1)] and any(T[i:i + n] == [str(j) for j in range(n, 0, -1)] and re.fullmatch(r'.*BLAST OFF!', T[i + n]) for i in range(len(T) - n)))`,
+      { expr: py`(lambda D: D(L, 5) or not D([re.sub(r'^[^\w-]*(-?\d+)\W*$', r'\1', l) for l in L], 5))(lambda T, n: [l for l in T if re.fullmatch(r'-?\d+', l)] == [str(i) for i in range(n, 0, -1)] and any(T[i:i + n] == [str(j) for j in range(n, 0, -1)] and re.search(r'(?i)blast\W*off', T[i + n]) for i in range(len(T) - n)))`,
+        hint: "So close! Check the punctuation in your countdown lines: each one should be only the number, like 5." },
+      { expr: py`(lambda D: D(L, 5) and any(re.search(r'\blaunched\b', l) for l in L[[i for i, l in enumerate(L) if re.fullmatch(r'.*BLAST OFF!', l)][-1] + 1:]))(lambda T, n: [l for l in T if re.fullmatch(r'-?\d+', l)] == [str(i) for i in range(n, 0, -1)] and any(T[i:i + n] == [str(j) for j in range(n, 0, -1)] and re.fullmatch(r'.*BLAST OFF!', T[i + n]) for i in range(len(T) - n)))`,
         hint: "Count down from 5 to 1, print '🚀 BLAST OFF!', then print what countdown returned." },
     ],
-    // BLAST OFF's capitals are left to the near-miss check above, so a near miss gets only that hint.
-    probes: [{ expr: py`(lambda D, r: r[0] == 'launched' and D(r[1], 3))(lambda T, n: [l for l in T if re.fullmatch(r'-?\d+', l)] == [str(i) for i in range(n, 0, -1)] and any(T[i:i + n] == [str(j) for j in range(n, 0, -1)] and re.search(r'(?i)blast\W*off', T[i + n]) for i in range(len(T) - n)), callf('countdown', 3))`,
+    // The near misses are left to the checks above, so a near miss gets only that hint.
+    probes: [{ expr: py`(lambda D, r: r[0] == 'launched' and D([re.sub(r'^[^\w-]*(-?\d+)\W*$', r'\1', l) for l in r[1]], 3))(lambda T, n: [l for l in T if re.fullmatch(r'-?\d+', l)] == [str(i) for i in range(n, 0, -1)] and any(T[i:i + n] == [str(j) for j in range(n, 0, -1)] and re.search(r'(?i)blast\W*off', T[i + n]) for i in range(len(T) - n)), callf('countdown', 3))`,
       hint: "countdown(n) should count down from whatever n it gets, print BLAST OFF!, and return 'launched'." }],
   },
+  // Only the menu's own lines are read, the ones naming Fight, Inventory, Goodbye or Unknown, so a heading such as
+  // '=== MAIN MENU ===' is fine (r3_menu_header): the prototype's lines([...]) wanted exactly 4 lines. That check
+  // can't name a differing line, so a near miss gets its own hint.
   ch9_s3: {
-    output: [{ expr: py`lines([r're:.*Fight!', r're:.*Inventory', r're:.*Fight!', r're:.*Goodbye!'])`,
-      hint: "Go through the choices in order: '1' prints Fight!, '2' prints Inventory and '3' prints Goodbye!." }],
+    output: [
+      { expr: py`(lambda T, lo: lines([r're:.*Fight!', r're:.*Inventory', r're:.*Fight!', r're:.*Goodbye!'], L=T) or not lines([r're:.*\bfight', r're:.*\binventory', r're:.*\bfight', r're:.*\bgoodbye'], L=[lo(l) for l in T]))([l for l in L if re.search(r'(?i)fight|inventory|goodbye|unknown', l)], lambda x: ' '.join(re.sub(r'[^\w\s]', ' ', x).lower().split()))`,
+        hint: "So close! Check the capital letters and punctuation in your menu lines: they should look like '⚔️ Fight!', '🎒 Inventory' and '👋 Goodbye!'." },
+      { expr: py`lines([r're:.*Fight!', r're:.*Inventory', r're:.*Fight!', r're:.*Goodbye!'], L=[l for l in L if re.search(r'(?i)fight|inventory|goodbye|unknown', l)])`,
+        hint: "Go through the choices in order: '1' prints Fight!, '2' prints Inventory and '3' prints Goodbye!." },
+    ],
     concepts: [{ expr: py`count(ast.Break) >= 1`, hint: "The task asks you to use break to leave the loop when the choice is '3'." }],
-    probes: [{ expr: py`lines([r're:.*Inventory', r're:(?i).*unknown choice.*', r're:.*Goodbye!'], L=rerun({'choices': "['2', '9', '3', '1']"})[0])`,
-      hint: "Your menu should work for any list of choices: print 'Unknown choice' for anything else, and stop at '3'." }],
+    probes: [
+      // Capitals and punctuation are left to the near-miss check above, so a near miss gets only that hint.
+      { expr: py`(lambda lo: lines([r're:.*\binventory', r're:.*\bunknown choice\b.*', r're:.*\bgoodbye'], L=[lo(l) for l in rerun({'choices': "['2', '9', '3', '1']"})[0] if re.search(r'(?i)fight|inventory|goodbye|unknown', l)]))(lambda x: ' '.join(re.sub(r'[^\w\s]', ' ', x).lower().split()))`,
+        hint: "Your menu should work for any list of choices: print 'Unknown choice' for anything else, and stop at '3'." },
+      // With no '3' in the choices, the menu's Goodbye line may not be printed: printed after the loop, it passed the
+      // checks above, where the loop always ends at '3' (r3_goodbye_after_loop). Only a line that is just the
+      // Goodbye counts, so a for-else farewell such as 'No more choices, goodbye!' is fine.
+      { expr: py`not any(re.fullmatch(r'(?i)\W*goodbye\W*', l) for l in rerun({'choices': "['1', '2']"})[0])`,
+        hint: "Only say Goodbye when the choice is '3': print it inside your loop, just before break." },
+    ],
   },
   ch9_boss: {
     // The task says 'Print each round: moves and who won', so both are counted (no_round_winner prints only
@@ -177,10 +233,14 @@ export const BATCH_C = {
       { expr: py`len([l for l in L if re.search(r'(?i)\b(rock|paper|scissors)\b', l)]) >= 5 and len([l for l in L if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)]) >= 5`,
         hint: "Print each of the 5 rounds: both moves and who won." },
       // Task step 7: one more result line than the 5 rounds, for the overall champion (r1_no_champion stops at
-      // the score). Champion words count here too, so 'Champion: You' and 'You are the overall champion!' do.
-      { expr: py`len([l for l in L if re.search(r'(?i)\b(win|wins|won|winner|tie|tied|draw|lose|loses|lost|champion|champ|overall|victory|victorious|nobody)\b|🏆|\b(player|computer|tie)\W*$', l)]) >= 6`,
+      // the score). Champion words count here too, so 'Champion: You' and 'You are the overall champion!' do, and
+      // so do beat and defeat ('Player defeats Computer!').
+      { expr: py`len([l for l in L if re.search(r'(?i)\b(win|wins|won|winner|tie|tied|draw|lose|loses|lost|champion|champ|overall|victory|victorious|nobody|beat|beats|defeat|defeats|defeated)\b|🏆|\b(player|computer|tie)\W*$', l)]) >= 6`,
         hint: "At the end, print the final score and who is the overall champion." },
     ],
+    // get_winner's answers must be the task's own words before they are checked move by move, so 'Player' or 'you'
+    // hears about the words, not about the rules of the game, which it got right (r3_returns_capitalized,
+    // r3_returns_you).
     // The first scripted probes let the player win rounds 1-4 and tie round 5 (4-0-1), so nothing in a right answer
     // says the computer won anything; later ones turn that round (0-4-1) or make every round a tie. The
     // prototype's script gave 2-2, which also came out 2-2 with the moves
@@ -188,7 +248,12 @@ export const BATCH_C = {
     // loop (r1_choice_once), and it read the score from the last 2 lines, which a 'Ties: 1' line or a goodbye
     // after the champion pushed out (r1_ties_line, r1_thanks_after). The score is now read from the lines after the
     // 5th round's result.
+    // A line that says both sides won, such as the scoreboard heading 'Player wins | Computer wins', is no claim
+    // for either side (r3_scoreboard_header_table), and "neither player wins" or "no player wins" says nobody won
+    // (r3_neither_player_wins).
     probes: [
+      { expr: py`not callable(ns.get('get_winner')) or all(val('get_winner(%r, %r)' % (p, c)) in ('player', 'computer', 'tie') for p in ('rock', 'paper', 'scissors') for c in ('rock', 'paper', 'scissors'))`,
+        hint: "get_winner should return exactly one of the task's words, 'player', 'computer' or 'tie', in lowercase letters." },
       { expr: py`all(val('get_winner(%r, %r)' % (p, c)) == w for p, c, w in [('rock','rock','tie'), ('rock','paper','computer'), ('rock','scissors','player'), ('paper','rock','player'), ('paper','paper','tie'), ('paper','scissors','computer'), ('scissors','rock','computer'), ('scissors','paper','player'), ('scissors','scissors','tie')])`,
         hint: "Check get_winner for every pair of moves: rock beats scissors, scissors beats paper, paper beats rock, and the same move is a 'tie'." },
       { expr: py`(lambda w: (rerun(patches={'random.choice': w[0]}), len(w[1]) >= 5)[1])(rec('random.choice'))`,
@@ -206,18 +271,24 @@ export const BATCH_C = {
       // Lines saying the computer won ("Computer wins", "Winner: computer", "You lose", "-> computer"), counted in
       // that 4-0-1 game and in one where every round is a tie: a right answer has no more of them in the first
       // than in the second, where nobody wins, so a rules line such as "If you lose, try again" cancels out.
-      // Scores such as "Computer wins: 0" don't count as claims.
-      { expr: py`(lambda C: len([l for l in rerun(patches={'random.choice': seq(['scissors', 'rock', 'paper', 'scissors', 'paper'])})[0] if C(l)]) <= len([l for l in rerun(patches={'random.choice': seq(['rock', 'paper', 'scissors', 'rock', 'paper'])})[0] if C(l)]))(lambda l: re.search(r"(?i)\b(computer|cpu)\b\W*(is\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l))`,
+      // Scores such as "Computer wins: 0" or "won only 1" don't count as claims.
+      { expr: py`(lambda CC: len([l for l in rerun(patches={'random.choice': seq(['scissors', 'rock', 'paper', 'scissors', 'paper'])})[0] if CC(l)]) <= len([l for l in rerun(patches={'random.choice': seq(['rock', 'paper', 'scissors', 'rock', 'paper'])})[0] if CC(l)]))(lambda l: bool(re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(computer|cpu)\b\W*(is\W+|s\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l)) and not re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(you|player)\b\W*(are\W+|re\W+|is\W+|s\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l))`,
         hint: "When you won 4 rounds and tied 1, your program said the computer won something, so check the order of the moves you give get_winner(player, computer)." },
       // Task step 7's champion, in the lines after the 5th result line: when the computer wins rounds 1-4 and ties
       // round 5, nothing there may say you won (r2_champion_always_you), and when every round is a tie, nothing may
       // say either side won (r2_champion_ties_to_you). The claims are those of the probe above, turned round for
       // the player, but not after 'if' or 'when' ("Play again to see if you win!"). Scores such as "You won 0
       // rounds" don't count as claims.
-      { expr: py`(lambda P, R: (lambda t: (lambda k: len(k) >= 5 and not any(P(l) for l in t[k[4] + 1:]))(R(t)))(rerun(patches={'random.choice': seq(['paper', 'scissors', 'rock', 'paper', 'paper'])})[0]))(lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(you|player)\b\W*(are\W+|is\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l), lambda t: [j for j, l in enumerate(t) if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)])`,
+      { expr: py`(lambda PC, R: (lambda t: (lambda k: len(k) >= 5 and not any(PC(l) for l in t[k[4] + 1:]))(R(t)))(rerun(patches={'random.choice': seq(['paper', 'scissors', 'rock', 'paper', 'paper'])})[0]))(lambda l: bool(re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(you|player)\b\W*(are\W+|re\W+|is\W+|s\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l)) and not re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(computer|cpu)\b\W*(is\W+|s\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l), lambda t: [j for j, l in enumerate(t) if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)])`,
         hint: "When the computer won more rounds than you, your program still said you were the champion: pick the champion by comparing the two scores." },
-      { expr: py`(lambda P, C, R: (lambda t: (lambda k: len(k) >= 5 and not any(P(l) or C(l) for l in t[k[4] + 1:]))(R(t)))(rerun(patches={'random.choice': seq(['rock', 'paper', 'scissors', 'rock', 'paper'])})[0]))(lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(you|player)\b\W*(are\W+|is\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l), lambda l: re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\b\W*(is\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l), lambda t: [j for j, l in enumerate(t) if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)])`,
+      { expr: py`(lambda PC, CC, R: (lambda t: (lambda k: len(k) >= 5 and not any(PC(l) or CC(l) for l in t[k[4] + 1:]))(R(t)))(rerun(patches={'random.choice': seq(['rock', 'paper', 'scissors', 'rock', 'paper'])})[0]))(lambda l: bool(re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(you|player)\b\W*(are\W+|re\W+|is\W+|s\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l)) and not re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(computer|cpu)\b\W*(is\W+|s\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l), lambda l: bool(re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(computer|cpu)\b\W*(is\W+|s\W+|was\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(computer|cpu)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+(lose|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(computer|cpu)\W*$", l)) and not re.search(r"(?i)(?<!if )(?<!when )(?<!if the )(?<!when the )(?<!neither )(?<!no )\b(you|player)\b\W*(are\W+|re\W+|is\W+|s\W+|were\W+|was\W+|have\W+|has\W+)?(the\W+)?(overall\W+|big\W+|grand\W+)?(wins|won|win|champion|winner|victorious)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|\b(champion|winner)\b\W*(is\W*)?(the\W+)?(you|player)\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\byou\W+beat\b|(?<!if )(?<!when )(?<!if the )(?<!when the )\b(computer|cpu)\W+(loses|lost)\b(?!\W*(\d|no\b|none|zero|only\b|just\b))|(:|->|=>|→)\s*(the\s+)?(you|player)\W*$", l), lambda t: [j for j, l in enumerate(t) if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)])`,
         hint: "When every round was a tie, your program still named a champion, but equal scores mean nobody is the champion." },
+      // And when the player wins rounds 1-4 and ties round 5, the lines after the 5th result must say something
+      // other than when every round is a tie, once the numbers are left out: a champion picked from the last
+      // round's winner, or scores compared with a typo (player_wins > player_wins), called that game a draw
+      // (r3_champion_last_round, r3_typo_compare). Claim words aren't needed, so "Player defeats Computer" is fine.
+      { expr: py`(lambda R: (lambda M: M(rerun(patches={'random.choice': seq(['scissors', 'rock', 'paper', 'scissors', 'paper'])})[0]) != M(rerun(patches={'random.choice': seq(['rock', 'paper', 'scissors', 'rock', 'paper'])})[0]))(lambda t: (lambda k: [re.sub(r'\d+', '#', l) for l in t[k[4] + 1:]] if len(k) >= 5 else None)(R(t))))(lambda t: [j for j, l in enumerate(t) if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)])`,
+        hint: "When you won more rounds than the computer, your program didn't name you the champion: pick the champion by comparing the two scores." },
       { expr: py`(lambda w: (rerun(patches={'random.seed': w[0]}), (42,) in w[1])[1])(rec('random.seed'))`,
         hint: "Keep random.seed(42) at the top of your program, as the task says." },
     ],
@@ -225,7 +296,10 @@ export const BATCH_C = {
   grind_16: {
     output: [{ expr: py`has('Will I win?', 'Is it sunny?', 'Should I go?')`, hint: "Print each of the 3 questions, in order." }],
     probes: [
-      { expr: py`ns.get('responses') == ['Yes!', 'No!', 'Maybe', 'Ask again'] and ns.get('questions') == ['Will I win?', 'Is it sunny?', 'Should I go?']`,
+      // The lists as the program first sets them, or as they end up: popping each question off the list as it is
+      // asked leaves questions empty at the end (r3_pop_questions), and shuffling responses reorders it
+      // (r3_shuffle_index), though both lists were made exactly as the task shows.
+      { expr: py`(lambda A: (A('responses') == ['Yes!', 'No!', 'Maybe', 'Ask again'] or ns.get('responses') == ['Yes!', 'No!', 'Maybe', 'Ask again']) and (A('questions') == ['Will I win?', 'Is it sunny?', 'Should I go?'] or ns.get('questions') == ['Will I win?', 'Is it sunny?', 'Should I go?']))(lambda n: next(([e.value for e in s.value.elts] for s in TREE.body if isinstance(s, ast.Assign) and any(isinstance(t, ast.Name) and t.id == n for t in s.targets) and isinstance(s.value, ast.List) and all(isinstance(e, ast.Constant) for e in s.value.elts)), None))`,
         hint: "Make the two lists exactly as the task shows: responses with 4 answers and questions with 3 questions." },
       // A different answer each time, not the prototype's "always Maybe", which picking once also passes (choice_once).
       { expr: py`has('Will I win?', 'Yes!', 'Is it sunny?', 'No!', 'Should I go?', 'Ask again', L=rerun(patches={'random.choice': seq(['Yes!', 'No!', 'Ask again'])})[0])`,
@@ -250,18 +324,21 @@ export const BATCH_C = {
   // The hint words must be written as the task writes them: 'Too high' at the start of a line, or 'too high' after
   // other words ("10 is too high", C_sentence_while). The prototype's (?i) let 'TOO HIGH' pass (r2_caps_hints), which
   // now gets a near-miss hint of its own. \b keeps 'Incorrect' from reading as 'Correct'.
+  // H reads each line's hint word. 'correct' after a negative word isn't one, so a for-else line 'None of your
+  // guesses were correct.' is fine (r3_none_correct), and neither is 'correct' before a noun ('The correct number
+  // was 4').
   grind_17: {
     output: [
-      { expr: py`len([l for l in L if re.search(r'(?i)\b(too high|too low|correct)\b', l)]) == len([l for l in L if re.search(r'\b(Too high|Too low|Correct)\b|(?<=\S\s)\b(too high|too low|correct)\b', l)])`,
+      { expr: py`(lambda H: len(H(L, r'(?i)\b(too high|too low|correct(?!\s+(?:number|answer|secret|guess|one)\b))\b')) == len(H(L, r'\b(Too high|Too low|Correct(?!\s+(?:number|answer|secret|guess|one)\b))\b|(?<=\S\s)\b(too high|too low|correct(?!\s+(?:number|answer|secret|guess|one)\b))\b')))(lambda t, pat: [m.group().lower() for m, l in ((re.search(pat, l), l) for l in t) if m and not (m.group().lower() == 'correct' and re.search(r"(?i)\b(not|none|no|never|nothing)\b|n[’']t\b", l[:m.start()]))])`,
         hint: "So close! Check the capital letters in your hint lines: they should say 'Too high', 'Too low' or 'Correct!', just like that." },
-      { expr: py`[m.group().lower() for m in (re.search(r'\b(Too high|Too low|Correct)\b|(?<=\S\s)\b(too high|too low|correct)\b', l) for l in L) if m] == ['too high'] * 5`,
+      { expr: py`(lambda H: H(L, r'\b(Too high|Too low|Correct(?!\s+(?:number|answer|secret|guess|one)\b))\b|(?<=\S\s)\b(too high|too low|correct(?!\s+(?:number|answer|secret|guess|one)\b))\b') == ['too high'] * 5)(lambda t, pat: [m.group().lower() for m, l in ((re.search(pat, l), l) for l in t) if m and not (m.group().lower() == 'correct' and re.search(r"(?i)\b(not|none|no|never|nothing)\b|n[’']t\b", l[:m.start()]))])`,
         hint: "Compare each guess with the secret number and print 'Too high', 'Too low' or 'Correct!'." },
     ],
     // The probes leave capitals to the near-miss check above, so a near miss gets only that hint.
     probes: [
-      { expr: py`[m.group().lower() for m in (re.search(r'(?i)\b(too high|too low|correct)\b', l) for l in rerun(patches={'random.randint': lambda a, b: 12})[0]) if m] == ['too low', 'too low', 'too high', 'correct']`,
+      { expr: py`(lambda H: H(rerun(patches={'random.randint': lambda a, b: 12})[0], r'(?i)\b(too high|too low|correct(?!\s+(?:number|answer|secret|guess|one)\b))\b') == ['too low', 'too low', 'too high', 'correct'])(lambda t, pat: [m.group().lower() for m, l in ((re.search(pat, l), l) for l in t) if m and not (m.group().lower() == 'correct' and re.search(r"(?i)\b(not|none|no|never|nothing)\b|n[’']t\b", l[:m.start()]))])`,
         hint: "When I changed the secret number, your hints were wrong. Print 'Correct!' when the guess equals the secret, then stop the loop with break." },
-      { expr: py`[m.group().lower() for m in (re.search(r'(?i)\b(too high|too low|correct)\b', l) for l in rerun(patches={'random.randint': lambda a, b: 10})[0]) if m] == ['correct']`,
+      { expr: py`(lambda H: H(rerun(patches={'random.randint': lambda a, b: 10})[0], r'(?i)\b(too high|too low|correct(?!\s+(?:number|answer|secret|guess|one)\b))\b') == ['correct'])(lambda t, pat: [m.group().lower() for m, l in ((re.search(pat, l), l) for l in t) if m and not (m.group().lower() == 'correct' and re.search(r"(?i)\b(not|none|no|never|nothing)\b|n[’']t\b", l[:m.start()]))])`,
         hint: "When the first guess is right, print 'Correct!' and stop: nothing should be printed after it." },
       // The probes above replace randint, so its range was never looked at: randint(1, 10) passed, since seed 42
       // happens to give a secret below every guess there too (r1_range10).
@@ -313,6 +390,12 @@ export const BATCH_C = {
         hint: "display_question(q, num) should print the question and every one of its choices." },
       { expr: py`callf('check_answer', {'q': 'Z', 'choices': ['a', 'b', 'c'], 'answer': 2}, 2)[0] is True and callf('check_answer', {'q': 'Z', 'choices': ['a', 'b', 'c'], 'answer': 2}, 0)[0] is False`,
         hint: "check_answer(q, player_choice) should return True when player_choice equals q['answer'], and False when it doesn't." },
+      // The output check works the expected score out from the program's own questions, so a final score typed in
+      // as print('Final score: 2/3') passed (r3_hardcoded_final). Here the first simulated answer is right and the
+      // others wrong (a score of 1), or, when the program already scored 1, the first two are right (2): never 3,
+      // which the '/3' of a typed-in score would show. The score is read as in the output check.
+      { expr: py`(lambda qs, c: (lambda want: (lambda T: nums([want], L=[l for l in T if re.search(r'\d', l) and re.search(r'(?i)score|points?|total|right|correct', l)][-1:]) or nums([want], L=[l for l in T if re.search(r'\d', l)][-1:]))([re.sub(r'\d+(\.\d+)?\s*%', '', l) for l in rerun({'simulated_answers': repr([q['answer'] if i < want else (q['answer'] + 1) % len(q['choices']) for i, q in enumerate(qs)])})[0]]))(2 if c == 1 else 1))(ns['questions'], sum(a == q['answer'] for a, q in zip(ns['simulated_answers'], ns['questions'])))`,
+        hint: "When I changed simulated_answers, your final score didn't change with them: add to the score as your loop checks each answer." },
     ],
   },
   ch10_r3: {
@@ -324,11 +407,15 @@ export const BATCH_C = {
       // dictionaries, hears about that rather than about the test steps it got right (r2_show_uses_global).
       { expr: py`(lambda a, b: a != b or not a)(callf('show_inventory', {'potion': 3, 'sword': 1, 'arrow': 2})[1], callf('show_inventory', {'potion': 2, 'sword': 1})[1])`,
         hint: "show_inventory(inv) should print the inventory it is given as inv, not the global inventory." },
-      { expr: py`(lambda a, b: len(a) > 0 and len(b) > 0 and subseq(a + b))(callf('show_inventory', {'potion': 3, 'sword': 1, 'arrow': 2})[1], callf('show_inventory', {'potion': 2, 'sword': 1})[1])`,
+      // The task never names the keys, so the two inventories are made with the program's own names for the items:
+      // those left in inventory, or else a string in the program that is the item's name with any capitals and an
+      // 's' on the end ('Potion', 'arrows'), or else the lowercase name (r3_capital_keys, r3_plural_keys).
+      { expr: py`(lambda N: (lambda a, b: len(a) > 0 and len(b) > 0 and subseq(a + b))(callf('show_inventory', {N('potion'): 3, N('sword'): 1, N('arrow'): 2})[1], callf('show_inventory', {N('potion'): 2, N('sword'): 1})[1]))(lambda w: next((k for k in (list(ns['inventory']) if isinstance(ns.get('inventory'), dict) else []) + str_consts() if isinstance(k, str) and re.fullmatch(r'(?i)%ss?' % w, k)), w))`,
         hint: "Show the inventory twice: after adding 3 potions, 1 sword and 2 arrows, and again after removing 1 potion and 2 arrows." },
     ],
     probes: [
-      { expr: py`ns.get('inventory') == {'potion': 2, 'sword': 1}`,
+      // Keys are compared with capitals and a plural 's' ignored, as above (r3_capital_display_only).
+      { expr: py`isinstance(ns.get('inventory'), dict) and len(ns['inventory']) == 2 and {(re.sub(r's$', '', k.lower()) if isinstance(k, str) else k): v for k, v in ns['inventory'].items()} == {'potion': 2, 'sword': 1}`,
         hint: "After your test, inventory should hold 2 potions and 1 sword, and no arrows at all." },
       { expr: py`(lambda d: (callf('add_item', d, 'x'), callf('add_item', d, 'x', 2), d == {'x': 3})[2])({})`,
         hint: "add_item should add to the count when the item is already there, and add 1 when no qty is given." },
@@ -357,9 +444,10 @@ export const BATCH_C = {
         hint: "Run your adventure by calling scene_start(), then scene_left() because the first choice is 'left'. Don't call scene_right() on this path." },
       // Two choices, as in the task's list: with only ['right'], reading choices[1] up front raised IndexError
       // (r1_preread).
-      // A near miss first: 'Treasure found!' only differs in its capitals (r2_capital_treasure).
+      // A near miss first: 'Treasure found!' only differs in its capitals (r2_capital_treasure), and 'treasure found'
+      // in its punctuation (r3_treasure_no_bang).
       { expr: py`(lambda t: any('treasure found!' in l for l in t) or not any('treasure found' in l.lower() for l in t))(rerun({'choices': "['right', 'fight']"})[0])`,
-        hint: "So close! Check the capital letters in what scene_right() returns: it should be exactly 'treasure found!'." },
+        hint: "So close! Check the capital letters and punctuation in what scene_right() returns: it should be exactly 'treasure found!'." },
       { expr: py`(lambda r: 'scene_right' in r[1].trace and 'scene_left' not in r[1].trace and any('treasure found!' in l for l in r[0]))(rerun({'choices': "['right', 'fight']"}))`,
         hint: "When the first choice is 'right', your story should go to scene_right() and print what it returns." },
       { expr: py`rerun({'choices': "['left', 'sneak']"})[0] != L`,
@@ -389,6 +477,9 @@ export const BATCH_C = {
       // passed (r2_status_global).
       { expr: py`numset([77, 33, 99], L=callf('show_status', {'name': 'Zed', 'hp': 77, 'attack': 33, 'inventory': ['Rope'], 'gold': 99})[1])`,
         hint: "show_status(state) should print the stats of the dictionary it is given, not always the player's." },
+      // "print all stats formatted": print(state) shows the raw dictionary (r3_status_raw_dict).
+      { expr: py`not any(l.strip().startswith('{') for l in callf('show_status', {'name': 'Zed', 'hp': 77, 'attack': 33, 'inventory': ['Rope'], 'gold': 99})[1])`,
+        hint: "show_status should print each stat in a friendly format, like 'HP: 45', instead of printing the whole dictionary at once." },
     ],
   },
   ch10_s1: {
@@ -398,10 +489,17 @@ export const BATCH_C = {
     // (r1_show_table_first): the prototype took the first 10 such lines.
     output: [{ expr: py`(lambda R: (lambda drops, rest: len(drops) >= 10 and any(all((lambda c: any(re.search(r'(?i)\b%s\b\D*(?<!\d)%d(?!\d)|(?<!\d)%d\W+%s\b' % (r, c, c, r), s) for s in rest))(sum(R[[n for n in R if n in d][0]] == r for d in drops[i:i + 10])) for r in ('common', 'rare', 'legendary')) for i in range(len(drops) - 9)))([l for l in L if any(n in l for n in R)], [l for l in L if not any(n in l for n in R)]))({'Gold Coin': 'common', 'Health Potion': 'common', 'Magic Ring': 'rare', 'Dragon Scale': 'legendary'})`,
       hint: "Print each of the 10 drops with the item's name, then how many common, rare and legendary items you got." }],
+    // The task never says what get_drop returns, so an item's name counts as well as the item itself, and its rarity
+    // is looked up in the table (r3_returns_name).
     probes: [
-      { expr: py`all(callf('get_drop', ns['loot_table'])[0] in ns['loot_table'] for _ in range(50))`,
+      { expr: py`(lambda T: all((lambda v: v in T or any(isinstance(d, dict) and v == d.get('name') for d in T))(callf('get_drop', T)[0]) for _ in range(50)))(ns['loot_table'])`,
         hint: "get_drop(table) should return one of the items from the loot table." },
-      { expr: py`(lambda rs: abs(rs.count('common') / 2000 - 0.6) < 0.05 and abs(rs.count('rare') / 2000 - 0.3) < 0.05 and abs(rs.count('legendary') / 2000 - 0.1) < 0.04)([callf('get_drop', ns['loot_table'])[0]['rarity'] for _ in range(2000)])`,
+      // Before the odds, which random.seed(42) inside get_drop also gets wrong, since every drop is then the same,
+      // though it rolls randint(1, 100) as the odds hint says (r3_seed_in_drop). No seed call may come after the
+      // first randint, as in grind_16.
+      { expr: py`(lambda log, sd, ri: (rerun(patches={'random.seed': lambda *a, **k: (log.append('seed'), sd(*a, **k))[1], 'random.randint': lambda *a, **k: (log.append('randint'), ri(*a, **k))[1]}), 'randint' not in log or 'seed' not in log[log.index('randint'):])[1])([], rec('random.seed')[0], rec('random.randint')[0])`,
+        hint: "Call random.seed(42) once at the top of your program, not inside get_drop, so each drop can come out different." },
+      { expr: py`(lambda T: (lambda rs: abs(rs.count('common') / 2000 - 0.6) < 0.05 and abs(rs.count('rare') / 2000 - 0.3) < 0.05 and abs(rs.count('legendary') / 2000 - 0.1) < 0.04)([(lambda v: v['rarity'] if isinstance(v, dict) else next((d['rarity'] for d in T if isinstance(d, dict) and d.get('name') == v), None))(callf('get_drop', T)[0]) for _ in range(2000)]))(ns['loot_table'])`,
         hint: "Use random.randint(1, 100) so common items drop about 60% of the time, rare 30% and legendary 10%." },
       // The odds above are the same with randint(1, 10) and thresholds 6 and 9 (r2_randint_1_10).
       { expr: py`(lambda w: (rerun(patches={'random.randint': w[0]}), (1, 100) in w[1])[1])(rec('random.randint'))`,
@@ -456,8 +554,9 @@ export const BATCH_C = {
       { expr: py`'sword' in ns['player']['inventory'] and ns['player']['location'] == ns['rooms'][ns['rooms']['start']['exits']['north']]['exits']['north']`,
         hint: "After the playthrough, the player should be two rooms north of start, with 'sword' in their inventory." },
       // Also fails if move crashed: the prototype only looked at the location, which a move that raises
-      // KeyError on a missing exit leaves alone too (no_exit_check).
-      { expr: py`(lambda p: (lambda r: not (type(r[0]) is tuple and r[0][:1] == ('__error__',)) and p['location'] == 'start')(callf('move', ns['rooms'], p, 'nowhere')))({'location': 'start', 'inventory': [], 'hp': 50})`,
+      // KeyError on a missing exit leaves alone too (no_exit_check). From start and from the room north of it, so
+      // a move that sends the player to 'start' when there is no such exit fails (r3_move_default_start).
+      { expr: py`all((lambda p: (lambda r: not (type(r[0]) is tuple and r[0][:1] == ('__error__',)) and p['location'] == loc)(callf('move', ns['rooms'], p, 'nowhere')))({'location': loc, 'inventory': [], 'hp': 50}) for loc in ('start', ns['rooms']['start']['exits']['north']))`,
         hint: "move should only change the player's location when that exit exists. Otherwise, leave them where they are." },
       // An inventory already holding something, and a list to compare with: player['inventory'] = item passed the
       // prototype's 'rope' in 'rope' (r1_pickup_assign).
@@ -471,8 +570,11 @@ export const BATCH_C = {
       { expr: py`val("buy(items, 'Sword', 40)") == -1 and val("buy(items, 'Potion', 10)") == 0 and val("buy(items, 'Shield', 100)") == 70`,
         hint: "buy(items, name, gold) should return the gold left after paying, or -1 if the item costs more than the gold." },
       // With 100 gold every purchase works, so player_gold = buy(...) with no -1 check passed (r2_assign_minus1).
-      // With 55, the Potion and the Shield can't be bought: the balance stays 5 and is never -1.
-      { expr: py`(lambda t: nums([5], L=t) and not any(re.search(r'(?<![\d.])-1(?!\d)', l) for l in t))(rerun({'player_gold': '55'})[0])`,
+      // With 55, the Potion and the Shield can't be bought: the balance stays 5 and is never -1. Two checks, so a
+      // program that never prints the balance isn't told it became -1 (r3_prints_price).
+      { expr: py`nums([5], L=rerun({'player_gold': '55'})[0])`,
+        hint: "When I started with 55 gold, your program never showed the 5 gold left after the Sword: print the balance after each purchase." },
+      { expr: py`not any(re.search(r'(?<![\d.])-1(?!\d)', l) for l in rerun({'player_gold': '55'})[0])`,
         hint: "When I started with 55 gold, your balance became -1: when buy returns -1, keep the gold you had instead." },
     ],
   },
@@ -493,11 +595,13 @@ export const BATCH_C = {
       { expr: py`(lambda k: k is not None and not any(re.search(r'(?i)\bdragon\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bhero\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)(?!\s+(the\s+)?dragon\b)|\bdragon\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?hero\b', l) for l in L[k:]))(next((i for i, l in enumerate(L) if re.search(r'(?<![\d.])(-\d+|0)(?![\d.])', l)), None))`,
         hint: "The Hero brings the Dragon to 0 HP first here, so don't print that the Dragon won." },
     ],
-    // A weaker Hero (20 HP, attack 5) reaches -10 after the Dragon's second attack, with the Dragon at 70.
+    // A weaker Hero (20 HP, attack 5) reaches -10 after the Dragon's second attack, with the Dragon at 70. The winner
+    // is checked with attack 16 too, where the Hero still loses though its attack is the stronger one, so a winner
+    // picked by comparing attacks fails (r3_winner_by_attack).
     probes: [
       { expr: py`(lambda t: (lambda k: k is not None and not nums([65], L=t[k + 1:]) and not nums([-25], L=t[k + 1:]))(next((i for i, l in enumerate(t) if re.search(r'(?<![\d.])(-\d+|0)(?![\d.])', l)), None)))(rerun({'player': "{'name': 'Hero', 'hp': 20, 'attack': 5}"})[0])`,
         hint: "When I made the Hero weaker, the battle kept going after the Hero's HP reached 0: stop as soon as either HP reaches 0." },
-      { expr: py`(lambda t: (lambda k: k is not None and not any(re.search(r'(?i)\bhero\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bdragon\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)(?!\s+(the\s+)?hero\b)|\bhero\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?dragon\b', l) for l in t[k:]))(next((i for i, l in enumerate(t) if re.search(r'(?<![\d.])(-\d+|0)(?![\d.])', l)), None)))(rerun({'player': "{'name': 'Hero', 'hp': 20, 'attack': 5}"})[0])`,
+      { expr: py`all((lambda t: (lambda k: k is not None and not any(re.search(r'(?i)\bhero\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bdragon\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)(?!\s+(the\s+)?hero\b)|\bhero\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?dragon\b', l) for l in t[k:]))(next((i for i, l in enumerate(t) if re.search(r'(?<![\d.])(-\d+|0)(?![\d.])', l)), None)))(rerun({'player': p})[0]) for p in ("{'name': 'Hero', 'hp': 20, 'attack': 5}", "{'name': 'Hero', 'hp': 20, 'attack': 16}"))`,
         hint: "When I made the Hero weaker, your battle still said the Hero won, so print the winner from who really reached 0 HP." },
     ],
   },
@@ -562,6 +666,10 @@ export const BATCH_C = {
       // r2_right_prints_left). Then near misses, and then the calls.
       { expr: py`all(any(re.fullmatch(r'(?i)\W*%s\W+arm\W*%d\W*(deg\w*\W*)?at\W+speed\W*%d\W*' % (w, d, v), l) for l in callf(w + '_arm', d, speed=v)[1]) for w, d, v in (('right', 195, 800), ('left', 40, 100)))`,
         hint: "Make each arm function print its own name with the degrees and the speed it was given, like 'Right arm: 195° at speed 800'." },
+      // A negative angle keeps its sign: arm functions printing abs(degrees) were told to call them in the task's
+      // order, which they did (r3_abs_degrees).
+      { expr: py`all(any(re.fullmatch(r'(?i)\W*%s\W+arm\W*-%d\W*(deg\w*\W*)?at\W+speed\W*%d\W*' % (w, d, v), l) for l in callf(w + '_arm', -d, speed=v)[1]) for w, d, v in (('right', 130, 800), ('left', 70, 100)))`,
+        hint: "Print the degrees just as they are given, minus sign and all: right_arm(-240) should show -240." },
       { expr: py`subseq([r're:Right arm: -240 ?(°|deg\w*)? at speed 600', r're:Left arm: 110 ?(°|deg\w*)? at speed 250', r're:Left arm: 40 ?(°|deg\w*)? at speed 100', r're:Right arm: 195 ?(°|deg\w*)? at speed 800']) or not subseq([r're:(?i)\W*right\W+arm\W*-240\W*(deg\w*\W*)?at\W+speed\W*600\W*', r're:(?i)\W*left\W+arm\W*110\W*(deg\w*\W*)?at\W+speed\W*250\W*', r're:(?i)\W*left\W+arm\W*40\W*(deg\w*\W*)?at\W+speed\W*100\W*', r're:(?i)\W*right\W+arm\W*195\W*(deg\w*\W*)?at\W+speed\W*800\W*'])`,
         hint: "So close! Check the capital letters and punctuation in your arm lines: they should look like 'Right arm: -240° at speed 600'." },
       { expr: py`subseq([r're:Right arm: -240 ?(°|deg\w*)? at speed 600', r're:Left arm: 110 ?(°|deg\w*)? at speed 250', r're:Left arm: 40 ?(°|deg\w*)? at speed 100', r're:Right arm: 195 ?(°|deg\w*)? at speed 800'])`,
@@ -601,8 +709,10 @@ export const BATCH_C = {
   },
   ch11_r5: {
     output: [
-      { expr: py`has('Ready!') and L[-1].endswith('Run complete!') and nums_abs([690, 45, 130, 90, 90, 240])`,
-        hint: "Your run should print launch's 'Ready!' first, then the moves (690, 45 right, 130, 90 left, 90, arm -240), and 'Run complete!' last." },
+      // 'Run complete!' after the moves, not on the last line: the task says Run1 calls end_run() last, which a probe
+      // checks, not that nothing may follow Run1() (r3_goodbye_after).
+      { expr: py`has('Ready!') and any(l.endswith('Run complete!') and nums_abs([690, 45, 130, 90, 90, 240], L=L[:i]) for i, l in enumerate(L))`,
+        hint: "Your run should print launch's 'Ready!' first, then the moves (690, 45 right, 130, 90 left, 90, arm -240), and end_run's 'Run complete!' after them." },
       // nums_abs ignores direction, so the left turn done as a right one and the grab at +240 passed
       // (r1_turn_both_right, r1_arm_positive). The turn lines are the first line holding 45 after the 690 drive
       // and the first holding 90 after the 130 drive; a turn line that names no direction isn't judged.
@@ -659,8 +769,9 @@ export const BATCH_C = {
       { expr: py`not (nums([90, 180, 225]) and not nums([90, 180, 135]))`,
         hint: "A left turn goes the other way from a right turn, so turn left with a negative angle." },
       // The final heading is the last number printed, not the last line: a line without numbers may follow
-      // (r1_facing_after).
-      { expr: py`nums([90, 180, 135, 315, 45]) and nums([45], L=[l for l in L if re.search(r'\d', l)][-1:])`,
+      // (r1_facing_after). Or it is a second 45 after the fifth heading, so a line with another number may follow
+      // too ('That was 5 turns!', r3_turn_count_after).
+      { expr: py`nums([90, 180, 135, 315, 45]) and (nums([45], L=[l for l in L if re.search(r'\d', l)][-1:]) or nums([90, 180, 135, 315, 45, 45]))`,
         hint: "Print the heading after each of the 5 turns, then the final heading." },
     ],
     concepts: [{ expr: py`binop('Mod') >= 1`, hint: "The task asks you to wrap the heading into 0-359 with % 360." }],
@@ -676,7 +787,9 @@ export const BATCH_C = {
     output: [
       { expr: py`nums_abs([ns['SPEED_FAST']['straight'], 690, 45, 130, 90, 90, 240, ns['SPEED_NORMAL']['straight'], 350])`,
         hint: "Run1 should set fast speed, drive 690, turn 45, drive 130, turn 90, drive 90, grab at -240, set normal speed and back up 350, in that order." },
-      { expr: py`(lambda a, b: len(a) > 0 and len(b) > 0 and subseq(a) and L[-len(b):] == b)(callf('launch')[1], callf('end_run')[1])`,
+      // end_run's lines after all the moves rather than on the last lines, which the task never asks for, so a
+      // goodbye after Run1() is fine (r3_goodbye_after); an end_run before the backup drive still fails.
+      { expr: py`(lambda a, b: len(a) > 0 and len(b) > 0 and subseq(a) and any(L[i:i + len(b)] == b and nums_abs([ns['SPEED_FAST']['straight'], 690, 45, 130, 90, 90, 240, ns['SPEED_NORMAL']['straight'], 350], L=L[:i]) for i in range(len(L))))(callf('launch')[1], callf('end_run')[1])`,
         hint: "Start the run with launch() and finish it with end_run(), and make both print a status message." },
       // As in ch11_r5, with the backward drive: its line is the first holding 350 after the grab's 240
       // (r1_turn_right_twice, r1_backward_forward).
@@ -690,6 +803,10 @@ export const BATCH_C = {
         hint: "SPEED_FAST and SPEED_NORMAL should be dictionaries with 'straight' and 'turn' keys." },
       { expr: py`sig('right_arm') == (2, 1) and sig('left_arm') == (2, 1) and numset([600], L=callf('left_arm', 5)[1])`,
         hint: "Give right_arm and left_arm a speed parameter that defaults to 600, and print the speed." },
+      // "prints the speeds being set": both of them, as in ch11_r4, so an apply_speed printing only the straight
+      // speed fails (r3_apply_straight_only).
+      { expr: py`numset([111, 222], L=callf('apply_speed', {'straight': 111, 'turn': 222})[1])`,
+        hint: "apply_speed(profile) should print both speeds it sets, the straight one and the turn one." },
       { expr: py`callees('Run1')[:1] == ['launch'] and callees('Run1')[-1:] == ['end_run'] and callees('Run1').count('apply_speed') >= 2 and 'right_arm' in callees('Run1')`,
         hint: "Run1 should call launch() first, apply_speed twice (fast, then normal), right_arm to grab, and end_run() last." },
     ],
@@ -719,6 +836,10 @@ export const BATCH_C = {
     output: [
       { expr: py`subseq([r're:(?i).*driving.*\b80\b.*', r're:(?i).*driving.*\b75\b.*', r're:(?i).*driving.*\b60\b.*', r're:(?i).*driving.*\b55\b.*', r're:(?i).*driving.*\b40\b.*', r're:(?i).*line detected.*\b18\b.*'])`,
         hint: "Print a 'Driving...' line for each white reading, then 'LINE DETECTED!' with the first black reading." },
+      // "Driving... (white)" is for the white readings only: printed before the check, it showed the black 18 as
+      // white too (r3_prints_before_check).
+      { expr: py`not any(re.search(r'(?i)driving.*\b18\b.*white', l) for l in L)`,
+        hint: "Print 'Driving...' only for white readings: check for black first, so the black reading gets only the LINE DETECTED line." },
       { expr: py`not re.search(r'sensor: 10\b', out)`, hint: "Stop as soon as you find the line: the reading after it should never be printed." },
       // Anywhere after the LINE DETECTED line, not only on the last line, which the task never asks for
       // (r1_stopped_after).
@@ -793,6 +914,11 @@ export const BATCH_C = {
       // lines typed in as 'Phase 1 ticks: 4' passed before (r1_ticks_hard).
       { expr: py`(lambda t: any(nums([a, b], L=[re.sub(r'(?i)\b(phase|p)\s*[12]\b', '', l) for l in t[[i for i, l in enumerate(t) if 'Squared on line!' in l][-1] + 1:]]) for a in (1, 2) for b in (1, 2)))(rerun({'approach': '[(80, 80), (10, 90), (80, 80)]', 'alignment': '[(10, 90), (5, 5), (90, 10)]'})[0])`,
         hint: "Count the ticks in each phase as your loops run, so the counts change when the sensor data does." },
+      // A reading of exactly 22 is white in both phases, as the task's "< 22" says: with <= BLACK_LINE, phase 1
+      // stopped at (22, 80) and phase 2 took (10, 22) as aligned, and no reading in the tests above is 22 (r3_le_22).
+      // Phase 1 must print 2 more Driving lines than the baseline, and phase 2 must turn right before aligning.
+      { expr: py`(lambda D, A: D(rerun({'approach': '[(80, 80), (22, 80), (10, 90), (80, 80)]', 'alignment': '[(10, 10)]'})[0]) - D(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 10)]'})[0]) == 2 and (lambda a, b: any(b[p] == 'aligned' and a == b[:p] + ['turn_right', 'aligned'] + b[p + 1:] for p in range(len(b))))(A(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 22), (5, 5), (90, 10)]'})[0]), A(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 10)]'})[0])))(lambda t: len([l for l in t if 'driving' in l.lower()]), lambda t: [w.lower().replace(' ', '_') for w in re.findall(r'(?i)turn[ _]right|turn[ _]left|aligned|drive[ _]forward', '\n'.join(t))])`,
+        hint: "A reading of exactly 22 is still white: only a reading below 22 means a sensor is on the line, in both phases." },
       // Alignment data that never gets both sensors on the line: every test above ends aligned, so a 'Squared on
       // line!' printed after the loop whatever happened passed (r2_squared_always).
       { expr: py`not any('Squared on line' in l for l in rerun({'alignment': '[(18, 55), (18, 40)]'})[0])`,
@@ -800,43 +926,53 @@ export const BATCH_C = {
     ],
   },
   // The menu may also be shown once before the first press, as a real menu would ('=== Program 1 ===' first):
-  // the task asks for it after each press and doesn't rule that out (r1_initial_menu). That makes the checks
-  // "lines(...) or lines(...)", which the engine can't name a differing line for, so near misses get their own
-  // check: lines that match once capitals, spaces and punctuation are ignored, but not as printed.
+  // the task asks for it after each press and doesn't rule that out (r1_initial_menu). Only the menu's own lines are
+  // read, the ones that are a menu, launching or complete line once capitals and punctuation are ignored, so blank
+  // lines for spacing and a line naming the button pressed are fine (r3_blank_plain, r3_blank_between_mod,
+  // r3_pressed_label). That makes the checks "lines(...) or lines(...)" on those lines, which the engine can't name
+  // a differing line for, so near misses get their own check: lines that match once capitals, spaces and
+  // punctuation are ignored, but not as printed.
   ch12_r5: {
     output: [
-      { expr: py`(lambda P, lo: lines(P) or lines(['=== Program 1 ==='] + P) or not (lines([lo(p) for p in P], L=[lo(l) for l in L]) or lines([lo('=== Program 1 ===')] + [lo(p) for p in P], L=[lo(l) for l in L])))(['=== Program 2 ===', '=== Program 3 ===', r're:.*Launching Run 3\.\.\.', r're:.*Run 3 complete!', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', r're:.*Launching Run 1\.\.\.', r're:.*Run 1 complete!', '=== Program 2 ==='], lambda x: ('re:.*' + ' '.join(re.sub(r'[^\w\s]', ' ', x[3:].replace(r'\.', '.')).lower().split())) if x.startswith('re:') else ' '.join(re.sub(r'[^\w\s]', ' ', x).lower().split()))`,
+      { expr: py`(lambda P, lo, T: lines(P, L=T) or lines(['=== Program 1 ==='] + P, L=T) or not (lines([lo(p) for p in P], L=[lo(l) for l in T]) or lines([lo('=== Program 1 ===')] + [lo(p) for p in P], L=[lo(l) for l in T])))(['=== Program 2 ===', '=== Program 3 ===', r're:.*Launching Run 3\.\.\.', r're:.*Run 3 complete!', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', r're:.*Launching Run 1\.\.\.', r're:.*Run 1 complete!', '=== Program 2 ==='], lambda x: ('re:.*' + ' '.join(re.sub(r'[^\w\s]', ' ', x[3:].replace(r'\.', '.')).lower().split())) if x.startswith('re:') else ' '.join(re.sub(r'[^\w\s]', ' ', x).lower().split()), (lambda t: [l for l in t if re.fullmatch(r'program \d+|.*launching run \d+|.*run \d+ complete', ' '.join(re.sub(r'[^\w\s]', ' ', l).lower().split()))])(L))`,
         hint: "So close! Check the capital letters, spaces and punctuation in your lines: they should look like '=== Program 2 ===' and '🚀 Launching Run 3...'." },
       // run_program's own two lines, so one that prints them on one line hears about that, not about the menu
       // logic it got right (r2_one_line_run).
       { expr: py`not callable(ns.get('run_program')) or (lambda t: len(t) >= 2 and bool(re.fullmatch(r'.*Launching Run 7\.\.\.', t[0])) and bool(re.fullmatch(r'.*Run 7 complete!', t[1])))(callf('run_program', 7)[1])`,
         hint: "run_program(num) should print two lines: '🚀 Launching Run [num]...' and then '✅ Run [num] complete!'." },
-      { expr: py`(lambda P: lines(P) or lines(['=== Program 1 ==='] + P))(['=== Program 2 ===', '=== Program 3 ===', r're:.*Launching Run 3\.\.\.', r're:.*Run 3 complete!', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', r're:.*Launching Run 1\.\.\.', r're:.*Run 1 complete!', '=== Program 2 ==='])`,
+      { expr: py`(lambda P, T: lines(P, L=T) or lines(['=== Program 1 ==='] + P, L=T))(['=== Program 2 ===', '=== Program 3 ===', r're:.*Launching Run 3\.\.\.', r're:.*Run 3 complete!', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', '=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ===', r're:.*Launching Run 1\.\.\.', r're:.*Run 1 complete!', '=== Program 2 ==='], (lambda t: [l for l in t if re.fullmatch(r'program \d+|.*launching run \d+|.*run \d+ complete', ' '.join(re.sub(r'[^\w\s]', ' ', l).lower().split()))])(L))`,
         hint: "Show the menu after every button press. 'center' runs the program and then moves to the next one, and 4 wraps back to 1." },
     ],
     // The functions first, so their hint isn't hidden behind the buttons probe's (r2_one_line_run).
     probes: [
       { expr: py`callf('show_menu', 7)[1] == ['=== Program 7 ==='] and len(callf('run_program', 2)[1]) == 2`,
         hint: "show_menu(num) should print '=== Program num ===', and run_program(num) should print the launching line and the complete line." },
-      { expr: py`(lambda P, t: lines(P, L=t) or lines(['=== Program 1 ==='] + P, L=t))(['=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ==='], rerun({'buttons': "['left', 'center']"})[0])`,
+      { expr: py`(lambda P, t: lines(P, L=t) or lines(['=== Program 1 ==='] + P, L=t))(['=== Program 4 ===', r're:.*Launching Run 4\.\.\.', r're:.*Run 4 complete!', '=== Program 1 ==='], (lambda t: [l for l in t if re.fullmatch(r'program \d+|.*launching run \d+|.*run \d+ complete', ' '.join(re.sub(r'[^\w\s]', ' ', l).lower().split()))])(rerun({'buttons': "['left', 'center']"})[0]))`,
         hint: "Your menu should work for other button presses too: 'left' from program 1 wraps around to 4." },
     ],
   },
+  // A list printed whole, such as a 'Target 90°, readings: [0, 15, ..., 95]' heading, is left out, so its 95 isn't
+  // read as a reading printed after the stop (r3_readings_header), and printing only the list doesn't count as
+  // printing each reading (r2_print_list).
   ch12_s1: {
     output: [
-      { expr: py`nums([0, 15, 32, 48, 65, 78, 91, 0, -10, -22, -38, -46])`, hint: "Print each gyro reading until the turn reaches its target, for both turns." },
-      { expr: py`not re.search(r'(?<![-\d])95\b', out) and not re.search(r'-50\b', out)`,
+      { expr: py`nums([0, 15, 32, 48, 65, 78, 91, 0, -10, -22, -38, -46], L=[re.sub(r'\[[^\]]*\]', '', l) for l in L])`, hint: "Print each gyro reading until the turn reaches its target, for both turns." },
+      { expr: py`(lambda T: not re.search(r'(?<![-\d])95\b', T) and not re.search(r'-50\b', T))('\n'.join(re.sub(r'\[[^\]]*\]', '', l) for l in L))`,
         hint: "Stop as soon as a reading reaches or passes the target, so the readings after it are never printed." },
     ],
     probes: [
       { expr: py`callf('gyro_turn', 90, [0, 15, 32, 48, 65, 78, 91, 95])[0] == 91 and callf('gyro_turn', -45, [0, -10, -22, -38, -46, -50])[0] == -46`,
         hint: "gyro_turn should return the reading where it stopped, for positive and for negative targets." },
-      { expr: py`(lambda r: r[0] == 40 and not any(re.search(r'\b50\b', l) for l in r[1]))(callf('gyro_turn', 30, [0, 10, 40, 50]))`,
+      { expr: py`(lambda r: r[0] == 40 and not any(re.search(r'\b50\b', re.sub(r'\[[^\]]*\]', '', l)) for l in r[1]))(callf('gyro_turn', 30, [0, 10, 40, 50]))`,
         hint: "gyro_turn should stop at the first reading that reaches the target, for any target and any readings." },
       // A reading exactly on the target, for both signs: stopping only once a reading passes it (> and <)
       // went on to 50 (r1_strict).
-      { expr: py`(lambda a, b: a[0] == 40 and not any(re.search(r'\b50\b', l) for l in a[1]) and b[0] == -40 and not any(re.search(r'-50\b', l) for l in b[1]))(callf('gyro_turn', 40, [0, 10, 40, 50]), callf('gyro_turn', -40, [0, -10, -40, -50]))`,
+      { expr: py`(lambda a, b: a[0] == 40 and not any(re.search(r'\b50\b', re.sub(r'\[[^\]]*\]', '', l)) for l in a[1]) and b[0] == -40 and not any(re.search(r'-50\b', re.sub(r'\[[^\]]*\]', '', l)) for l in b[1]))(callf('gyro_turn', 40, [0, 10, 40, 50]), callf('gyro_turn', -40, [0, -10, -40, -50]))`,
         hint: "A reading equal to the target counts as reaching it, so gyro_turn should stop there too." },
+      // "Print each reading", the one that reaches the target too: checked before printing, it was only printed by the
+      // caller, as the returned final angle, which the output check can't tell apart (r3_check_before_print).
+      { expr: py`any(re.search(r'(?<![-\d])40\b', re.sub(r'\[[^\]]*\]', '', l)) for l in callf('gyro_turn', 30, [0, 10, 40, 50])[1])`,
+        hint: "gyro_turn should print every reading it gets to, including the one that reaches the target, and then stop." },
     ],
   },
   ch12_s2: {
@@ -900,7 +1036,10 @@ export const BATCH_C = {
     probes: [
       { expr: py`ns.get('BLACK_LINE') == 22 and all({'straight', 'turn'} <= set(ns.get(k, {})) for k in ('SPEED_FAST', 'SPEED_SLOW'))`,
         hint: "Keep BLACK_LINE = 22, and make SPEED_FAST and SPEED_SLOW dictionaries with 'straight' and 'turn' keys." },
-      { expr: py`sig('right_arm') == (2, 1) and sig('left_arm') == (2, 1)`, hint: "Give right_arm and left_arm a speed parameter that defaults to 600." },
+      // The default must be 600, not just a default: speed=500 passed (r3_arm_default_500). The task doesn't say the
+      // arms print their speed, so the default is read from the function, or else from what it prints.
+      { expr: py`sig('right_arm') == (2, 1) and sig('left_arm') == (2, 1) and all((lambda f: (getattr(f, '__defaults__', None) or ())[-1:] == (600,) or (getattr(f, '__kwdefaults__', None) or {}).get('speed') == 600 or numset([600], L=callf(n, 5)[1]))(ns[n]) for n in ('right_arm', 'left_arm'))`,
+        hint: "Give right_arm and left_arm a speed parameter that defaults to 600." },
       { expr: py`(lambda t: len(t) >= 4 and not re.search(r'\b14\b', '\n'.join(t)) and re.search(r'(?i)aligned|squared', '\n'.join(t)))(callf('square_on_line', ns['approach'], ns['align'])[1])`,
         hint: "square_on_line should print both phases, and stop phase 2 as soon as both sensors are below BLACK_LINE." },
       // Phase 2 mustn't stop while only one sensor is on the line: with 'or', square_on_line stopped at (18, 50),
@@ -949,14 +1088,15 @@ export const BATCH_C = {
     probes: [{ expr: py`nums_approx([2.0, 2.0], tol=0.051, L=rerun({'segments': "[{'dist': 100, 'speed': 50}]"})[0])`,
       hint: "Work each time out from the segment's dist and speed, so the answers change when the segments do." }],
   },
-  // Within 0.051 instead of exact, so an average rounded to one decimal (42.9) counts (ALT_loop_round). The task
-  // lists what to find but sets no print order, so the minimum, maximum and average may come in any order, and
-  // then the count and the index in either order: the prototype's fixed order rejected the maximum printed
-  // first (r2_max_first).
+  // Within 0.5 instead of exact, so an average rounded to one decimal (42.9, ALT_loop_round) or to a whole number
+  // (43, r3_round_int_avg) counts, as in ch12_s3: the task sets no precision, and the other values are whole
+  // numbers, which 0.5 still tells apart. The task lists what to find but sets no print order, so the minimum,
+  // maximum and average may come in any order, and then the count and the index in either order: the prototype's
+  // fixed order rejected the maximum printed first (r2_max_first).
   grind_22: {
-    output: [{ expr: py`(lambda S: any(nums_approx(list(a) + list(b), tol=0.051) for a in [(x, y, z) for x in S for y in S for z in S if len({x, y, z}) == 3] for b in ((6, 10), (10, 6))))((10, 80, 42.85))`,
+    output: [{ expr: py`(lambda S: any(nums_approx(list(a) + list(b), tol=0.5) for a in [(x, y, z) for x in S for y in S for z in S if len({x, y, z}) == 3] for b in ((6, 10), (10, 6))))((10, 80, 42.85))`,
       hint: "Print the minimum, the maximum, the average, how many readings are below 22, and the index of the first one." }],
-    probes: [{ expr: py`(lambda S, t: any(nums_approx(list(a) + list(b), tol=0.051, L=t) for a in [(x, y, z) for x in S for y in S for z in S if len({x, y, z}) == 3] for b in ((2, 1), (1, 2))))((10, 50, 27.5), rerun({'readings': '[50, 20, 30, 10]'})[0])`,
+    probes: [{ expr: py`(lambda S, t: any(nums_approx(list(a) + list(b), tol=0.5, L=t) for a in [(x, y, z) for x in S for y in S for z in S if len({x, y, z}) == 3] for b in ((2, 1), (1, 2))))((10, 50, 27.5), rerun({'readings': '[50, 20, 30, 10]'})[0])`,
       hint: "Work everything out from the readings list, so the answers change when the readings do." }],
   },
   // content bug: all 4 runs fit in 150 s (136 s in total), so the time limit never matters with the task's data.
@@ -977,6 +1117,11 @@ export const BATCH_C = {
       // fails (r1_hard_order). All 4 still fit in 150 s.
       { expr: py`(lambda N: (lambda n: any(n[i:i + 4] == ['Run2', 'Run4', 'Run3', 'Run1'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))(re.findall(r'\bRun[1-4]\b', '\n'.join(rerun({'runs': "[{'name': 'Run1', 'time': 28, 'points': 50}, {'name': 'Run2', 'time': 35, 'points': 200}, {'name': 'Run3', 'time': 42, 'points': 100}, {'name': 'Run4', 'time': 31, 'points': 95}]"})[0])))`,
         hint: "Work the order out from each run's points and time, so it changes when the runs do." },
+      // Runs whose ratios, 2.9 and 2.5, both round down to 2, listed in the wrong order: points // time kept that
+      // order, since sorting keeps ties as they come, and passed the data above (r3_int_ratio). Right order: Run3
+      // (5.0), Run2, Run1, Run4 (1.0), 140 s in all.
+      { expr: py`(lambda N: (lambda n: any(n[i:i + 4] == ['Run3', 'Run2', 'Run1', 'Run4'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))(re.findall(r'\bRun[1-4]\b', '\n'.join(rerun({'runs': "[{'name': 'Run1', 'time': 40, 'points': 100}, {'name': 'Run2', 'time': 30, 'points': 87}, {'name': 'Run3', 'time': 20, 'points': 100}, {'name': 'Run4', 'time': 50, 'points': 50}]"})[0])))`,
+        hint: "Sort by the exact points / time: when two runs' ratios were close, like 2.9 and 2.5, your order came out wrong." },
     ],
   },
 };
