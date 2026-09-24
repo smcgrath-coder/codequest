@@ -14,10 +14,9 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
   function write(bytes) {
     if (!current || current.silent) return bytes.length;
     const text = decoder.decode(bytes, { stream: true });
-    if (total < MAX_OUTPUT_CHARS) {
-      const keep = text.slice(0, MAX_OUTPUT_CHARS - total);
-      pending += keep; total += keep.length;
-    } else if (!current.capped) {
+    const keep = text.slice(0, MAX_OUTPUT_CHARS - total);
+    pending += keep; total += keep.length;
+    if (keep.length < text.length && !current.capped) {
       current.capped = true;
       interruptBuffer[0] = 2;       // stop a runaway print loop
     }
@@ -28,18 +27,22 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
   py.setStdout({ write });
   py.setStderr({ write });
   py.setStdin({ stdin: () => {
+    if (!current || current.silent) return null;   // end of file: grading must never open the input box
     flush();
     post({ type: "input", id: current.id });
     const answer = readInput();
     return (answer ?? "") + "\n";   // null means Stop was pressed; the interrupt ends the run
   } });
   py.setInterruptBuffer(interruptBuffer);
-  py.registerJsModule("_codequest", { sleep_ms: ms => sleepMs(ms) });
+  // Flush first: nothing else can send output while the worker naps.
+  py.registerJsModule("_codequest", { sleep_ms: ms => { flush(); sleepMs(ms); } });
   py.runPython(sources.harness, { dedent: false });
   py.runPython(sources.grading, { dedent: false });
 
-  const call = (name, ...args) => {
-    const proxy = py.globals.get(name)(...args);
+  // Looked up once, so kid code that rebinds them in __main__ can't take over later runs.
+  const runVisible = py.globals.get("run_visible"), gradeJson = py.globals.get("grade_json");
+  const call = (fn, ...args) => {
+    const proxy = fn(...args);
     const value = typeof proxy === "string" ? proxy : proxy.toJs({ dict_converter: Object.fromEntries });
     proxy?.destroy?.();
     return value;
@@ -55,20 +58,24 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
     run({ id, code }) {
       begin(id, false);
       let res;
-      try { res = call("run_visible", code); }
-      catch (e) { res = { ok: false, kind: "Internal", text: String(e) }; }
+      try { res = call(runVisible, code); }
+      catch (e) {
+        // The cap or a Stop can land in the harness's own code, such as its final flush.
+        res = e?.type === "KeyboardInterrupt" ? { ok: false, kind: "Stopped", msg: "", line: null, text: "" }
+          : { ok: false, kind: "Internal", text: String(e) };
+      }
       flush();
       const capped = current.capped;
       current = null;
-      post({ type: "result", id, ...res, capped });
+      post({ ...res, capped, type: "result", id });   // envelope last, so fields from Python can't replace it
     },
     grade({ id, code, rule, starter, inputs, attempt }) {
       begin(id, true);
       let res;
-      try { res = JSON.parse(call("grade_json", code, JSON.stringify(rule), starter || "", JSON.stringify(inputs || []), attempt || 1)); }
+      try { res = JSON.parse(call(gradeJson, code, JSON.stringify(rule), starter || "", JSON.stringify(inputs || []), attempt || 1)); }
       catch (e) { res = { passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: String(e) }; }
       current = null;
-      post({ type: "graded", id, ...res });
+      post({ ...res, type: "graded", id });
     },
   };
 }

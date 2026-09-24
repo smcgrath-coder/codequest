@@ -47,3 +47,56 @@ test("Stop from another thread interrupts a silent infinite loop", async () => {
 test("the next run after a stop works normally", () => {
   assert.equal(stdout(t.run('print("fine")')), "fine\n");
 });
+
+test("a long line of output cut off by the cap reports Stopped, not an internal error", () => {
+  // Output with no newlines waits in Python's buffer and reaches the cap in big chunks.
+  const r = result(t.run('for i in range(30000):\n    print(i, end=" ")'));
+  assert.equal(r.kind, "Stopped"); assert.equal(r.capped, true);
+});
+
+test("the cap still reports Stopped when it trips in the harness's final flush", () => {
+  // One write that crosses the cap, sent only when the harness flushes after the kid's code has
+  // finished, so the interrupt lands in harness code, outside the kid's try.
+  const msgs = t.run('print("x" * 100_001, end="")');
+  const r = result(msgs);
+  assert.equal(r.kind, "Stopped");
+  assert.equal(r.capped, true, "capped as soon as any output is dropped");
+  assert.equal(stdout(msgs).length, 100_000);
+  assert.equal(stdout(t.run('print("fine")')), "fine\n");
+});
+
+test("output printed just before time.sleep reaches the page before the nap", () => {
+  let shownAtNap = null;
+  t.setSleep(() => { shownAtNap ??= stdout(t.messages); });
+  try { t.run('import time\nprint("Ready")\nprint("Set")\ntime.sleep(0.1)\nprint("Go!")'); }
+  finally { t.setSleep(null); }
+  assert.equal(shownAtNap, "Ready\nSet\n");
+});
+
+test("kid code can't swap out the harness entry point for later runs", () => {
+  t.run('import __main__\n__main__.run_visible = lambda src: {"ok": True, "hacked": True}');
+  const msgs = t.run('print("fine")');
+  assert.equal(result(msgs).hacked, undefined);
+  assert.equal(stdout(msgs), "fine\n");
+});
+
+// A stand-in grading.py that reads input and tries to overwrite the message envelope.
+const SNEAKY_GRADING = `import json
+def grade_json(code, rule, starter, inputs, attempt):
+    try:
+        got = input()
+    except EOFError:
+        got = "EOF"
+    return json.dumps({"passed": False, "feedback": got, "type": "stdout", "id": "someone-else"})
+`;
+
+test("a silent grading run never asks the page for input; it gets end-of-file", async () => {
+  const g = await makeCore({ grading: SNEAKY_GRADING });
+  g.core.grade({ id: "g1", code: "", rule: {} });
+  assert.deepEqual(g.messages.map(m => m.type), ["graded"]);
+  assert.equal(g.messages[0].feedback, "EOF");
+  assert.equal(g.messages[0].id, "g1", "the envelope wins over fields from Python");
+  // A visible run afterwards still asks for input as usual.
+  g.setAnswers(["Alex"]);
+  assert.equal(stdout(g.run('print("Hi", input())')), "Hi Alex\n");
+});
