@@ -27,15 +27,33 @@ const LOOSE = String.raw`(lambda R: [re.sub(r'[\W_]+', '', l.lower()) for l in R
 // Output checks for the lines W that count only the lines keep (a Python lambda) picks, so extra lines like a header,
 // a blank line or a "Wrong password" are fine. grading.py names a near miss only for a literal lines([...]) check,
 // which can't leave lines out, so the last two checks name it instead: spaces, then capitals and punctuation.
-// checks are [expr, hint] pairs about K, the kept lines, and run first.
-const keptLines = (keep, W, checks, spaces, caps) => {
-  const K = `[l for l in L if ${keep}(l)]`, w = JSON.stringify(W);
+// checks are [expr, hint] pairs about K, the kept lines, and run first. keptFrom is the same for K, any Python
+// expression for the lines that count.
+const keptFrom = (K, W, checks, spaces, caps) => {
+  const w = JSON.stringify(W);
   return [
     ...checks.map(([expr, hint]) => ({ expr: `(lambda K: ${expr})(${K})`, hint })),
     { expr: `(lambda K, W: K == W or [''.join(k.split()) for k in K] != [''.join(x.split()) for x in W])(${K}, ${w})`, hint: spaces },
     { expr: `${K} == ${w}`, hint: caps },
   ];
 };
+const keptLines = (keep, W, checks, spaces, caps) => keptFrom(`[l for l in L if ${keep}(l)]`, W, checks, spaces, caps);
+
+// Not in round 3, where these rooms had exact lines([...]) checks: their tasks show what to print but never say "only"
+// or "exactly", so other lines, like a friendly "Which door should I take?" before the answer, are fine (ch1_r1 says
+// "display exactly", and ch1_s1 asks for one print() that shows the poem, so those stay exact). ANSWERS(keep, n) is a
+// Python function of lines R that gives its n answer lines: the lines keep picks when there are n of them. When there
+// aren't, but R has n lines, it gives R itself, so a slip keep doesn't pick, like "Worm" for Warm, is still compared
+// with the task when nothing else is printed (see keptFrom above); otherwise it gives the lines keep picks, however
+// many. Reruns read their lines the same way.
+const ANSWERS = (keep, n) => `(lambda R: (lambda A: A if len(A) == ${n} else R if len(R) == ${n} else A)([l for l in R if ${keep}(l)]))`;
+// A keep for ANSWERS: a line that is one of the messages, with capitals, spaces and punctuation ignored (as in LOOSE).
+const loose = m => m.toLowerCase().replace(/[\W_]+/g, '');
+const ONE_OF = msgs => String.raw`(lambda l: re.sub(r'[\W_]+', '', l.lower()) in ${JSON.stringify(msgs.map(loose))})`;
+// ch4_s1 and grind_0: the lines of L from the first to the last made only of the character c (a regex) and spaces,
+// with whatever is between them, so a line before or after the picture, like "Here is my box:", is fine, but a blank
+// line or anything else inside it isn't. Not in round 3.
+const PICTURE = c => String.raw`(lambda I: L[I[0]:I[-1] + 1] if I else [])([k for k, l in enumerate(L) if re.fullmatch(r'\s*${c}[${c}\s]*', l)])`;
 
 // ch1_s3: lines R with the commas that group a number's thousands left out, as f"{seconds:,}" prints them, so 259,200
 // reads as one number. A comma counts only when exactly three digits follow it, so "3,72" and "72, 4320" keep theirs.
@@ -120,9 +138,18 @@ const HEADERISH = String.raw`(lambda s: bool(re.search(r'[?:]\s*$', s) or re.sea
 // nor does a header (see HEADERISH above).
 const TRUTHY_WORDS = String.raw`[w for w in [(re.findall(r'(?i)\b(?:truthy|falsy|falsey)\b', re.sub(r'(?i)\b(?:truthy|falsey|falsy)\s*(?:or|/)\s*(?:truthy|falsey|falsy)\b', ' ', l)) or [''])[-1].lower().replace('falsey', 'falsy') for l in L if not ${HEADERISH}(l)] if w]`;
 
-// ch3_s2: true when the first run's lines aren't minor, boiling and game over, even with capitals, spaces and
+// ch3_r3, ch3_r4, ch3_r5 and ch3_s2: functions of lines R that give the answer lines, the ones that are one of the
+// room's messages (see ANSWERS above).
+const R3 = ANSWERS(ONE_OF(['Hot', 'Warm', 'Cool', 'Cold']), 1);
+const R4 = ANSWERS(ONE_OF(['Access granted', 'Access denied']), 1);
+const R5 = ANSWERS(ONE_OF(['Tough fight!', 'Easy win!', 'You need a weapon!']), 1);
+const S2 = ANSWERS(ONE_OF(['adult', 'minor', 'boiling', 'not yet', 'game over', 'keep going']), 3);
+// ch4_r4: the same for the Energy lines and Shutdown!, n of them.
+const ENERGY = n => ANSWERS(String.raw`(lambda l: re.fullmatch(r'energy\d+|shutdown', re.sub(r'[\W_]+', '', l.lower())) is not None)`, n);
+
+// ch3_s2: true when the first run's answers aren't minor, boiling and game over, even with capitals, spaces and
 // punctuation ignored.
-const S2_OFF = `${LOOSE}(L) != ${LOOSE}(['minor', 'boiling', 'game over'])`;
+const S2_OFF = `${LOOSE}(${S2}(L)) != ${LOOSE}(['minor', 'boiling', 'game over'])`;
 
 // ch3_boss: whether text t has the message m with no letter, digit or other ! . ? touching it, so "Needs work!" and
 // "Great job!!" are near misses of Needs work and Great job!, while "Grade: B - Great job!" and a quoted "Great job!" count.
@@ -188,9 +215,21 @@ const G1_UNSEEN = `${LOOSE}([f"The {ns.get('animal')} ate {ns.get('number')} {ns
 export const BATCH_A = {
   // ── Chapter 1: The Terminal ──
   ch1_r1: { output: [{ expr: "lines(['Hello, World!'])" }] },
-  ch1_r2: { output: [{ expr: "lines(['I am a coder','I am brave','I am ready'])" }] },
+  ch1_r2: {
+    // Other lines, like a "Here I go!" first, are fine (see ANSWERS above).
+    output: keptFrom(`${ANSWERS(ONE_OF(['I am a coder', 'I am brave', 'I am ready']), 3)}(L)`, ['I am a coder', 'I am brave', 'I am ready'], [
+      ["len(K) == 3", "Print all three lines from the task, each one on a line of its own."],
+      [`${LOOSE}(K) == ['iamacoder', 'iambrave', 'iamready']`, "One of your lines isn't right yet, so check its words, and the order of the three lines, against the task."],
+    ], "So close! Check the spaces: one space between each word, and none before the first one.",
+    "So close! Check your capital letters and punctuation: each line starts with a capital I, and nothing goes after its last word."),
+  },
   ch1_r3: {
-    output: [{ expr: "lines(['Comments help me remember'])" }],
+    // Other lines are fine (see ANSWERS above): the task asks for a comment and this print(), not for them alone.
+    output: keptFrom(`${ANSWERS(ONE_OF(['Comments help me remember']), 1)}(L)`, ['Comments help me remember'], [
+      ["len(K) == 1", "Print the task's message once, spelled just like the task: Comments help me remember."],
+      [`${LOOSE}(K) == ['commentshelpmeremember']`, "Check the spelling of your message: it should say Comments help me remember, just like the task."],
+    ], "So close! Check the spaces: one space between each word, and none before the first one.",
+    "So close! Check your capital letters and punctuation: only the C at the start is a capital, and nothing goes at the end."),
     // rules_a.py had len(new_comments()) >= 1, which a bare # (or # and spaces) passed: it needs words, in any
     // alphabet (# Эта программа печатает сообщение is a comment too): [^\W\d_] is a letter of any script.
     concepts: [{ expr: String.raw`any(re.search(r'[^\W\d_]', c) for c in new_comments())`, hint: "Add a comment of your own that starts with # and says what your program does (the one that was already there doesn't count)." }],
@@ -327,10 +366,12 @@ export const BATCH_A = {
     ],
   },
   grind_0: {
-    output: [
-      spacing(['####', '#  #', '#  #', '####'], "So close! Your # signs are right, but check the spaces in each row against the box in the task."),
-      { expr: "lines(['####','#  #','#  #','####'])" },
-    ],
+    // A line before or after the box, like "Here is my box:", is fine (see PICTURE above).
+    output: keptFrom(PICTURE('#'), ['####', '#  #', '#  #', '####'], [
+      ["len(K) == 4", "Your box needs four rows of # signs, one right under the other, just like the box in the task."],
+      ["[k.count('#') for k in K] == [4, 2, 2, 4]", "Check the # signs in each row: the top and bottom rows are full, and each middle row has one at each end."],
+    ], "So close! Your # signs are right, but check the spaces in each row against the box in the task.",
+    "So close! Your # signs are right, but each row should have only # signs and spaces in it, just like the box in the task."),
   },
   grind_1: {
     // The variables are checked first, so a kid who named them pet, snack and count is told that, not to fix a
@@ -603,20 +644,34 @@ export const BATCH_A = {
     ],
   },
   ch3_r3: {
-    output: [{ expr: "lines(['Warm'])" }],
+    // Other lines, like a "Which door should I take?" before the word, are fine: only the word counts (see ANSWERS and
+    // R3 above), in the probes too.
+    output: keptFrom(`${R3}(L)`, ['Warm'], [
+      ["len(K) == 1", "Print just one of the task's four words, Hot, Warm, Cool or Cold, using elif so only the first test that matches prints."],
+      [`${LOOSE}(K)[0] in ['hot', 'warm', 'cool', 'cold']`, "Check the spelling of your word: it should be Hot, Warm, Cool or Cold, just like the task."],
+      [`${LOOSE}(K) == ['warm']`, "Check your if and elif tests: use the task's numbers and >= signs, going from the highest number to the lowest."],
+    ], "So close! Check the spaces: print the word on its own, with no spaces before it or inside it.",
+    "So close! Check your capital letters and punctuation: start the word with a capital letter, just like the task, and put nothing after it."),
     // rules_a.py never tried a temp in 80-89, 60-69 or 40-49, so thresholds like >= 80, >= 60 or >= 40 passed;
     // 89, 69 and 49 (just under each edge) catch them. The first run only shows Warm, so the groups are checked
     // loosely first (see LOOSE above), then the other three words exactly, with a hint about spelling. Not in round 1:
     // 105, since ch3_boss's 90-100 invites `temp >= 90 and temp <= 100`, which says Warm for anything hotter. Not in
-    // round 2: only once the first run shows Warm, with capitals and punctuation ignored, since otherwise the output check
-    // has already named the wrong line, and a "Worm" isn't also told to fix its numbers.
+    // round 2: only once the first run's word is Warm, with capitals and punctuation ignored, since otherwise the output
+    // check has already named the wrong line, and a "Worm" isn't also told to fix its numbers.
     probes: [
-      { expr: `${LOOSE}(L) != ['warm'] or all(${LOOSE}(rerun({'temp': t})[0]) == ${LOOSE}([w]) for t, w in [('105','Hot'), ('95','Hot'), ('90','Hot'), ('89','Warm'), ('70','Warm'), ('69','Cool'), ('55','Cool'), ('50','Cool'), ('49','Cold'), ('30','Cold')])`, hint: "Use if/elif/else on temp, with the same numbers and >= signs as the task, so every temperature lands in the right group." },
-      { expr: `${LOOSE}(L) != ['warm'] or all(rerun({'temp': t})[0] == [w] for t, w in [('95','Hot'), ('69','Cool'), ('49','Cold')])`, hint: "Write each group's word just like the task, starting with a capital letter: Hot, Warm, Cool and Cold." },
+      { expr: `${LOOSE}(${R3}(L)) != ['warm'] or all(${LOOSE}(${R3}(rerun({'temp': t})[0])) == ${LOOSE}([w]) for t, w in [('105','Hot'), ('95','Hot'), ('90','Hot'), ('89','Warm'), ('70','Warm'), ('69','Cool'), ('55','Cool'), ('50','Cool'), ('49','Cold'), ('30','Cold')])`, hint: "Use if/elif/else on temp, with the same numbers and >= signs as the task, so every temperature lands in the right group." },
+      { expr: `${LOOSE}(${R3}(L)) != ['warm'] or all(${R3}(rerun({'temp': t})[0]) == [w] for t, w in [('95','Hot'), ('69','Cool'), ('49','Cold')])`, hint: "Write each group's word just like the task, starting with a capital letter: Hot, Warm, Cool and Cold." },
     ],
   },
   ch3_r4: {
-    output: [{ expr: "lines(['Access granted'])" }],
+    // Other lines, like a "Checking the gate..." first, are fine: only the message counts (see ANSWERS and R4 above), in
+    // the probes too.
+    output: keptFrom(`${R4}(L)`, ['Access granted'], [
+      ["len(K) == 1", "Print just one message, Access granted or Access denied, and put Access denied in an else so only one of them prints."],
+      [`${LOOSE}(K)[0] in ['accessgranted', 'accessdenied']`, "Check the spelling of your message: it should be Access granted or Access denied, just like the task."],
+      [`${LOOSE}(K) == ['accessgranted']`, "Check your if test against the task: Access granted should print when either one of the two checks is true."],
+    ], "So close! Check the spaces: one space between Access and the next word, and none before it.",
+    "So close! Check your capital letters and punctuation: only the A of Access is a capital, and nothing goes at the end."),
     concepts: [{ expr: "boolop('or')", hint: "Join your two checks with or, so either one can open the gate." }],
     // rules_a.py's one check here told `age >= 12 or has_permission` and `or "has_permission"` (always true)
     // to use if/else, which they did. Split so a wrong test and a missing else get their own hints.
@@ -630,13 +685,20 @@ export const BATCH_A = {
       { expr: `'accessgranted' not in ${LOOSE}(rerun({'has_permission': 'False'})[0])`, hint: "With has_permission set to False, a 12-year-old shouldn't get in. Check your age test, and use has_permission itself, with no quotes around it." },
       // Split in two in round 3, so an else that prints "Access Denied!" is told about its spelling, not to add an else.
       { expr: `any('accessdenied' in r for r in ${LOOSE}(rerun({'has_permission': 'False'})[0]))`, hint: "Add an else that prints Access denied, for when neither check is true." },
-      { expr: "rerun({'has_permission': 'False'})[0] == ['Access denied']", hint: "Write Access denied in your else just like the task, with the same capital letters and punctuation." },
+      { expr: `${R4}(rerun({'has_permission': 'False'})[0]) == ['Access denied']`, hint: "Write Access denied in your else just like the task, with the same capital letters and punctuation." },
       // rules_a.py only tried 15, so `age > 13` or `age >= 14` passed; 13 itself must get in.
-      { expr: `all(${LOOSE}(rerun({'has_permission': 'False', 'age': a})[0]) == ['accessgranted'] for a in ('13', '15'))`, hint: "Anyone 13 or older should get in even without permission, so check your age test: 13 itself counts." },
+      { expr: `all(${LOOSE}(${R4}(rerun({'has_permission': 'False', 'age': a})[0])) == ['accessgranted'] for a in ('13', '15'))`, hint: "Anyone 13 or older should get in even without permission, so check your age test: 13 itself counts." },
     ],
   },
   ch3_r5: {
-    output: [{ expr: "lines(['Easy win!'])" }],
+    // Other lines, like "A monster appears!" first, are fine: only the message counts (see ANSWERS and R5 above), in
+    // the probes too.
+    output: keptFrom(`${R5}(L)`, ['Easy win!'], [
+      ["len(K) == 1", "Print just one message, using an if/else inside your if so only one of the task's messages prints."],
+      [`${LOOSE}(K)[0] in ['toughfight', 'easywin', 'youneedaweapon']`, "Check the spelling of your message: it should be Tough fight!, Easy win! or You need a weapon!, just like the task."],
+      [`${LOOSE}(K) == ['easywin']`, "Check your tests against the task: first whether you have a sword, and then, inside that, whether monster_health is more than 50."],
+    ], "So close! Check the spaces: one space between each word, and none before the first one.",
+    "So close! Check your capital letters and punctuation: start with a capital letter and end with an exclamation mark, just like the task."),
     // nested_if() alone missed `if not has_sword: ... else:` with the if/else inside the else, because in the
     // ast that looks just like an elif. Only the column tells them apart: an elif starts where its if does. Not in
     // round 2: the inner if/else may be the inline form ch3_s2 teaches, print("Tough fight!" if ... else "Easy win!"),
@@ -648,13 +710,13 @@ export const BATCH_A = {
       // Split in three, so a missing inner else (Easy win! printed after every fight) and a typo in Tough fight!,
       // which the first run never prints, each get their own hint. Loose (see LOOSE above) until the typo check.
       { expr: `'toughfight' in ${LOOSE}(rerun({'monster_health': '80'})[0])`, hint: "Check monster_health with an if, so a strong monster gives a tough fight." },
-      { expr: `${LOOSE}(rerun({'monster_health': '80'})[0]) == ['toughfight']`, hint: "A strong monster should print only Tough fight!, so put Easy win! in the else of your monster_health check." },
-      { expr: "rerun({'monster_health': '80'})[0] == ['Tough fight!']", hint: "Write Tough fight! just like the task, with the same capital letters and punctuation." },
+      { expr: `${LOOSE}(${R5}(rerun({'monster_health': '80'})[0])) == ['toughfight']`, hint: "A strong monster should print only Tough fight!, so put Easy win! in the else of your monster_health check." },
+      { expr: `${R5}(rerun({'monster_health': '80'})[0]) == ['Tough fight!']`, hint: "Write Tough fight! just like the task, with the same capital letters and punctuation." },
       // Not in rules_a.py: 50 was never tried, so `monster_health >= 50` passed.
-      { expr: `${LOOSE}(rerun({'monster_health': '51'})[0]) == ['toughfight'] and ${LOOSE}(rerun({'monster_health': '50'})[0]) == ['easywin']`, hint: "Check your comparison: only a monster with more than 50 health is a tough fight, so 50 itself is an easy win." },
+      { expr: `${LOOSE}(${R5}(rerun({'monster_health': '51'})[0])) == ['toughfight'] and ${LOOSE}(${R5}(rerun({'monster_health': '50'})[0])) == ['easywin']`, hint: "Check your comparison: only a monster with more than 50 health is a tough fight, so 50 itself is an easy win." },
       // Split from rules_a.py's one check, so a message typo ("You need a sword!") isn't told to check has_sword.
       { expr: `not any(m in ${LOOSE}(rerun({'has_sword': 'False'})[0]) for m in ('easywin', 'toughfight'))`, hint: "Check has_sword first, so a hero without a sword doesn't fight the monster at all." },
-      { expr: "rerun({'has_sword': 'False'})[0] == ['You need a weapon!']", hint: "When has_sword is False, print You need a weapon! in your else, written just like the task." },
+      { expr: `${R5}(rerun({'has_sword': 'False'})[0]) == ['You need a weapon!']`, hint: "When has_sword is False, print You need a weapon! in your else, written just like the task." },
     ],
   },
   ch3_s1: {
@@ -679,21 +741,28 @@ export const BATCH_A = {
     ],
   },
   ch3_s2: {
-    output: [{ expr: "lines(['minor', 'boiling', 'game over'])" }],
+    // Other lines, like a "Quick answers:" first, are fine: only the answers count (see ANSWERS and S2 above), in the
+    // probes too.
+    output: keptFrom(`${S2}(L)`, ['minor', 'boiling', 'game over'], [
+      ["len(K) == 3", "Print three answers, one for each of the task's inline if/else checks, each on a line of its own."],
+      [`all(k in ['adult', 'minor', 'boiling', 'notyet', 'gameover', 'keepgoing'] for k in ${LOOSE}(K))`, "Check the spelling of each answer: use the task's words, adult or minor, boiling or not yet, and game over or keep going."],
+      [`${LOOSE}(K) == ['minor', 'boiling', 'gameover']`, "One of your answers isn't right yet, so check each inline test against the task, and keep the three answers in the task's order."],
+    ], "So close! Check the spaces: put one space between two words, like game over, and none anywhere else.",
+    "So close! Check your capital letters and punctuation: every answer is in small letters, with nothing after it, just like the task."),
     concepts: [{ expr: "count(ast.IfExp) >= 3", hint: "Use the inline form for all three, like print(\"yes\" if test else \"no\")." }],
     // The first run only shows minor, boiling and game over, so the other three words are first checked loosely
     // (see LOOSE above), then exactly, with a hint about spelling. Then one edge per test, each with its own hint.
     // Not in round 2: the first rerun used age 20, so an age test like age >= 21 was told it typed the words; 99, 0 and
-    // 99 are far from every edge. And the probes only count once the first run's lines are right, with capitals, spaces
+    // 99 are far from every edge. And the probes only count once the first run's answers are right, with capitals, spaces
     // and punctuation ignored, since otherwise the output check has already named the problem.
     probes: [
-      { expr: `${S2_OFF} or ${LOOSE}(rerun({'age': '99', 'temp': '0', 'lives': '99'})[0]) == ${LOOSE}(['adult', 'not yet', 'keep going'])`, hint: "Base each answer on age, temp and lives, instead of typing the words." },
-      { expr: `${S2_OFF} or rerun({'age': '99', 'temp': '0', 'lives': '99'})[0] == ['adult', 'not yet', 'keep going']`, hint: "Write every answer just like the task, in small letters: adult, not yet and keep going too, not just the ones printed now." },
+      { expr: `${S2_OFF} or ${LOOSE}(${S2}(rerun({'age': '99', 'temp': '0', 'lives': '99'})[0])) == ${LOOSE}(['adult', 'not yet', 'keep going'])`, hint: "Base each answer on age, temp and lives, instead of typing the words." },
+      { expr: `${S2_OFF} or ${S2}(rerun({'age': '99', 'temp': '0', 'lives': '99'})[0]) == ['adult', 'not yet', 'keep going']`, hint: "Write every answer just like the task, in small letters: adult, not yet and keep going too, not just the ones printed now." },
       // Not in rules_a.py: no test sat on an edge, so `age > 18` (or temp == 100, or lives != 3) passed. One probe
       // for each test, so a wrong lives test (lives > 1) isn't told about age and temp.
-      { expr: `${S2_OFF} or rerun({'age': '18'})[0][:1] == ['adult'] and rerun({'age': '17'})[0][:1] == ['minor']`, hint: "Check your age test: 18 or older is an adult, so 18 itself counts." },
-      { expr: `${S2_OFF} or rerun({'temp': '150'})[0][1:2] == ['boiling'] and rerun({'temp': '99'})[0][1:2] == ['not yet']`, hint: "Check your temp test: 100 or more is boiling, so 150 is boiling too, and 99 is not yet." },
-      { expr: `${S2_OFF} or rerun({'lives': '1'})[0][2:3] == ['keep going']`, hint: "Check your lives test: it's only game over when lives is exactly 0, so 1 life means keep going." },
+      { expr: `${S2_OFF} or ${S2}(rerun({'age': '18'})[0])[:1] == ['adult'] and ${S2}(rerun({'age': '17'})[0])[:1] == ['minor']`, hint: "Check your age test: 18 or older is an adult, so 18 itself counts." },
+      { expr: `${S2_OFF} or ${S2}(rerun({'temp': '150'})[0])[1:2] == ['boiling'] and ${S2}(rerun({'temp': '99'})[0])[1:2] == ['not yet']`, hint: "Check your temp test: 100 or more is boiling, so 150 is boiling too, and 99 is not yet." },
+      { expr: `${S2_OFF} or ${S2}(rerun({'lives': '1'})[0])[2:3] == ['keep going']`, hint: "Check your lives test: it's only game over when lives is exactly 0, so 1 life means keep going." },
     ],
   },
   ch3_s3: {
@@ -736,7 +805,8 @@ export const BATCH_A = {
     // then checked with the messages compared loosely (see LOOSE above), so a slip in Great job!'s capitals, which
     // the output check names, isn't also blamed on the edges.
     probes: [
-      { expr: String.raw`all((lambda t: not re.search(r'\b%s\b' % g, t) or ${MSG_IN}(m, t))('\n'.join(rerun({'score': s})[0])) for s, g, m in [('99', 'A', 'Excellent!'), ('75', 'C', 'Not bad!'), ('65', 'D', 'Needs work'), ('30', 'F', 'Try harder!')])`, hint: "Write every grade's message just like the task, with the same spelling, capital letters and punctuation, even the ones a score of 87 doesn't print." },
+      // Not in round 3: the task shows D's message as Needs work, and the Sphinx says it as "Needs work.", so either counts.
+      { expr: String.raw`all((lambda t: not re.search(r'\b%s\b' % g, t) or any(${MSG_IN}(x, t) for x in ms))('\n'.join(rerun({'score': s})[0])) for s, g, ms in [('99', 'A', ['Excellent!']), ('75', 'C', ['Not bad!']), ('65', 'D', ['Needs work', 'Needs work.']), ('30', 'F', ['Try harder!'])])`, hint: "Write every grade's message just like the task, with the same spelling, capital letters and punctuation, even the ones a score of 87 doesn't print." },
       // Not in round 2: a letter printed small, like print("d"), is told that, not to check the edges.
       { expr: `not any(${LOWER_GRADE}(rerun({'score': s})[0], g) for s, g in [('99', 'A'), ('75', 'C'), ('65', 'D'), ('30', 'F')])`, hint: "Write every letter grade as a capital letter, just like the task: A, B, C, D and F." },
       { expr: String.raw`all((lambda R: re.search(r'\b%s\b' % g, '\n'.join(R)) and (lambda z: re.sub(r'[\W_]+', '', m.lower()) in z and sum(x in z for x in ('excellent', 'greatjob', 'notbad', 'needswork', 'tryharder')) == 1)('\n'.join(${LOOSE}(R))))(rerun({'score': s})[0]) for s, g, m in [('95','A','Excellent!'), ('90','A','Excellent!'), ('89','B','Great job!'), ('80','B','Great job!'), ('79','C','Not bad!'), ('75','C','Not bad!'), ('70','C','Not bad!'), ('69','D','Needs work'), ('65','D','Needs work'), ('60','D','Needs work'), ('59','F','Try harder!'), ('40','F','Try harder!')])`, hint: "Pick the grade with if/elif/else on score, and check each edge: exactly 90 is an A, 80 a B, 70 a C and 60 a D." },
@@ -779,7 +849,14 @@ export const BATCH_A = {
 
   // ── Chapter 4: The Loop Tower ──
   ch4_r1: {
-    output: [{ expr: "lines(['Step 0', 'Step 1', 'Step 2', 'Step 3', 'Step 4'])" }],
+    // Other lines, like a "Climbing the stairs!" first, are fine: only the Step lines count (see ANSWERS above), a line
+    // that is Step and a number with capitals, spaces and punctuation ignored. An f left off prints {i} itself.
+    output: keptFrom(`${ANSWERS(String.raw`(lambda l: re.fullmatch(r'step\d+', re.sub(r'[\W_]+', '', l.lower())) is not None)`, 5)}(L)`, ['Step 0', 'Step 1', 'Step 2', 'Step 3', 'Step 4'], [
+      [String.raw`not re.search(r'\{\s*\w+\s*\}', out)`, "Put an f just before the opening quote, so Python swaps the name in {curly braces} for its number."],
+      ["len(K) == 5", "Your for loop should print five Step lines, one for each number range(5) gives, each on a line of its own."],
+      [`${LOOSE}(K) == ['step0', 'step1', 'step2', 'step3', 'step4']`, "Check your numbers: range(5) starts at 0 and stops just before 5, so print the loop's own number after Step."],
+    ], "So close! Check the spaces: one space between Step and its number.",
+    "So close! Check your capital letters and punctuation: Step starts with a capital S, and nothing else goes on the line."),
     concepts: [
       { expr: "count(ast.For) >= 1", hint: "Use a for loop with range() to print the steps." },
       // Not in rules_a.py: the five steps typed inside a for loop that runs once passed. f"Step {i}" and
@@ -827,7 +904,14 @@ export const BATCH_A = {
     ],
   },
   ch4_r4: {
-    output: [{ expr: "lines(['Energy: 10', 'Energy: 9', 'Energy: 8', 'Energy: 7', 'Energy: 6', 'Energy: 5', 'Energy: 4', 'Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!'])" }],
+    // Other lines, like "The room is spinning!" first, are fine: only the Energy lines and Shutdown! count (see
+    // ANSWERS and ENERGY above), in the probe too. An f left off prints {energy} itself.
+    output: keptFrom(`${ENERGY(12)}(L)`, ['Energy: 10', 'Energy: 9', 'Energy: 8', 'Energy: 7', 'Energy: 6', 'Energy: 5', 'Energy: 4', 'Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!'], [
+      [String.raw`not re.search(r'\{\s*energy\s*\}', out)`, "Put an f just before the opening quote, so Python swaps {energy} for the number stored in it."],
+      ["len(K) == 12", "Print an Energy line for every number from 10 down to 0, and then Shutdown! once, after the loop."],
+      [`${LOOSE}(K) == ${LOOSE}(['Energy: 10', 'Energy: 9', 'Energy: 8', 'Energy: 7', 'Energy: 6', 'Energy: 5', 'Energy: 4', 'Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!'])`, "Check your countdown: start at 10, go down by 1 each time, stop after 0, and then print Shutdown!"],
+    ], "So close! Check the spaces: the task shows Energy: 10, with one space after the colon.",
+    "So close! Check your capital letters and punctuation: Energy has a capital E and a colon, and Shutdown! has a capital S and an exclamation mark."),
     concepts: [
       { expr: "count(ast.While) >= 1", hint: "This room is about while loops, so count the energy down with while." },
       // Not in rules_a.py: `while energy > 0` with print("Energy: 0") typed after the loop passed, and no
@@ -837,7 +921,7 @@ export const BATCH_A = {
     ],
     // Only once the first run's lines are right but for capitals, spaces or punctuation (see LOOSE above): a wrong
     // count has already been named by the output check, and isn't also blamed on typed numbers.
-    probes: [{ expr: `${LOOSE}(L) != ${LOOSE}(['Energy: 10', 'Energy: 9', 'Energy: 8', 'Energy: 7', 'Energy: 6', 'Energy: 5', 'Energy: 4', 'Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!']) or ${LOOSE}(rerun({'energy': '3'})[0]) == ${LOOSE}(['Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!'])`, hint: "Count down from the energy variable in your loop, instead of typing the numbers." }],
+    probes: [{ expr: `${LOOSE}(${ENERGY(12)}(L)) != ${LOOSE}(['Energy: 10', 'Energy: 9', 'Energy: 8', 'Energy: 7', 'Energy: 6', 'Energy: 5', 'Energy: 4', 'Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!']) or ${LOOSE}(${ENERGY(5)}(rerun({'energy': '3'})[0])) == ${LOOSE}(['Energy: 3', 'Energy: 2', 'Energy: 1', 'Energy: 0', 'Shutdown!'])`, hint: "Count down from the energy variable in your loop, instead of typing the numbers." }],
   },
   ch4_r5: {
     // Not in round 1: rules_a.py wanted the bare numbers, one per line. The task only says to print each odd number, so
@@ -865,10 +949,12 @@ export const BATCH_A = {
     ],
   },
   ch4_s1: {
-    output: [
-      spacing(['*', '**', '***', '****', '*****'], "So close! Your rows have the right stars, but extra spaces too. Print the stars with no spaces before or between them."),
-      { expr: "lines(['*', '**', '***', '****', '*****'])" },
-    ],
+    // A line before or after the triangle, like "Here is my triangle:", is fine (see PICTURE above).
+    output: keptFrom(PICTURE('\\*'), ['*', '**', '***', '****', '*****'], [
+      ["len(K) == 5", "Your triangle needs five rows of stars, from 1 star in the first row up to 5 in the last, with nothing in between."],
+      ["[k.count('*') for k in K] == [1, 2, 3, 4, 5]", "Check how many stars each row has: the row number controls it, so the first row has 1 star and the last row has 5."],
+    ], "So close! Your rows have the right stars, but extra spaces too. Print the stars with no spaces before or between them.",
+    "So close! Your rows have the right stars, but each row should have only stars in it, just like the triangle in the task."),
     // rules_a.py's loop check was dropped as expectedBehavior only, so typing the triangle passed. The task's own
     // hint says the row number controls how many stars there are, so the rows mustn't be typed in: at most one
     // string of two or more stars (stars = "*****" to slice in a loop is fine). No loop is required.
