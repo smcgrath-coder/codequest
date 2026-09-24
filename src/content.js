@@ -1091,7 +1091,7 @@ export const CHAPTERS = [
         ],
         narrative:"The calligrapher's corner. Precision formatting — every character in its perfect place.",
         task:"items = [(\"Sword\", 29.99), (\"Shield\", 15.5), (\"Potion\", 3.0)]\nPrint a table:\nItem       Price\n-----------------\nSword      $29.99\nShield     $15.50\nPotion      $3.00",
-        hints:["f\"{name:<10} ${price:>6.2f}\"","Loop through items, use format specifiers"],
+        hints:["price_text = f\"${price:.2f}\"\nprint(f\"{name:<10} {price_text:>6}\")","Loop through items, use format specifiers"],
         starterCode:"items = [(\"Sword\", 29.99), (\"Shield\", 15.5), (\"Potion\", 3.0)]\n\n# Print formatted table\n",
         expectedBehavior:"Must use f-string formatting with alignment and decimal specifiers to create aligned table",xpReward:12},
       {id:"ch8_s2",name:"Lambda Express",scene:"summit",npc:"cipher",optional:true,
