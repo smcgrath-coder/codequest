@@ -76,3 +76,18 @@ export const CODE_TEXTAREA_PROPS = {
   autoCorrect: "off",
   autoComplete: "off",
 };
+
+// The Run button turns into Stop in the same spot, and back. So the second click of a double-click (many
+// kids double-click everything) would undo the first: run the code and stop it at once, or stop it and
+// run it again. The button ignores a click that comes less than RUN_STOP_GAP_MS after the previous click
+// or run start, so a burst of quick clicks counts once. 500 ms is the usual system double-click time.
+export const RUN_STOP_GAP_MS = 500;
+export function runStopGuard(now = Date.now) {
+  let last = -Infinity;
+  return {
+    // A run just started (from the button or Ctrl+Enter).
+    started() { last = now(); },
+    // A click on the Run/Stop button. Returns whether it counts.
+    click() { const t = now(), counts = t - last >= RUN_STOP_GAP_MS; last = t; return counts; },
+  };
+}

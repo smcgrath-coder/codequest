@@ -1192,6 +1192,7 @@ export const CHECKS = {};
 - State: `parts` (`[]`), `waiting` (`false`), `result` (`null`), `pyStatus` (initialised from `pythonStatus()` and kept current with `useEffect(() => onPythonStatus(setPyStatus), [])`).
 - Replace the textarea with `<CodeEditor code={code} setCode={setCode} onRun={handleRun} />`.
 - While `isRunning`, the Run `Btn` reads `■ Stop` and its `onClick` becomes `stopCode`. It must stay enabled while running.
+- Because Run turns into Stop in the same spot, the button ignores a click less than 500 ms after the previous click or run start (`runStopGuard` in `src/editor.js`, unit-tested). Otherwise a double-click would run the code and stop it at once, and a stopped grading pass fails correct code.
 - Replace the OUTPUT block contents with `<OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} error={result?.error} feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"} />`. In fallback mode, also show `result.keywordError` inside `error`, as `{headline: result.keywordError}`, when it is set.
 - Replace the body of `handleRun`:
 
@@ -1607,7 +1608,9 @@ Use the dev server through `preview_start`; `server.headers` isolates it. Record
 7. A hardcoded ch1_r5 (`print(42)`) gets the probe hint.
 8. The Practice Arena runs code and shows output.
 9. Fallback: temporarily set `server.headers` to `{}`, restart and reload. The room grades through the keyword grader and shows the fallback note. Restore the headers afterwards.
-10. The console has no errors.
+10. Double-click ▶ Run on a program that is still running at the second click (an `input()` challenge, or `import time` then `time.sleep(2)`). It keeps running and is not stopped. A single click on ■ Stop still stops it.
+11. In a room, paste about 40 lines. The editor keeps its height and scrolls inside, the line numbers stay in step, and Run and OUTPUT stay on screen. A line wider than the editor (horizontal scrollbar) still leaves the numbers lined up at the bottom.
+12. The console has no errors.
 
 Fix anything that fails, using TDD where the fix is testable, and commit.
 

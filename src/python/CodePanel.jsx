@@ -22,9 +22,12 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
   const count = Math.max(1, code.split("\n").length);
   // wrap="off" keeps one numbered row per line. The gutter's extra bottom padding lets it scroll as far as
   // the textarea, whose horizontal scrollbar (for a long line) takes some of its height.
+  // contain: size keeps the numbers from setting the editor's height, so a long program scrolls inside the
+  // editor instead of growing it and pushing Run and OUTPUT off screen. Its width is then set by hand:
+  // the digits of the last line number, plus pl-3 and pr-2.
   return <div className="flex-1 flex rounded-lg overflow-hidden" style={{ background: DARK, border: "1px solid #ffffff11", minHeight }}>
-    <div ref={gutter} aria-hidden="true" className="select-none text-right pt-4 pb-12 pl-3 pr-2 overflow-hidden"
-      style={{ color: `${VDIM}88`, fontFamily: MONO, fontSize: "13px", lineHeight: "1.6" }}>
+    <div ref={gutter} aria-hidden="true" className="shrink-0 select-none text-right pt-4 pb-12 pl-3 pr-2 overflow-hidden"
+      style={{ contain: "size", width: `calc(${String(count).length}ch + 1.25rem)`, color: `${VDIM}88`, fontFamily: MONO, fontSize: "13px", lineHeight: "1.6" }}>
       {Array.from({ length: count }, (_, i) => <div key={i}>{i + 1}</div>)}
     </div>
     <textarea value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => handleCodeKeyDown(e, onRun)}

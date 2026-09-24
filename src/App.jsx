@@ -6,6 +6,7 @@ import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear } from "./progress.js";
 import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
+import { runStopGuard } from "./editor.js";
 import { runAndGrade } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
@@ -2555,6 +2556,7 @@ function GrindingZone({profile,onBack}){
   const runSeq=useRef(0);
   const dropRun=()=>{runSeq.current++;stopCode();setIsRunning(false);setWaiting(false);setParts([]);setResult(null)};
   useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
+  const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
   // Challenges unlock as the player reaches each chapter
   const available=availablePractice(profile.completedRooms);
@@ -2572,6 +2574,7 @@ function GrindingZone({profile,onBack}){
 
   const handleRun=async()=>{
     if(isRunning)return;
+    runStop.started();
     const seq=++runSeq.current,live=()=>seq===runSeq.current;
     setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
@@ -2640,7 +2643,7 @@ function GrindingZone({profile,onBack}){
       <div className="flex-1 flex flex-col p-4" style={{maxHeight:"calc(100vh - 56px)"}}>
         <CodeEditor code={code} setCode={setCode} onRun={handleRun} minHeight={200}/>
         <div className="flex flex-wrap items-center gap-3 my-3">
-          <Btn onClick={isRunning?stopCode:handleRun} color={isRunning?ERR:ACCENT}>{isRunning?"■ Stop":"▶ Run (Ctrl+Enter)"}</Btn>
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} color={isRunning?ERR:ACCENT}>{isRunning?"■ Stop":"▶ Run (Ctrl+Enter)"}</Btn>
           {result&&<div className="flex items-center gap-2">
             <span>{result.passes?"✅":"❌"}</span>
             <span className="text-sm font-bold" style={{color:result.passes?ACCENT:ERR}}>{result.passes?"Great work!":"Not quite — keep trying!"}</span>
@@ -2678,9 +2681,11 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   // Leaving the room mid-run stops the program (it may be waiting at input()), and its result gets no sound or victory.
   const runSeq=useRef(0);
   useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
+  const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
   const handleRun=async()=>{
     if(isRunning||passed)return;
+    runStop.started();
     const seq=++runSeq.current;
     setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
@@ -2767,7 +2772,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
-          <Btn onClick={isRunning?stopCode:handleRun} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
             {isRunning?"■ Stop":passed?"✓ Passed!":"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
