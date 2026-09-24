@@ -76,7 +76,7 @@ export const BATCH_C = {
     probes: [
       { expr: py`sig('show_title') == (1, 0)`, hint: "Make a function show_title with exactly one parameter, game_name, and call it with 'DRAGON QUEST'." },
       { expr: py`(lambda t: len(t) == 4 and t[1].strip() == 'HI' and 13 <= len(t[1]) - len(t[1].lstrip()) <= 15)(callf('show_title', 'HI')[1])`,
-        hint: "show_title should centre any name you give it, not only DRAGON QUEST. Try the string method .center(30)." },
+        hint: "show_title should center any name you give it, not only DRAGON QUEST. Try the string method .center(30)." },
     ],
   },
   ch9_s2: {
@@ -93,9 +93,11 @@ export const BATCH_C = {
       hint: "Your menu should work for any list of choices: print 'Unknown choice' for anything else, and stop at '3'." }],
   },
   ch9_boss: {
-    // The prototype counted lines with win/tie words, but printing get_winner's answer ('player') has none
-    // (ALT_beats_dict). The moves are shown each round; the probes check who won.
-    output: [{ expr: py`len([l for l in L if re.search(r'(?i)\b(rock|paper|scissors)\b', l)]) >= 5`,
+    // The task says 'Print each round: moves and who won', so both are counted (no_round_winner prints only
+    // the moves). The prototype counted only win/tie words, but printing get_winner's answer ('player',
+    // ALT_beats_dict) or 'Winner: You' (ALT_winner_label) has none, so a line ending in player/computer/tie
+    // and the word 'winner' count too, and so do lose/loses/lost ("You lose this round").
+    output: [{ expr: py`len([l for l in L if re.search(r'(?i)\b(rock|paper|scissors)\b', l)]) >= 5 and len([l for l in L if re.search(r'(?i)\b(win|wins|won|winner|tie|draw|lose|loses|lost)\b|\b(player|computer|tie)\W*$', l)]) >= 5`,
       hint: "Print each of the 5 rounds: both moves and who won." }],
     probes: [
       { expr: py`all(val('get_winner(%r, %r)' % (p, c)) == w for p, c, w in [('rock','rock','tie'), ('rock','paper','computer'), ('rock','scissors','player'), ('paper','rock','player'), ('paper','paper','tie'), ('paper','scissors','computer'), ('scissors','rock','computer'), ('scissors','paper','player'), ('scissors','scissors','tie')])`,
@@ -269,10 +271,14 @@ export const BATCH_C = {
       // The prototype's wording allowed only "is" before the verb, so "The Dragon has been defeated!" failed
       // (ALT_while_true), and "The Hero defeated the Dragon!" too (ALT_active_voice). "has", "has been" and
       // "was" are allowed now, and so is "<winner> defeated the <loser>", here and in the probe.
-      { expr: py`bool(re.search(r'(?i)\bhero\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bdragon\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)|\bhero\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?dragon\b', L[-1]))`,
+      // Because the auxiliary is optional, "The Dragon defeated the Hero" would also read as "Dragon defeated",
+      // so the lookahead rules out the other fighter's name right after the verb (winner_not_checked,
+      // only_enemy_check_active, swapped_winner). It needs whitespace, not punctuation, so a new sentence
+      // such as "The Dragon is defeated. The Hero survives" still counts (ALT_survivor_hp).
+      { expr: py`bool(re.search(r'(?i)\bhero\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bdragon\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)(?!\s+(the\s+)?hero\b)|\bhero\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?dragon\b', L[-1]))`,
         hint: "At the end, print who won the battle." },
     ],
-    probes: [{ expr: py`(lambda s: bool(re.search(r'(?i)\bdragon\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bhero\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)|\bdragon\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?hero\b', s)))(rerun({'player': "{'name': 'Hero', 'hp': 20, 'attack': 5}"})[0][-1])`,
+    probes: [{ expr: py`(lambda s: bool(re.search(r'(?i)\bdragon\b\W*(has\W+|is\W+|was\W+)?(wins|won|the winner|victorious)|\bhero\b\W*(is\W+|was\W+|has\W+been\W+|has\W+)?(defeated|loses|lost|dies|died|fell|fallen|falls|beaten)(?!\s+(the\s+)?dragon\b)|\bdragon\b\W*(has\W+)?(defeated|defeats|beat|beats|slew|slays)\W+(the\W+)?hero\b', s)))(rerun({'player': "{'name': 'Hero', 'hp': 20, 'attack': 5}"})[0][-1])`,
       hint: "When I made the Hero weaker, your battle didn't say the Dragon won. Stop as soon as either HP reaches 0, and print the real winner." }],
   },
 
