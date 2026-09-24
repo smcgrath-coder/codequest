@@ -39,7 +39,7 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
   </div>;
 }
 
-export function OutputPanel({ status, parts, waitingForInput, onAnswer, error, feedback, passed, fallbackNote }) {
+export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking, error, feedback, passed, fallbackNote }) {
   const [answer, setAnswer] = useState("");
   const inputRef = useRef(null);
   // A fresh prompt starts empty: text typed but never sent (the kid pressed Stop) doesn't carry over.
@@ -56,6 +56,7 @@ export function OutputPanel({ status, parts, waitingForInput, onAnswer, error, f
           className="bg-transparent outline-none" style={{ color: ACCENT, fontFamily: MONO, borderBottom: `1px solid ${ACCENT}66`, minWidth: "8ch" }} />
       </form>}
     </pre>}
+    {checking && <div className="text-sm mb-2" style={{ color: ACCENT }}>⟳ Checking your code…</div>}
     {error && <div className="p-3 rounded text-sm mb-2" style={{ background: "#ff6b6b11", color: ERR, border: "1px solid #ff6b6b33" }}>
       <div>❌ {error.headline}</div>
       {error.code && <pre className="mt-2 text-xs whitespace-pre-wrap" style={{ fontFamily: MONO, color: TEXT }}>{error.line ? `${error.line} | ` : ""}{error.code}</pre>}

@@ -14,9 +14,10 @@ class StopRun(BaseException):
     """Raised by time limits; a BaseException so `except Exception` can't swallow it."""
 
 # What a clean interpreter looks like, captured once at startup.
-_BASE_MODULES = set(sys.modules)
+_BASE_MODULES = dict(sys.modules)                # name -> module, so a replaced or removed entry can be put back
 _BUILTINS = (vars(builtins), dict(vars(builtins)))
-_PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time)]
+# traceback and linecache too: the harness reports errors and compiles with them.
+_PATCHABLE = [(vars(m), dict(vars(m))) for m in (random, math, string, time, traceback, linecache)]
 _STREAMS = [sys.stdout, sys.stderr, sys.stdin]   # this run's; clean_slate makes new ones
 _RECURSION = sys.getrecursionlimit()
 _HARNESS_MAIN = sys.modules["__main__"]          # these globals; kid code gets its own __main__
@@ -24,6 +25,7 @@ _HARNESS_MAIN = sys.modules["__main__"]          # these globals; kid code gets 
 # copies taken now. Like the guards in worker-core.js, this stops casual tampering, not all of it.
 _list, _modules, _setrecursionlimit = list, sys.modules, sys.setrecursionlimit
 _extract_tb, _format_exception, _ModuleType = traceback.extract_tb, traceback.format_exception, types.ModuleType
+_sleep_ms = _codequest.sleep_ms                  # kid code can import _codequest and replace it
 
 
 def interruptible_sleep(seconds):
@@ -34,7 +36,7 @@ def interruptible_sleep(seconds):
         pass
     end = time.monotonic() + max(0.0, float(seconds))
     while (left := end - time.monotonic()) > 0:
-        _codequest.sleep_ms(min(left, 0.05) * 1000)
+        _sleep_ms(min(left, 0.05) * 1000)
 
 
 def new_streams():
@@ -59,6 +61,9 @@ def clean_slate(seed=None):
     for name in _list(_modules):
         if name not in _BASE_MODULES:
             del _modules[name]
+    for name, module in _BASE_MODULES.items():
+        if _modules.get(name) is not module:
+            _modules[name] = module
     _restore(*_BUILTINS)
     for names, saved in _PATCHABLE:
         _restore(names, saved)

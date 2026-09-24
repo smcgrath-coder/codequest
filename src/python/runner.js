@@ -4,6 +4,9 @@ import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput, resetInput } from "./input
 export const RUN_TIME_LIMIT_MS = 10_000;
 export const GRADE_TIME_LIMIT_MS = 8_000;   // a whole grading pass; each hidden run also has its own limit
 const STOP_GRACE_MS = 1_000;               // if an interrupt is swallowed, restart the worker
+// Taken at load, like worker-core.js's. Grading's rule and inputs are turned into JSON here, on the page,
+// because in the worker kid code could plant an inherited toJSON (through `import js`) and change them.
+const jsonStringify = JSON.stringify;
 
 let worker = null, ready = null, status = "idle", interrupt = null, inputBox = null, active = null, nextId = 1;
 let queue = Promise.resolve(), newest = null;   // see takeTurn()
@@ -126,7 +129,7 @@ export const answerInput = text => active?.answer?.(text);
 // Hidden grading pass. Resolves to { passed, feedback, failures, timedOut?, stopped? }.
 // Rejects like runCode when this device can't run Python or Python fails to load.
 export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1 }) {
-  const id = newId();
+  const id = newId(), ruleJson = jsonStringify(rule), inputsJson = jsonStringify(inputs || []);
   let stopReason = null, interruptGrade = () => {};
   const stop = reason => { if (!stopReason) { stopReason = reason; interruptGrade(); } };
   // Once stopped, a pass says so: grading treats the interrupt as the kid's error, so its own feedback would mislead.
@@ -145,7 +148,7 @@ export async function gradeCode(code, { rule, starter = "", inputs = [], attempt
         grace = setTimeout(() => { try { restart(); } finally { finish(stopped()); } }, STOP_GRACE_MS);
       };
       active = { id, onMessage(m) { if (m.id === id && m.type === "graded") finish(stopReason ? stopped() : m); } };
-      worker.postMessage({ type: "grade", id, code, rule, starter, inputs, attempt });
+      worker.postMessage({ type: "grade", id, code, rule: ruleJson, starter, inputs: inputsJson, attempt });
       limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);   // only once sent, as in runCode
     });
   } finally { release(); }

@@ -107,7 +107,7 @@ def grade_json(code, rule, starter, inputs, attempt):
 
 test("a silent grading run never asks the page for input; it gets end-of-file", async () => {
   const g = await makeCore({ grading: SNEAKY_GRADING });
-  g.core.grade({ id: "g1", code: "", rule: {} });
+  g.core.grade({ id: "g1", code: "", rule: "{}", inputs: "[]" });
   assert.deepEqual(g.messages.map(m => m.type), ["graded"]);
   assert.equal(g.messages[0].feedback, "EOF");
   assert.equal(g.messages[0].id, "g1", "the envelope wins over fields from Python");
@@ -122,7 +122,9 @@ def grade_json(code, rule, starter, inputs, attempt):
     return json.dumps({"passed": False, "feedback": rule + " " + inputs})
 `;
 
-test("kid code that patches the page's JSON or Object.fromEntries through import js can't change results", async () => {
+// The page (runner.js) sends the rule and inputs as JSON text, and the worker passes that text on as it is.
+// Turning objects into JSON inside the worker would let kid code change them, with an inherited toJSON.
+test("kid code that patches the page's JSON, Object.fromEntries or toJSON through import js can't change results", async () => {
   const g = await makeCore({ grading: ECHO_GRADING });
   const saved = [JSON.parse, JSON.stringify, Object.fromEntries];
   try {   // this test's process is the page here, so put its JavaScript back afterwards
@@ -130,11 +132,15 @@ test("kid code that patches the page's JSON or Object.fromEntries through import
 fake = js.Function.new("return { ok: true, passed: true, hacked: true }")
 js.JSON.parse = fake
 js.Object.fromEntries = fake
-js.JSON.stringify = js.Function.new("return '\\"hacked\\"'")`);
+js.JSON.stringify = js.Function.new("return '\\"hacked\\"'")
+js.Object.prototype.toJSON = js.Function.new("return 'hacked'")`);
     const r = result(g.run("print(1 / 0)"));
     assert.equal(r.hacked, undefined); assert.equal(r.kind, "ZeroDivisionError");
     g.messages.length = 0;
-    g.core.grade({ id: "g1", code: "", rule: { output: "x" }, inputs: ["Sam"] });
+    g.core.grade({ id: "g1", code: "", rule: '{"output":"x"}', inputs: '["Sam"]' });
     assert.deepEqual(g.messages, [{ passed: false, feedback: '{"output":"x"} ["Sam"]', type: "graded", id: "g1" }]);
-  } finally { [JSON.parse, JSON.stringify, Object.fromEntries] = saved; }
+  } finally {
+    [JSON.parse, JSON.stringify, Object.fromEntries] = saved;
+    delete Object.prototype.toJSON;
+  }
 });

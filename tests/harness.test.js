@@ -152,8 +152,8 @@ describe("clean slate between runs", () => {
       assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 4);
       const next = run("print(len(5))");
       assert.equal(next.kind, "TypeError"); assert.equal(next.line, 1);
-    } finally {   // clean_slate doesn't put back sys or traceback, so do it for the tests after this one
-      py.runPython("sys.setrecursionlimit, traceback.extract_tb, traceback.format_exception = _setrecursionlimit, _extract_tb, _format_exception");
+    } finally {   // clean_slate puts back traceback but not sys's functions, so do that for the tests after this one
+      py.runPython("sys.setrecursionlimit = _setrecursionlimit");
     }
   });
   test("kid code can't rebind the harness's own helpers through __main__", () => {
@@ -175,5 +175,32 @@ describe("clean slate between runs", () => {
     const r = run(`class Sneaky:\n    def __del__(self):\n${rebind}\ndef boom():\n    s = Sneaky()\n    1 / 0\n\nboom()`);
     assert.equal(r.kind, "ZeroDivisionError");
     assert.equal(run("print(1 / 0)").kind, "ZeroDivisionError");
+  });
+  // The modules the harness itself relies on to report errors, import and sleep.
+  test("a program that breaks traceback can't stop the next run's error being reported", () => {
+    assert.equal(run("import traceback\ntraceback.TracebackException = None").ok, true);
+    const r = run("print(1 / 0)");
+    assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 1); assert.equal(r.text, "ZeroDivisionError: division by zero");
+  });
+  test("a program that breaks linecache can't stop the next run", () => {
+    assert.equal(run("import linecache\nlinecache.cache = None").ok, true);
+    const r = run('print("fine")\nprint(1 / 0)');
+    assert.equal(r.out, "fine\n"); assert.equal(r.kind, "ZeroDivisionError"); assert.equal(r.line, 2);
+  });
+  test("a module replaced in sys.modules is put back for the next run", () => {
+    assert.equal(run("import sys\nsys.modules['math'] = None").ok, true);
+    assert.equal(run("import math\nprint(math.sqrt(16))").out, "4.0\n");
+  });
+  test("a module removed from sys.modules is put back too, not imported again as a new copy", () => {
+    // A new copy of random would miss clean_slate's seeding, and its patches would never be undone.
+    assert.equal(run("import sys\ndel sys.modules['random']").ok, true);
+    assert.equal(run("import random").ok, true);
+    assert.equal(py.runPython('import sys\nsys.modules["random"] is random'), true);
+  });
+  test("a program that swaps out _codequest.sleep_ms can't break time.sleep in the next run", () => {
+    assert.equal(run("import _codequest\n_codequest.sleep_ms = None").ok, true);
+    naps.length = 0;
+    const r = run("import time\ntime.sleep(0.01)\nprint('awake')");
+    assert.equal(r.ok, true, r.text); assert.equal(r.out, "awake\n"); assert.ok(naps.length > 0, "napped through _codequest");
   });
 });

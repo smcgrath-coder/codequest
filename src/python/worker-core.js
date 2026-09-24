@@ -3,9 +3,11 @@ const MAX_OUTPUT_CHARS = 100_000;   // about 2,000 lines of typical output
 const FLUSH_MS = 50;
 // Kid code shares this thread and can reach its JavaScript through `import js`. The functions results
 // pass through are captured here, before any kid code runs, which stops accidental and casual tampering
-// such as patching js.JSON.parse. A determined kid can still fake their own local progress: grading
-// runs on the kid's own device by design, so nothing here is proof against its owner.
-const jsonParse = JSON.parse, jsonStringify = JSON.stringify, fromEntries = Object.fromEntries;
+// such as patching js.JSON.parse. Grading's rule and inputs arrive as JSON text made on the page and are
+// passed on as they are: turning objects into JSON here would let kid code change them with an inherited
+// toJSON. A determined kid can still fake their own local progress: grading runs on the kid's own device
+// by design, so nothing here is proof against its owner.
+const jsonParse = JSON.parse, fromEntries = Object.fromEntries;
 
 export async function createPythonCore({ loadPyodide, indexURL, sources, post, readInput, sleepMs, interruptBuffer }) {
   const py = await loadPyodide(indexURL ? { indexURL } : {});
@@ -74,10 +76,11 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
       current = null;
       post({ ...res, capped, type: "result", id });   // envelope last, so fields from Python can't replace it
     },
+    // rule and inputs are JSON text (see runner.js's gradeCode).
     grade({ id, code, rule, starter, inputs, attempt }) {
       begin(id, true);
       let res;
-      try { res = jsonParse(call(gradeJson, code, jsonStringify(rule), starter || "", jsonStringify(inputs || []), attempt || 1)); }
+      try { res = jsonParse(call(gradeJson, code, rule, starter || "", inputs || "[]", attempt || 1)); }
       catch (e) { res = { passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: String(e) }; }
       current = null;
       post({ ...res, type: "graded", id });

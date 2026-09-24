@@ -2549,12 +2549,13 @@ function GrindingZone({profile,onBack}){
   const [waiting,setWaiting]=useState(false);
   const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
+  const [checking,setChecking]=useState(false);   // the hidden grading pass is running
   const [attempts,setAttempts]=useState([]);
   const [pyStatus,setPyStatus]=useState(pythonStatus);
   useEffect(()=>{setPyStatus(pythonStatus());return onPythonStatus(setPyStatus)},[]);   // re-read: it may have changed since the first render
   // Leaving a challenge mid-run stops the program (it may be waiting at input()) and drops its late output and result.
   const runSeq=useRef(0);
-  const dropRun=()=>{runSeq.current++;stopCode();setIsRunning(false);setWaiting(false);setParts([]);setResult(null)};
+  const dropRun=()=>{runSeq.current++;stopCode();setIsRunning(false);setChecking(false);setWaiting(false);setParts([]);setResult(null)};
   useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
   const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
@@ -2581,11 +2582,12 @@ function GrindingZone({profile,onBack}){
       const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
         fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
         onOutput:(text,kind)=>{if(live())setParts(p=>appendPart(p,text,kind))},
-        onInputRequest:()=>{if(live())setWaiting(true)}});
+        onInputRequest:()=>{if(live())setWaiting(true)},
+        onGrading:()=>{if(live())setChecking(true)}});
       if(!live())return;
       setWaiting(false);setResult(r);
       setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
-    }finally{if(live())setIsRunning(false)}
+    }finally{if(live()){setIsRunning(false);setChecking(false)}}
   };
 
   if(!challenge) return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
@@ -2649,7 +2651,7 @@ function GrindingZone({profile,onBack}){
             <span className="text-sm font-bold" style={{color:result.passes?ACCENT:ERR}}>{result.passes?"Great work!":"Not quite — keep trying!"}</span>
           </div>}
         </div>
-        <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}}
+        <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
           error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
           feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
       </div>
@@ -2667,6 +2669,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const [waiting,setWaiting]=useState(false);
   const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
+  const [checking,setChecking]=useState(false);   // the hidden grading pass is running
   const [hintLevel,setHintLevel]=useState(0);
   const [passed,setPassed]=useState(false);
   const [showVictory,setShowVictory]=useState(false);
@@ -2692,13 +2695,14 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
         fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
         onOutput:(text,kind)=>setParts(p=>appendPart(p,text,kind)),
-        onInputRequest:()=>setWaiting(true)});
+        onInputRequest:()=>setWaiting(true),
+        onGrading:()=>setChecking(true)});
       if(seq!==runSeq.current)return;   // the kid left the room
       setWaiting(false);setResult(r);
       setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
       if(r.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
       else{try{SFX.codeFail()}catch(e){}}
-    }finally{setIsRunning(false)}
+    }finally{setIsRunning(false);setChecking(false)}
   };
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
@@ -2778,7 +2782,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
         <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
           <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
-            <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}}
+            <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
               error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
               feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
           </div>

@@ -69,3 +69,27 @@ test("the keyword grader gets the number of earlier attempts, as the rooms pass 
   await runAndGrade({ code: "print(1)", challenge, rule: undefined, attempt: 1, fallbackGrade: counting, runner: fakeRunner({ ok: true, inputs: [] }, {}) });
   assert.deepEqual(counts, [2, 0]); assert.equal(r.keywordError, "missing quote");
 });
+
+test("onGrading is called once, after the run and just before the hidden grading pass", async () => {
+  const events = [];
+  const runner = { available: () => true,
+    run: async () => { events.push("run"); return { ok: true, inputs: [] }; },
+    grade: async () => { events.push("grade"); return { passed: true, feedback: "Great work!" }; } };
+  await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade, runner, onGrading: () => events.push("grading") });
+  assert.deepEqual(events, ["run", "grading", "grade"]);
+});
+
+test("onGrading is never called when nothing is graded", async () => {
+  const cases = {
+    crash: { rule, runner: fakeRunner({ ok: false, kind: "ZeroDivisionError", line: 1, text: "ZeroDivisionError: division by zero" }, {}) },
+    stop: { rule, runner: fakeRunner({ ok: false, kind: "Stopped", stopped: true }, {}) },
+    unavailable: { rule, runner: { available: () => false } },
+    "load failure": { rule, runner: { available: () => true, run: async () => { throw new Error("load failed"); } } },
+    "no rule": { rule: undefined, runner: fakeRunner({ ok: true, inputs: [] }, {}) },
+  };
+  for (const [name, { rule, runner }] of Object.entries(cases)) {
+    let called = 0;
+    await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade, runner, onGrading: () => called++ });
+    assert.equal(called, 0, name);
+  }
+});

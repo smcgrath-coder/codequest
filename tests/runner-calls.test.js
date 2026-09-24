@@ -15,11 +15,12 @@ class FakeWorker {
   static broken = false;   // new Worker() throws, as when the browser can't start one
   constructor() {
     if (FakeWorker.broken) throw new Error("Worker can't start");
-    workers.push(this); this.jobs = []; this.dead = false;
+    workers.push(this); this.jobs = []; this.sent = []; this.dead = false;
   }
   postMessage(m) {
     if (m.type === "init") { this.interrupt = new Int32Array(m.interrupt); this.box = new Int32Array(m.input, 0, 2); this.booting = true; return; }
     structuredClone(m);    // throws DataCloneError for what a real worker couldn't be sent, such as a function
+    this.sent.push(m);
     const steps = m.code.split("\n"), stubborn = steps[0] === "except";
     this.jobs.push({ ...m, steps: stubborn ? steps.slice(1) : steps, stubborn });
   }
@@ -212,7 +213,7 @@ test("an answer typed after Stop is dropped", async () => {
 test("a call that can't be sent to the worker leaves no timer behind to stop a later call", async () => {
   const run = track(runCode(() => {}));
   await advance(100);
-  const grade = track(gradeCode("print hi", { rule: { check: () => {} } }));
+  const grade = track(gradeCode(() => {}, { rule: {} }));
   await advance(100);
   assert.equal(run.error?.name, "DataCloneError");
   assert.equal(grade.error?.name, "DataCloneError");
@@ -225,6 +226,20 @@ test("a call that can't be sent to the worker leaves no timer behind to stop a l
   await advance(200);
   assert.equal(next.value.ok, true);
   assert.equal(next.value.stdout, "Sam\nhi\n");
+});
+
+test("a grading pass sends its rule and inputs as JSON text, made with the JSON.stringify the page started with", async () => {
+  // The worker passes the text on as it is: turning objects into JSON there would let kid code change them.
+  const saved = JSON.stringify;
+  JSON.stringify = () => '"hacked"';
+  try {
+    const grade = track(gradeCode("print hi", { rule: { output: [{ expr: "lines(['hi'])" }] }, starter: "# go", inputs: ["Sam"], attempt: 2 }));
+    await advance(200);
+    assert.equal(grade.value.passed, true);
+  } finally { JSON.stringify = saved; }
+  const { type, code, rule, starter, inputs, attempt } = workers.at(-1).sent.at(-1);
+  assert.deepEqual({ type, code, rule, starter, inputs, attempt },
+    { type: "grade", code: "print hi", rule: `{"output":[{"expr":"lines(['hi'])"}]}`, starter: "# go", inputs: '["Sam"]', attempt: 2 });
 });
 
 // Last: these leave Python unavailable until a later call starts a worker again.
