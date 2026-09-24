@@ -7,7 +7,7 @@
 #   output    looks at stdout (L = normalised lines, out = text)
 #   concepts  looks at the source (ast / tokenize helpers)
 #   probes    looks at runtime state: ns (kid globals), call(), rerun(), trace (kid functions called)
-import ast, builtins, contextlib, copy, inspect, io, json, re, string, sys, time, tokenize, types, unicodedata
+import ast, builtins, contextlib, copy, inspect, io, json, json.encoder, json.scanner, re, string, sys, time, tokenize, types, unicodedata
 
 # Python's built-in expression evaluator, for the rule's check expressions and the probes' calls into
 # kid code. Both run inside the browser's WebAssembly sandbox, like RUN_CODE in harness.py, and it is
@@ -18,8 +18,21 @@ EVAL_EXPR = getattr(builtins, "ev" + "al")
 # modules grading uses after every kid run (its _REPORTING), but the result grade_json sends and what a
 # run printed shouldn't depend on that. sys can't be put back that way, and the capture buffer is the kid's
 # sys.stdout while it runs, so `sys.stdout.getvalue = ...` would otherwise replace what it printed.
-_dumps, _loads = json.dumps, json.loads
 _setprofile, _getvalue = sys.setprofile, io.StringIO.getvalue
+# json.dumps and json.loads look up JSONEncoder.encode and JSONDecoder.decode each time they run, and
+# class attributes aren't put back, so `json.JSONEncoder.encode = ...` would fake every later grade. These
+# C encoder and parser read none of json's classes or module globals once made. The encoder writes what
+# json.dumps writes by default; the parser, unlike json.loads, doesn't skip leading whitespace, which the
+# page's JSON.stringify never writes.
+def _no_default(o):
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+_scan_json = json.scanner.c_make_scanner(json.JSONDecoder())
+_encode_json = json.encoder.c_make_encoder(None, _no_default, json.encoder.encode_basestring_ascii,
+                                           None, ": ", ", ", False, False, True)
+def _loads(s):
+    return _scan_json(s, 0)[0]
+def _dumps(o):
+    return "".join(_encode_json(o, 0))
 
 VS16 = "\ufe0f"                # emoji variation selector: invisible, and kids can't type it
 # Characters kids can't easily type count as the ones they can.

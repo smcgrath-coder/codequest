@@ -131,6 +131,15 @@ describe("kid code can't change how programs are graded", () => {
     assert.equal(grade(`import json\njson.dumps = ${FAKE}\nprint('nope')`, HELLO).passed, false);
     assert.equal(grade("print('nope')", HELLO).passed, false);
   });
+  // json.dumps and json.loads look up these class methods every time, and class attributes aren't put back.
+  test("a program that patches json's encoder class can't fake its own pass", () =>
+    assert.equal(grade(`import json\njson.JSONEncoder.encode = ${FAKE}\nprint('nope')`, HELLO).passed, false));
+  test("patching json's classes in a Run doesn't carry over to later grades", () => {
+    k.run(`import json\njson.JSONEncoder.encode = ${FAKE}\njson.JSONDecoder.decode = lambda self, s, *a, **k: {}`);
+    assert.equal(grade("print('nope')", HELLO).passed, false);
+    assert.equal(grade('print("hello, world")', HELLO).feedback, "Line 1 of your output says `hello, world` — so close! Check your capital letters and punctuation.");
+    assert.equal(grade('print("Hello, World!")', HELLO).passed, true);
+  });
   test("a kid function called by a probe can't patch the checks after it", () => {
     const code = "def f():\n    import re\n    re.findall = lambda *a, **k: ['42']\n    return 1\nprint('nope')";
     const g = grade(code, { output: [{ expr: "True" }], probes: [{ expr: "call('f()')[0] == 1" }, { expr: "nums([42])", hint: "Print 42." }] });

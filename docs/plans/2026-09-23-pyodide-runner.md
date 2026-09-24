@@ -1396,7 +1396,7 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
    import json
 
    def grade_json(code, rule_json, starter, inputs_json, attempt):
-       rule = _loads(rule_json)       # _loads and _dumps: copies taken at load (item 10)
+       rule = _loads(rule_json)       # _loads and _dumps: C codecs made at load (item 10)
        try:
            failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0))
        finally:
@@ -1408,7 +1408,21 @@ Expected: FAIL (the placeholder says "Grading is not ready yet.").
    ```
 
 10. **Tampering.** Kid code gets the same stdlib module objects that grading uses once the program has run. So without these guards, one line such as `json.dumps = ...` or `re.findall = ...` fakes a pass, and even a visible Run's patch fakes every later grade in the session.
-    - Take copies at load, as `EVAL_EXPR` is taken: `_dumps, _loads = json.dumps, json.loads` for `grade_json`, `_setprofile = sys.setprofile` (sys can't be put back like the other modules), and `_getvalue = io.StringIO.getvalue` for reading the capture buffer. That buffer is the kid's `sys.stdout` while it runs, so `sys.stdout.getvalue = ...` would otherwise replace what it printed.
+    - Take copies at load, as `EVAL_EXPR` is taken: `_setprofile = sys.setprofile` (sys can't be put back like the other modules) and `_getvalue = io.StringIO.getvalue` for reading the capture buffer. That buffer is the kid's `sys.stdout` while it runs, so `sys.stdout.getvalue = ...` would otherwise replace what it printed.
+    - `grade_json` can't use copies of `json.dumps` and `json.loads`: they look up `JSONEncoder.encode` and `JSONDecoder.decode` each time they run, and class attributes aren't put back, so `json.JSONEncoder.encode = ...` in a program or a visible Run would still fake its grade and every later one. Make C-level codecs at load instead, which read none of json's classes or module globals once made:
+
+      ```python
+      import json.encoder, json.scanner
+      def _no_default(o):
+          raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+      _scan_json = json.scanner.c_make_scanner(json.JSONDecoder())
+      _encode_json = json.encoder.c_make_encoder(None, _no_default, json.encoder.encode_basestring_ascii,
+                                                 None, ": ", ", ", False, False, True)
+      def _loads(s):
+          return _scan_json(s, 0)[0]      # unlike json.loads, no leading whitespace; JSON.stringify writes none
+      def _dumps(o):
+          return "".join(_encode_json(o, 0))   # the same text as json.dumps' defaults
+      ```
     - Add grading's modules (`ast`, `contextlib`, `copy`, `inspect`, `io`, `json`, `re`, `tokenize`, `types`) to `harness.py`'s `_REPORTING`. `run_as_main` then puts them back after every kid run, and `clean_slate` before every run. `_hidden` puts them back after every kid function a probe calls, too.
 
 **Step 4: Run it to check that it passes**
