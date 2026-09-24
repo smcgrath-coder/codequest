@@ -1,0 +1,6 @@
+a = int("42")
+b = float("3.14")
+c = str(100)
+print(type(a), a)
+print(type(b), b)
+print(type(c), c)
