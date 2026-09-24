@@ -1,0 +1,11 @@
+# Contacts book
+contacts = {
+    "Alice": "555-1234",
+    "Bob": "555-5678",
+    "Charlie": "555-9012"
+}
+
+contacts["Dana"] = "555-4321"
+
+for name, phone in contacts.items():
+    print(f"{name}: {phone}")
