@@ -8,10 +8,16 @@ const py = String.raw;
 // (fixtures wrong/adv_prints_in_loop).
 const LIST_AND_LEN = py`(lambda t, lst, n: sum('[' in l for l in t) == 1 and has(lst, L=t) and nums([n], L=['\n'.join(t).replace(lst, ' ', 1)]))`;
 
-// The item lines as a block, then the total on the last line (ch5_boss, ch7_r3). Lines before the block,
-// such as a title, are fine (fixtures adv_header). Between the block and the last line nothing may hold
-// a number, so a total printed inside its loop fails (fixtures wrong/adv_total_in_loop and wrong/adv_total_in_second_loop).
-const BLOCK_THEN_TOTAL = py`(lambda t, block, total: (lambda T: any(T[k:k + len(block)] == block and len(T) > k + len(block) and nums([total], L=T[-1:]) and not any(re.search(r'\d', l) for l in T[k + len(block):-1]) for k in range(len(T))))([l for l in t if l.strip()]))`;
+// A line with capitals, spaces and punctuation left out, for telling a near miss from a different line.
+const LOOSE = py`(lambda s: re.sub(r'[\W_]+', '', s.lower()))`;
+
+// The item lines as a block, then the total on the first line after it that holds a number (ch5_boss,
+// ch7_r3). Blank lines are left out. Lines before the block, such as a title, are fine (fixtures
+// adv_header), and so are lines after the total, such as a closing line (fixtures r1_closing_line). A
+// total printed inside its loop puts a running total there first, so it fails (fixtures
+// wrong/adv_total_in_loop and wrong/adv_total_in_second_loop). f is applied to each line and each block
+// line before they are compared: with LOOSE, the check passes a near miss too, so that one can get its own hint.
+const BLOCK_THEN_TOTAL = py`(lambda t, block, total, f=(lambda s: s): (lambda T: any([f(l) for l in T[k:k + len(block)]] == [f(b) for b in block] and (lambda R: bool(R) and nums([total], L=R[:1]))([l for l in T[k + len(block):] if re.search(r'\d', l)]) for k in range(len(T))))([l for l in t if l.strip()]))`;
 
 // True when a loop (a for or a comprehension) goes over a call to name, like enumerate(heroes) or
 // stats.items(). A bare enumerate(heroes) statement before a range() loop doesn't count (ch5_s2, ch7_r3).
@@ -27,17 +33,41 @@ const READ_NAMES = py`(lambda M: (lambda tgt, mut: {n.id for n in ast.walk(TREE)
 // True when statement S throws away the answer of a call to f that isn't inside a print():
 // - the call is the whole statement, as in is_strong("hello") on a line by itself;
 // - S is results.append(f(...)) and the program never reads results;
+// - S is some other expression on a line by itself, such as power_up("Knight") + "" or
+//   [power_up(n) for n in names], whose value goes nowhere, and the call isn't handed on: to another call,
+//   as in [show(power_up(n)) for n in names], to a comprehension's loop variable, or to a test that decides
+//   something, as in print("strong") if is_strong(p) else print("weak") (fixture grind_11 r1_ternary_statement);
 // - S stores it, as in a = f(0) or d[k] = f(k), and the program never reads a or d.
 // Anything else hands the answer on (to print, an if, a return, another function), so it counts as used.
-const THROWS_AWAY = py`(lambda S, f, read, M: (lambda C: bool(C) and (((isinstance(S.value, ast.Call) and getattr(S.value.func, 'id', '') == f) or (isinstance(S.value, ast.Call) and isinstance(S.value.func, ast.Attribute) and S.value.func.attr in M and isinstance(S.value.func.value, ast.Name) and S.value.func.value.id not in read)) if isinstance(S, ast.Expr) else not ({m.id for t in (S.targets if isinstance(S, ast.Assign) else [S.target]) for m in ${TARGET_NAMES}(t)} & read)))([c for c in ast.walk(S) if isinstance(c, ast.Call) and getattr(c.func, 'id', '') == f and id(c) not in {id(m) for p in ast.walk(S) if isinstance(p, ast.Call) and getattr(p.func, 'id', '') == 'print' for m in ast.walk(p)}]))`;
+const THROWS_AWAY = py`(lambda S, f, read, M: (lambda C: bool(C) and (((isinstance(S.value, ast.Call) and getattr(S.value.func, 'id', '') == f) or (isinstance(S.value, ast.Call) and isinstance(S.value.func, ast.Attribute) and S.value.func.attr in M and isinstance(S.value.func.value, ast.Name) and S.value.func.value.id not in read) or (not isinstance(S.value, ast.Call) and (lambda used: any(id(c) not in used for c in C))({id(m) for p in ast.walk(S) for sub in ((p.args + [k.value for k in p.keywords]) if isinstance(p, ast.Call) else [p.test] if isinstance(p, ast.IfExp) else p.values if isinstance(p, ast.BoolOp) else [p.iter] + p.ifs if isinstance(p, ast.comprehension) else []) for m in ast.walk(sub)}))) if isinstance(S, ast.Expr) else not ({m.id for t in (S.targets if isinstance(S, ast.Assign) else [S.target]) for m in ${TARGET_NAMES}(t)} & read)))([c for c in ast.walk(S) if isinstance(c, ast.Call) and getattr(c.func, 'id', '') == f and id(c) not in {id(m) for p in ast.walk(S) if isinstance(p, ast.Call) and getattr(p.func, 'id', '') == 'print' for m in ast.walk(p)}]))`;
+
+// True when the kid's function f, called with a, prints its own answer, so calling it on a line by itself
+// shows that answer: power_up printing the message it returns (fixture ch6_r4 r1_prints_inside_and_returns),
+// a converter printing the number it returns (fixture grind_10 prints_and_returns), is_strong printing
+// "hello is weak" for the False it returns, or a function that returns nothing and only prints. A function
+// whose print doesn't show its answer, such as a "Checking..." line, doesn't count
+// (wrong/r1_debug_print_typed).
+const SHOWS_OWN = py`(lambda f, *a: (lambda v, t: bool(t) and (v is None or (isinstance(v, str) and any(v in l for l in t)) or (isinstance(v, bool) and polarity(' '.join(t)) == (1 if v else -1)) or (type(v) in (int, float) and nums([v], L=t))))(*callf(f, *a)))`;
 
 // False when the program throws away an answer of the kid's function f (see THROWS_AWAY), as in
 // is_strong("hello") on a line by itself, or weak = is_strong("hello") that is never used, followed by a
 // typed print("hello is weak") (fixtures wrong/adv_calls_then_typed, wrong/adv_stored_then_typed and
-// wrong/adv_loop_stored_typed). A function that prints for itself, as f(*a) shows, can be called that way.
+// wrong/adv_loop_stored_typed). A function that prints its own answer (SHOWS_OWN, for f(*a)) can be called
+// that way. With loose=True, any function that prints something can: safe_divide printing a warning for
+// b = 0 has shown the kid what happened, whatever it gives back (fixture grind_14 bare_call_prints).
 // The engine can't re-run a program with a kid function replaced, which would show whether its answers
 // reach the output, so this reads the program instead.
-const USES_ANSWER = py`(lambda f, *a, M=('append', 'insert', 'extend', 'add'): (lambda read: not any(${THROWS_AWAY}(S, f, read, M) for S in ast.walk(TREE) if isinstance(S, (ast.Expr, ast.Assign, ast.AugAssign, ast.AnnAssign))) or bool(callf(f, *a)[1]))(${READ_NAMES}(M)))`;
+const USES_ANSWER = py`(lambda f, *a, M=('append', 'insert', 'extend', 'add'), loose=False: (lambda read: not any(${THROWS_AWAY}(S, f, read, M) for S in ast.walk(TREE) if isinstance(S, (ast.Expr, ast.Assign, ast.AugAssign, ast.AnnAssign))) or (bool(callf(f, *a)[1]) if loose else ${SHOWS_OWN}(f, *a)))(${READ_NAMES}(M)))`;
+
+// True unless every call to f has a typed-in first argument and none of them is each of vals: a program
+// that tests grind_10's converters with 100 and 32 instead of 0 and 212 fails (wrong/r1_other_test_values).
+// A call whose argument is worked out, such as a loop's variable, can't be read, so then it passes.
+const TESTED_WITH = py`(lambda f, vals: (lambda A: any(not isinstance(x, ast.Constant) for x in A) or all(any(x.value == v for x in A) for v in vals))([(c.args[:1] + [k.value for k in c.keywords])[0] for c in ast.walk(TREE) if isinstance(c, ast.Call) and getattr(c.func, 'id', '') == f and (c.args or c.keywords)]))`;
+
+// The index of the last line that names exactly one of names as a word, or None: the answer line of a
+// "find the best one" task, which a closing line after it doesn't hide (fixtures r1_closing_line). A line
+// that names several, such as print(records), isn't one.
+const ANSWER_AT = py`(lambda t, names: next((i for i in range(len(t) - 1, -1, -1) if sum(bool(re.search(r'\b%s\b' % re.escape(n), t[i])) for n in names) == 1), None))`;
 
 // rerun()'s overrides for one variable: its first top-level assignment, and any later one that sets it
 // to typed-in values again, as when a kid pastes the task's scores = [...] line under the starter's
@@ -49,45 +79,58 @@ const EVERY = py`(lambda name, src: {'%s#%d' % (name, i + 1): src for i, n in en
 // print(is_strong("hello"), is_strong("secret42")) prints, counts as several (ch5_s1, grind_11).
 const YES_NO = py`(lambda t: [a for l in t for a in ([1 if w == 'True' else -1 for w in re.findall(r'\b(True|False)\b', l)] if len(re.findall(r'\b(True|False)\b', l)) > 1 else [polarity(l)]) if a])`;
 
-// ch5_r1: the three items in order and then the length, at the end of the output, so a title line can come
-// first (fixture adv_header). The items can have a line each or share one (fixture adv_one_line_items),
-// and the length can share their line too (fixture adv_one_line_all). No item may be printed as a list,
-// as favorites[:1] prints ['pizza'] (wrong/adv_slices_not_index).
-const CH5_R1 = py`(lambda t, v, n: not any(re.search(r"\[\s*['\"]?%s['\"]?\s*\]" % re.escape(str(x)), l) for x in v for l in t) and ((len(t) >= 4 and all(str(x) in l for x, l in zip(v, t[-4:])) and nums([n], L=t[-1:])) or (len(t) >= 2 and has(*map(str, v), L=t[-2:-1]) and nums([n], L=t[-1:])) or (len(t) >= 1 and has(*map(str, v), L=t[-1:]) and nums([n], L=[t[-1].rsplit(str(v[-1]), 1)[-1]]))))`;
+// ch5_r1: the three items in order and then the length, on lines in a row with blank lines left out. Lines
+// before them, such as a title (fixture adv_header), and after them, such as a closing line (fixture
+// r1_closing_line), are fine, and so is a blank line before the length (fixture r1_blank_before_len). The
+// items can have a line each or share one (fixture adv_one_line_items), and the length can share their
+// line too (fixture adv_one_line_all). No item may be printed as a list, as favorites[:1] prints ['pizza']
+// (wrong/adv_slices_not_index).
+const CH5_R1 = py`(lambda t, v, n: not any(re.search(r"\[\s*['\"]?%s['\"]?\s*\]" % re.escape(str(x)), l) for x in v for l in t) and (lambda T: any((k + 4 <= len(T) and all(str(x) in l for x, l in zip(v, T[k:k + 3])) and nums([n], L=T[k + 3:k + 4])) or (k + 2 <= len(T) and has(*map(str, v), L=T[k:k + 1]) and nums([n], L=T[k + 1:k + 2])) or (has(*map(str, v), L=T[k:k + 1]) and nums([n], L=[T[k].rsplit(str(v[-1]), 1)[-1]])) for k in range(len(T))))([l for l in t if l.strip()]))`;
 
-// ch5_r3: the lines that hold a number and a Pass or a Fail (SCORE_LINES), and whether they grade the
-// scores S in order, with 70 and up a Pass (GRADED). A line naming both, such as a summary "3 passed,
-// 3 failed" (fixture adv_summary_line), isn't a score line.
-const SCORE_LINES = py`(lambda t: [l for l in t if bool(re.search(r'(?i)pass', l)) != bool(re.search(r'(?i)fail', l)) and re.search(r'\d', l)])`;
-const GRADED = py`(lambda t, S: len(t) == len(S) and all(str(s) in l and (('pass' in l.lower()) == (s >= 70)) and (('fail' in l.lower()) == (s < 70)) for l, s in zip(t, S)))`;
+// ch5_r3: whether the output grades the scores S in order, with 70 and up a Pass, on lines in a row
+// (blank lines left out). Each of those lines holds its score and exactly one of Pass or Fail. Lines
+// before and after them are free, so a title such as "Passing score is 70 or more" (fixture
+// r1_pass_mark_header) or a summary such as "3 students passed!" (fixtures r1_count_passed_summary,
+// adv_summary_line) is fine. A score printed on a line of its own, then its Pass or Fail on the next, counts
+// as one line. Printing both a Pass and a Fail line for every score doesn't give a block in the right order.
+const GRADED = py`(lambda t, S: (lambda T: any(len(T) >= k + len(S) and all(re.search(r'(?<![\d.])%d(?!\d|\.\d)' % s, l) and ('pass' in l.lower()) != ('fail' in l.lower()) and ('pass' in l.lower()) == (s >= 70) for l, s in zip(T[k:k + len(S)], S)) for k in range(len(T))))(__import__('functools').reduce(lambda a, l: a[:-1] + [a[-1] + ' ' + l] if a and re.search(r'\d', a[-1]) and not re.search(r'(?i)pass|fail', a[-1]) and re.search(r'(?i)pass|fail', l) and not re.search(r'\d', l) else a + [l], [l for l in t if l.strip()], [])))`;
 
 // ch5_r4: the items printed, in the order they appear, must be the first 3, the last 2 and then the middle
 // ([2:4] or [2:5]: "index 2 to 4" reads both ways, fixture ALT_inclusive_middle). Reading item names, not
 // list reprs, lets a loop print each slice's items one per line (fixture adv_loop_each_item).
 const CH5_R4 = py`(lambda t, v: (lambda W: any(' %s ' % ' '.join(v[:3] + v[-2:] + v[2:k]) in W for k in (4, 5)))(' %s ' % ' '.join(w for w in re.findall(r'\w+', '\n'.join(t)) if w in v)) and nums([len(v)], L=t))`;
 
-// ch7_r1: the last 4 lines, so a title line can come first (fixture adv_header), each holding one of the
-// values and a label. The task doesn't set an order (fixture adv_other_order), so any line may hold any value.
-const CH7_R1 = py`(lambda t, c: len(t) >= 4 and (lambda t: any(all(str(c[k]) in l and re.sub(re.escape(str(c[k])), '', l).strip() != '' for l, k in zip(t, p)) for p in __import__('itertools').permutations(['name', 'class', 'level', 'health'])))(t[-4:]))`;
+// ch7_r1: 4 lines in a row, each holding one of the values and a label. Lines before and after them are
+// free, so a title line (fixture adv_header) or a closing line (fixture r1_closing_line) is fine. The task
+// doesn't set an order (fixture adv_other_order), so any line may hold any value. The labelled values can
+// share a line too, split by commas, bars, semicolons or tabs (fixture r1_one_line_labels), but not inside a
+// printed dict: print("Character:", character) shows every value, but not looked up by key, and its
+// 'level': 5 would pass for a label (wrong/r1_dict_line_with_label). Whole lines are tried first, so a value
+// with a comma in it, like "Aria, the Wise", is fine (fixture r1_name_with_comma).
+const CH7_R1 = py`(lambda t, c: (lambda fits: fits(t) or fits([s for l in t if '{' not in l for s in re.split(r'\s*[,;|\t]\s*', l) if s.strip()]))(lambda t: any(all(str(c[k]) in l and re.sub(re.escape(str(c[k])), '', l).strip() != '' for l, k in zip(t[i:i + 4], p)) for i in range(len(t) - 3) for p in __import__('itertools').permutations(['name', 'class', 'level', 'health']))))`;
 
 // ch7_s2, grind_12: one line per counted thing, each naming it and then its count. Lines without a number
-// don't count, so a title line is fine (fixtures adv_header).
-const COUNT_LINES = py`(lambda t, pairs: (lambda t: len(t) == len(pairs) and all(any(re.search(r'\b%s\b\D*\b%d\b' % (w, n), l) for l in t) for w, n in pairs))([l for l in t if re.search(r'\d', l)]))`;
+// don't count, so a title line is fine (fixtures adv_header). Or the counts dict printed as it is, as
+// print(counts) prints it, with nothing else in its braces (fixtures r1_print_dict): that shows each one
+// and its count too.
+const COUNT_LINES = py`(lambda t, pairs: (lambda t: len(t) == len(pairs) and all(any(re.search(r'\b%s\b\D*\b%d\b' % (w, n), l) for l in t) for w, n in pairs))([l for l in t if re.search(r'\d', l)]) or any(m and m.group(1).count(':') == len(pairs) and sorted(re.findall(r"['\"]([^'\"]*)['\"]\s*:\s*(\d+)", m.group(1))) == sorted((w, str(n)) for w, n in pairs) for m in (re.search(r'\{(.*)\}', l) for l in t)))`;
 
 // ch8_boss: the results in the printed lines, in order. "You got it!" counts as correct, so a game that
 // turns check_guess's answers into its own messages works (fixture adv_friendly_messages).
 const RESULTS = py`(lambda t: [m.group(1).lower() if m.group(1).lower() in ('high', 'low') else 'correct' for m in (re.search(r'(?i)\b(high|low|correct|got it|you win|you won)\b', l) for l in t) if m])`;
 
 // ch5_s1: the yes/no answers, 1 or -1, in order.
-// - When exactly 4 lines name a searched book, each answer is its named line plus the lines after it, up
-//   to the next named line (so print(book) then print(book in library) works: fixture ALT_name_then_bool).
-//   The last answer gets as many lines as the first, so a heading or a closing line is left out. An answer
-//   is no if it says so, and yes otherwise: the engine's polarity() gives 0 for "Python exists" or "we have
-//   it", and its n't can't match inside "don't" (fixtures ALT_exists, ALT_have_it).
+// - When exactly 4 lines name one searched book each, each answer is its named line plus the lines after
+//   it, up to the next named line (so print(book) then print(book in library) works: fixture
+//   ALT_name_then_bool). The last answer gets as many lines as the first, so a heading or a closing line is
+//   left out. A line naming several books, such as a "Library: [...]" line or a heading that lists the four
+//   searches, isn't a named line (fixtures r1_library_line_exists, r1_heading_have_it). An answer is no if
+//   it says so, and yes otherwise: the engine's polarity() gives 0 for "Python exists" or "we have it", and
+//   its n't can't match inside "don't" (fixtures ALT_exists, ALT_have_it, r1_absent).
 // - Otherwise, as for print("Python" in library), the answers are the lines polarity() reads as yes or no
 //   (fixture ALT_bools), and a line of several True/False answers counts as several (fixture
 //   adv_one_line_bools): see YES_NO.
-const CH5_S1_ANSWERS = py`(lambda t: (lambda idx: [-1 if re.search(r"(?i)\b(no|not|nope|false|missing|unavailable|isnt|doesnt|dont|wasnt)\b|n['’]t\b|❌", ' '.join(t[i:j])) else 1 for i, j in zip(idx, idx[1:] + [idx[-1] + idx[1] - idx[0]])] if len(idx) == 4 else ${YES_NO}(t))([i for i, l in enumerate(t) if re.search(r'\b(Python|Ruby|Games|Math)\b', l)]))`;
+const CH5_S1_ANSWERS = py`(lambda t: (lambda idx: [-1 if re.search(r"(?i)\b(no|not|nope|false|missing|unavailable|absent|gone|nowhere|isnt|doesnt|dont|wasnt)\b|n['’]t\b|❌", ' '.join(t[i:j])) else 1 for i, j in zip(idx, idx[1:] + [idx[-1] + idx[1] - idx[0]])] if len(idx) == 4 else ${YES_NO}(t))([i for i, l in enumerate(t) if len(set(re.findall(r'\b(Python|Ruby|Games|Math)\b', l))) == 1]))`;
 
 // grind_15: the numbers on the summary line, leaving out a total or a share such as "out of 10", "2/10",
 // "(20%)", "in 10 rolls" or "10 rolls", so the count is what's left (fixtures adv_out_of_10, adv_percent_line).
@@ -99,9 +142,35 @@ const DOUBLES = py`(lambda l: ints(re.sub(r'(?i)\bout of\s*\d+|/\s*\d+|\d+\s*%|\
 // adv_header), and the list can be printed before it is shuffled too (fixture adv_before_after_shuffle).
 const CH8_R1 = py`(lambda t: (lambda j: (None, None, None) if j is None else (next((l for l in reversed(t[:j]) if re.search(r'\d', l) and '[' not in l), None), t[j], next((l for l in reversed(t[j + 1:]) if re.search(r'\[.*\]', l)), None)))(next((i for i, l in enumerate(t) if sum(w in l for w in ('sword', 'shield', 'potion')) == 1), None)))`;
 
-// grind_15: the numbers on a line, leaving out labels such as "Die 1" or "2nd die", and a sum such as
-// "= 8" or "total 8" (fixture adv_with_sum). Dice are never negative, so "3-5" is two dice.
-const DICE = py`(lambda l: [int(x) for x in re.findall(r'\d+', re.sub(r'(?i)\b(?:die|dice)\s*#?\d+|\b\d+(?:st|nd|rd|th)\b|=\s*\d+|\b(?:total|sum)\b\W*\d+', '', l))])`;
+// grind_15: the numbers on a line, leaving out labels such as "Die 1:" or "2nd die", a sum such as "= 8" or
+// "total 8" (fixture adv_with_sum), and counts such as "2 dice" or "10 times" (fixtures r1_header_comma,
+// r1_header_no_comma). "Die 1" or "dice 2" is a label only when a colon, =, -> or a word such as "shows"
+// comes next: in print("Dice", a, b), "Roll 1: dice 1 5", "Rolled dice 1 and 5" or "die 1, die 2" the
+// numbers are the dice (fixtures r1_dice_word_*). Labels go first, so the = of "Die 1 = 3" isn't read as a
+// sum. Dice are never negative, so "3-5" is two dice.
+const DICE = py`(lambda l: [int(x) for x in re.findall(r'\d+', re.sub(r'(?i)\b\d+(?:st|nd|rd|th)\b|(?<=\d)\s*=\s*\d+|\b(?:total|sum)\b\W*\d+|\b\d+\s*(?:dice|die|times|rolls?|throws?|tries|turns?|sides?|-sided)\b', ' ', re.sub(r'(?i)\b(?:die|dice)\s*#?[12]\b(?=\s*(?::|=|->|is\b|was\b|shows?\b|rolled\b|got\b|landed\b))', ' # ', l)))])`;
+
+// grind_15: (summary line, roll lines). The summary is the last line holding a number once DOUBLES has
+// dropped its totals, so a closing line after it is fine (fixture r1_closing_line); the rolls are the lines
+// before it with 2 or more dice.
+const ROLLS = py`(lambda t: (lambda s: (None, []) if s is None else (t[s], [l for l in t[:s] if len(${DICE}(l)) >= 2]))(next((i for i in range(len(t) - 1, -1, -1) if ${DOUBLES}(t[i])), None)))`;
+
+// ch6_r2: the lines holding the word Level (in any capitals, and "Level5" too), which the status lines do:
+// a title or a closing line without it, or with only "levels" or "leveled", is left out.
+const HERO_LINES = py`(lambda t: [l for l in t if re.search(r'(?i)\blevel(?![a-z])', l)])`;
+
+// ch7_r2: whether the output shows the dict d. Either a line holds it in braces, as print(player) prints it,
+// with exactly its entries in any order (compared as text, so a line holding something else in braces
+// can't raise, as ast.literal_eval would, which fails the whole check), or each key is on a line with its
+// value, as a loop over player.items() prints them (fixture r1_loop_print): that shows the final dict too.
+const SHOWS_DICT = py`(lambda t, d: any(m and sorted(re.sub(r'\s*:\s*', ': ', p.strip()) for p in m.group(1).replace('"', "'").split(',')) == sorted('%r: %r' % kv for kv in d.items()) for m in (re.search(r'\{(.*)\}', l) for l in t)) or all(any(re.search(r'\b%s\b' % re.escape(str(k)), l) and re.search(r'(?<![\w.])%s(?![\w.])' % re.escape(str(v)), l) for l in t) for k, v in d.items()))`;
+
+// ch8_r1: patches that make every way of rolling a die give its v-th smallest value: randint(a, b) gives
+// a + v - 1, randrange its v-th value, and choice() over 6 whole numbers its v-th one, so randint(1, 6),
+// randint(0, 5) + 1, randrange(1, 7) and choice([1, 2, 3, 4, 5, 6]) all roll a v. choice() over anything
+// else, such as the items, gives the first one. random() gives a number that int(random() * 6) + 1 turns
+// into v, while round(random() * 6, 2) doesn't give a whole number (wrong/r1_float_roll).
+const DIE_PATCH = py`(lambda v: {'random.randint': lambda a, b, v=v: a + v - 1, 'random.randrange': lambda a, b=None, step=1, v=v: (0 if b is None else a) + (v - 1) * step, 'random.choice': lambda s, v=v: s[v - 1] if len(s) == 6 and all(type(x) is int for x in s) else s[0], 'random.random': lambda v=v: (v - 0.5) / 6})`;
 
 export const BATCH_B = {
   // ---------- Chapter 5: lists ----------
@@ -120,14 +189,23 @@ export const BATCH_B = {
     ],
     probes: [
       { expr: py`isinstance(ns.get('favorites'), list) and len(ns['favorites']) == 4`, hint: "Your favorites list should have exactly 4 things in it." },
+      // favorites[3] is the last of 4 items, but not of the re-run's 5 (wrong/r1_index3_for_last): say so.
+      { expr: py`not ${CH5_R1}(rerun(${EVERY}('favorites', "['Zappa', 'Yoyo', 'Wren', 'Vole', 'Quux']"))[0], ['Zappa', 'Vole', 'Yoyo'], 5)`, hint: "For the last item, use favorites[-1]: it gives the last item however long the list is." },
       { expr: py`${CH5_R1}(rerun(${EVERY}('favorites', "['Zappa', 'Yoyo', 'Wren', 'Vole', 'Quux']"))[0], ['Zappa', 'Quux', 'Yoyo'], 5)`, hint: "Print the items by their index, like favorites[0], and the count with len(), so it would work for any list." },
     ],
   },
   // The final sort hides where Alpha went, so only the program shows whether step 2 put it at the front
   // (wrong/adv_skips_insert appends it). ["Alpha"] + books and books[:0] = ["Alpha"] insert at 0 too.
+  // For the same reason, inserting "Alpha" at a typed position other than 0, such as books.insert(1, "Alpha"),
+  // fails (wrong/r1_insert_at_1, wrong/r1_insert_at_end_index). A position worked out in the program can't
+  // be read, so it is left alone, and so is an insert of some other typed item, such as a
+  // books.insert(3, "Beta") that appends.
   ch5_r2: {
     output: [{ expr: py`has("['Alpha', 'Arch', 'Beta', 'Code']") or has('Alpha', 'Arch', 'Beta', 'Code')` }],
-    concepts: [{ expr: py`calls('insert') >= 1 or any((isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add) and isinstance(n.left, ast.List)) or (isinstance(n, ast.Assign) and any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Slice) for t in n.targets)) for n in ast.walk(TREE))`, hint: "Step 2 says to put \"Alpha\" at position 0, the front of the list. .insert() can put an item at any position." }],
+    concepts: [
+      { expr: py`calls('insert') >= 1 or any((isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add) and isinstance(n.left, ast.List)) or (isinstance(n, ast.Assign) and any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Slice) for t in n.targets)) for n in ast.walk(TREE))`, hint: "Step 2 says to put \"Alpha\" at position 0, the front of the list. .insert() can put an item at any position." },
+      { expr: py`not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'insert' and len(n.args) == 2 and isinstance(n.args[0], ast.Constant) and type(n.args[0].value) is int and n.args[0].value > 0 and not (isinstance(n.args[1], ast.Constant) and n.args[1].value != 'Alpha') for n in ast.walk(TREE))`, hint: "Step 2 says to insert \"Alpha\" at position 0, the very front: the first number you give .insert() is the position." },
+    ],
     probes: [
       { expr: py`ns.get('books') == ['Alpha', 'Arch', 'Beta', 'Code']`, hint: "Change the books list itself with list methods like .append() and .sort(), then print books." },
       { expr: py`rerun(${EVERY}('books', "['Zed', 'Dragon']"))[1].ns.get('books') == ['Alpha', 'Beta', 'Zed']`, hint: "Do each step with a list method on books, so the steps would still work if the shelf started with different books." },
@@ -135,13 +213,14 @@ export const BATCH_B = {
   },
   // content bug: the room's second hint puts if score >= 70: print(...) else: print(...) on one line, which
   // is a SyntaxError if a kid copies it.
-  // Changed from exactly 6 lines: the score lines are the ones with a number and a Pass or Fail, so a title
-  // line is fine (fixture adv_header). The re-run's first score is a Fail and the next two are Passes, so a
-  // typed Pass/Fail list fails (wrong/adv_typed_results_zip), and 70 still has to count as a Pass.
+  // Changed from exactly 6 lines: the score lines are a block of lines in a row, so a title line (fixture
+  // adv_header) and a summary (fixture adv_summary_line) are fine: see GRADED. The re-run's first score is a
+  // Fail and the next two are Passes, so a typed Pass/Fail list fails (wrong/adv_typed_results_zip), and 70
+  // still has to count as a Pass.
   ch5_r3: {
-    output: [{ expr: py`${GRADED}(${SCORE_LINES}(L), [85, 42, 91, 67, 73, 55])` }],
+    output: [{ expr: py`${GRADED}(L, [85, 42, 91, 67, 73, 55])` }],
     probes: [
-      { expr: py`${GRADED}(${SCORE_LINES}(rerun(${EVERY}('scores', '[69, 70, 90]'))[0]), [69, 70, 90])`, hint: "Loop through the scores list and decide with an if, so a score of exactly 70 counts as a Pass." },
+      { expr: py`${GRADED}(rerun(${EVERY}('scores', '[69, 70, 90]'))[0], [69, 70, 90])`, hint: "Loop through the scores list and decide with an if, so a score of exactly 70 counts as a Pass." },
     ],
   },
   // Changed from the prototype, which wanted each slice printed as a list: CH5_R4 reads the item names in
@@ -200,12 +279,22 @@ export const BATCH_B = {
       // because the content's hint puts the list inside the comprehension, so this tries the kid's own
       // filter on words of 3, 4 and 5 letters. len(w) >= 4 is fine (fixture ALT_other_names).
       { expr: py`any(len(n.generators) == 1 and isinstance(n.generators[0].target, ast.Name) and n.generators[0].ifs and [val('(lambda %s: bool(%s))(%r)' % (n.generators[0].target.id, ' and '.join('(%s)' % ast.unparse(c) for c in n.generators[0].ifs), w)) for w in ('abc', 'abcd', 'abcde')] == [False, True, True] for n in ast.walk(TREE) if isinstance(n, ast.ListComp))`, hint: "Pick the long words with an if in your comprehension that lets in every word with more than 3 letters, so 4-letter words count too." },
+      // The comprehension with the if has to go over all four words, not only the ones the kid picked out
+      // by hand (wrong/r1_typed_long_words_source). Its iterable is worked out in the program: words, a typed
+      // list or "hi hello hey howdy".split() all work (fixture r1_split_string_source). One that can't be
+      // worked out there, such as a function's parameter, is left alone (fixture r1_function_filter).
+      { expr: py`any(n.generators[0].ifs and (lambda v: (isinstance(v, tuple) and v[:1] == ('__error__',)) or (isinstance(v, (list, tuple, set)) and {'hi', 'hello', 'hey', 'howdy'} <= {x for x in v if isinstance(x, str)}))(val(ast.unparse(n.generators[0].iter))) for n in ast.walk(TREE) if isinstance(n, ast.ListComp))`, hint: "Run your comprehension over all four words from the task, and let its if pick out the long ones." },
     ],
   },
   // Changed from the prototype, which wanted the item lines first and a 29 anywhere after them: see
-  // BLOCK_THEN_TOTAL.
+  // BLOCK_THEN_TOTAL. Item lines that differ from "[item] x[count]" only in capitals, spaces or punctuation,
+  // like "Sword X1" or "Sword x 1", pass the first check and fail the second, which says so
+  // (wrong/r1_capital_X, wrong/r1_space_after_x).
   ch5_boss: {
-    output: [{ expr: py`${BLOCK_THEN_TOTAL}(L, ['Sword x1', 'Potion x5', 'Arrow x20', 'Gem x3'], 29)` }],
+    output: [
+      { expr: py`${BLOCK_THEN_TOTAL}(L, ['Sword x1', 'Potion x5', 'Arrow x20', 'Gem x3'], 29, ${LOOSE})` },
+      { expr: py`${BLOCK_THEN_TOTAL}(L, ['Sword x1', 'Potion x5', 'Arrow x20', 'Gem x3'], 29)`, hint: "So close! Check the capital letters, spaces and punctuation in your item lines: each one should look like [item] x[count] from the task." },
+    ],
     probes: [
       { expr: py`ns.get('inventory') == ['Sword', 'Potion', 'Arrow', 'Gem'] and ns.get('counts') == [1, 5, 20, 3]`, hint: "Change the inventory and counts lists themselves: add Gem to both, and take Shield out of both." },
       { expr: py`${BLOCK_THEN_TOTAL}(rerun({**${EVERY}('inventory', "['Shield', 'Bow']"), **${EVERY}('counts', '[2, 7]')})[0], ['Bow x7', 'Gem x3'], 10)`, hint: "Find where Shield is with inventory.index() instead of typing its position, and add up the counts with your code." },
@@ -219,8 +308,10 @@ export const BATCH_B = {
       { expr: py`${LIST_AND_LEN}(rerun(${EVERY}('numbers', '[11, 3, 10, 50]'))[0], '[11, 50]', 2)`, hint: "Build your new list from numbers with a loop, keeping only numbers bigger than 10, and print its len(), so it would work for any numbers." },
     ],
   },
+  // The task never says to print the reversed list, so building it is enough (fixture r1_built_not_printed):
+  // the list can be printed, or be one of the program's variables. So can the re-run's [1, 9, 3].
   grind_9: {
-    output: [{ expr: py`has('[5, 4, 3, 2, 1]')` }],
+    output: [{ expr: py`has('[5, 4, 3, 2, 1]') or [5, 4, 3, 2, 1] in globals_of(list)`, hint: "Build a new list with your loop that holds the numbers in reverse order, then print it to check it." }],
     concepts: [
       // Only a .reverse() method call counts: the kid's own def reverse(lst) is fine (fixture adv_func_named_reverse).
       { expr: py`not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'reverse' for n in ast.walk(TREE))`, hint: "The task says not to use .reverse(). Build the reversed list yourself." },
@@ -236,38 +327,46 @@ export const BATCH_B = {
     ],
     probes: [
       // Changed from [7, 8, 9]: sorted backwards, an ascending list looks reversed (wrong/adv_sort_descending).
-      { expr: py`has('[1, 9, 3]', L=rerun(${EVERY}('original', '[3, 9, 1]'))[0])`, hint: "Build the reversed list from original with your loop, so it would work for any list." },
+      { expr: py`(lambda t, r: has('[1, 9, 3]', L=t) or [1, 9, 3] in [v for k, v in r.ns.items() if not k.startswith('__') and type(v) is list])(*rerun(${EVERY}('original', '[3, 9, 1]')))`, hint: "Build the reversed list from original with your loop, so it would work for any list." },
     ],
   },
 
   // ---------- Chapter 6: functions ----------
-  // The war cry can take more than one line (fixture adv_two_line_cry): the output is the same cry 3 times.
-  // The probes' hints each name one mistake: a battle_cry that returns its cry instead of printing it, and
-  // print(battle_cry()), which prints the cry and then the None it gives back, get their own.
+  // The war cry can take more than one line (fixture adv_two_line_cry). Other lines are fine, such as an
+  // intro line before the calls (fixture r1_intro_line), and so are blank ones, as a print() after the cry
+  // gives (fixture r1_blank_after_cry). So the output only has to show something; the probes check that
+  // battle_cry prints its cry and is called 3 times, and that the cry shows up 3 times. Their hints each name
+  // one mistake: a battle_cry that returns its cry instead of printing it, print(battle_cry()), which prints
+  // the cry and then the None it gives back, and a loop inside battle_cry get their own.
   ch6_r1: {
     output: [
       { expr: py`any(l.strip() for l in L)`, hint: "Nothing showed up yet! Use print() inside battle_cry to show your war cry, then call battle_cry() 3 times." },
-      { expr: py`len(L) >= 3 and len(L) % 3 == 0 and any(l.strip() for l in L) and L == L[:len(L) // 3] * 3` },
     ],
     probes: [
       { expr: py`sig('battle_cry') == (0, 0)`, hint: "Define a function called battle_cry with def and empty parentheses: it doesn't need any inputs." },
       { expr: py`bool(call('battle_cry()')[1])`, hint: "battle_cry should show the war cry itself: put print() inside the function." },
       { expr: py`not ('None' in [l.strip() for l in L] and any(isinstance(c, ast.Call) and getattr(c.func, 'id', '') == 'print' and any(isinstance(a, ast.Call) and getattr(a.func, 'id', '') == 'battle_cry' for a in ast.walk(c)) for c in ast.walk(TREE)))`, hint: "battle_cry() prints the war cry already, so call it on a line by itself, not inside print(): that prints the None it gives back." },
-      { expr: py`call('battle_cry()')[1] * 3 == L`, hint: "Each call to battle_cry() should print your war cry once. Call it 3 times instead of looping inside it." },
+      { expr: py`not (in_func('battle_cry', ast.For, ast.While) and trace.count('battle_cry') < 3)`, hint: "Each call to battle_cry() should print your war cry once. Call it 3 times instead of looping inside it." },
       { expr: py`trace.count('battle_cry') == 3`, hint: "Call battle_cry() exactly 3 times." },
+      { expr: py`(lambda C: bool(C) and subseq(C * 3, L=[l for l in L if l.strip()]))([l for l in call('battle_cry()')[1] if l.strip()])`, hint: "Each call to battle_cry() should print the same war cry, so it shows up 3 times." },
     ],
   },
-  // A line that differs from "[name] — Level [level]" only in capitals or punctuation, like "Knight - level 5",
-  // is a near miss (the design's rule): it still fails, but with a hint that says so (wrong/lowercase_level).
-  // The status lines are the last 3, so a title line can come first (fixture adv_header_line).
+  // A line that differs from "[name] — Level [level]" only in capitals, spaces or punctuation, like
+  // "Knight - level 5" or "Knight: Level 5", is a near miss (the design's rule): it still fails, but with a
+  // hint that says so (wrong/lowercase_level, wrong/r1_colon_not_dash). Whether the words match is read from
+  // what hero_status prints for a test hero, Zed at level 99: "Zed is level 99" isn't a near miss, so it gets
+  // the hint about the words instead (wrong/r1_words_differ, wrong/r1_has_level). The status lines are the last 3 lines holding the word Level, so a
+  // title line before them (fixture adv_header_line) or a closing line after them (fixture r1_closing_line)
+  // is fine.
   ch6_r2: {
     output: [
       { expr: py`any(l.strip() for l in L)`, hint: "Nothing showed up yet! Use print() inside hero_status to show the hero's line, then call hero_status 3 times." },
-      { expr: py`len(L) >= 3 and len(set(L[-3:])) == 3 and all(re.fullmatch(r'(?i).+?\W*level\W*\S+', l) for l in L[-3:])` },
-      { expr: py`all(re.fullmatch(r'.+?\s*[—–-]+\s*Level\s+\S+', l) for l in L[-3:])`, hint: "So close! Check your capital letters and punctuation: each line should look like [name] — Level [level] from the task (a - is fine for the —)." },
+      { expr: py`(lambda S: len(S) >= 3 and len(set(S[-3:])) == 3 and all(re.fullmatch(r'(?i).+?\W*level\W*\S+', l) for l in S[-3:]))(${HERO_LINES}(L))` },
+      { expr: py`(lambda S, T: all(re.fullmatch(r'.+?\s*[—–-]+\s*Level\s+\S+', l) for l in S[-3:]) or (len(T) == 1 and 'Zed' in T[0] and '99' in T[0] and ${LOOSE}(T[0].replace('Zed', 'NAME').replace('99', 'LVL')) == 'namelevellvl'))(${HERO_LINES}(L), call("hero_status('Zed', 99)")[1])`, hint: "Check the words in your hero lines: each should be just the hero's name, then — Level, then the level, like [name] — Level [level] in the task." },
+      { expr: py`all(re.fullmatch(r'.+?\s*[—–-]+\s*Level\s+\S+', l) for l in ${HERO_LINES}(L)[-3:])`, hint: "So close! Check the capital letters, spaces and punctuation in your hero lines: each should look like [name] — Level [level] from the task (a plain - works fine)." },
       // hero_status(5, "Knight") prints "5 — Level Knight" (wrong/adv_args_swapped); so does a swapped
       // f-string (wrong/adv_fstring_swapped), so the hint names both.
-      { expr: py`all((lambda m: m is not None and not re.fullmatch(r'-?\d+(\.\d+)?', m.group(1).strip()))(re.fullmatch(r'(.+?)\s*[—–-]+\s*Level\s+\S+', l)) for l in L[-3:])`, hint: "Each line should start with the hero's name and end with the level, like Knight — Level 5. Check the order in your calls and in your print." },
+      { expr: py`all((lambda m: m is not None and not re.fullmatch(r'-?\d+(\.\d+)?', m.group(1).strip()))(re.fullmatch(r'(.+?)\s*[—–-]+\s*Level\s+\S+', l)) for l in ${HERO_LINES}(L)[-3:])`, hint: "Each line should start with the hero's name and end with the level, like Knight — Level 5. Check the order in your calls and in your print." },
     ],
     probes: [
       { expr: py`sig('hero_status') == (2, 0)`, hint: "hero_status needs two parameters in its parentheses: one for the name and one for the level." },
@@ -278,22 +377,33 @@ export const BATCH_B = {
   },
   // Changed from exactly 1 line, all of it "Damage dealt: [result]": other lines are fine (fixture
   // adv_intro_line), and so is a word after the number, as in "Damage dealt: 24 HP" (fixture adv_units_word).
-  // The damage line is the one that starts with "Damage dealt: ", in the output and in the re-run.
+  // The damage lines are the ones that start with "Damage dealt: ", in the output and in the re-runs, and
+  // there can be more than one: storing and printing two results is fine (fixture r1_two_attacks). A line
+  // that differs only in capitals, spaces or punctuation, like "damage dealt: 30" or "Damage dealt = 30",
+  // passes the first check and fails the second, which says so (wrong/r1_lowercase_label, wrong/r1_equals_label).
   ch6_r3: {
-    output: [{ expr: py`len([l for l in L if re.match(r'Damage dealt: \S', l)]) == 1` }],
+    output: [
+      { expr: py`any(re.match(r'damage dealt \S', ' '.join(re.sub(r'[^\w.]+', ' ', l.lower()).split())) for l in L)`, hint: "Print your stored result on a line that starts with Damage dealt:, as the task shows." },
+      { expr: py`any(re.match(r'Damage dealt: \S', l) for l in L)`, hint: "So close! Check the capital letters, spaces and punctuation in your Damage dealt line: it should look like Damage dealt: [result] from the task." },
+    ],
     probes: [
       { expr: py`call('calculate_damage(4, 5)') == (20, []) and val('calculate_damage(3, 0.5)') == 1.5`, hint: "calculate_damage should give back base * multiplier with return, not print it." },
       // Changed from comparing the printed value with every global, which a stored damage next to a typed
-      // print("Damage dealt: 30") passed (wrong/adv_typed_result). The re-run replaces the first top-level
-      // variable set from calculate_damage with calculate_damage(4, 5), and the damage line must then show 20.
-      { expr: py`(lambda A: (lambda K: bool(K) and (lambda t: len(t) == 1 and nums([20], L=t))([l for l in rerun({K[0]: 'calculate_damage(4, 5)'})[0] if re.match(r'Damage dealt: \S', l)]))(['%s#%d' % (x, sum(y == x for y, _ in A[:i + 1])) for i, (x, n) in enumerate(A) if any(isinstance(c, ast.Call) and getattr(c.func, 'id', '') == 'calculate_damage' for c in ast.walk(n.value))]))([(n.targets[0].id, n) for n in TREE.body if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)])`, hint: "Store the answer from calculate_damage in a variable first, then print that variable instead of a number you typed." },
+      // print("Damage dealt: 30") passed (wrong/adv_typed_result). Each top-level variable set from
+      // calculate_damage is replaced with calculate_damage(37, 3), one re-run each, and every damage line must
+      // show 111 in one of those re-runs. So a second damage line that is typed fails too, while a stored
+      // result that is never printed is fine.
+      { expr: py`(lambda A: (lambda K, D: bool(K) and bool(D) and (lambda R: all(any(len(r) == len(D) and nums([111], L=[r[i]]) for r in R) for i in range(len(D))))([[l for l in rerun({k: 'calculate_damage(37, 3)'})[0] if re.match(r'Damage dealt: \S', l)] for k in K]))(['%s#%d' % (x, sum(y == x for y, _ in A[:i + 1])) for i, (x, n) in enumerate(A) if any(isinstance(c, ast.Call) and getattr(c.func, 'id', '') == 'calculate_damage' for c in ast.walk(n.value))], [l for l in L if re.match(r'Damage dealt: \S', l)]))([(n.targets[0].id, n) for n in TREE.body if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)])`, hint: "Store the answer from calculate_damage in a variable first, then print that variable instead of a number you typed." },
     ],
   },
   ch6_r4: {
     output: [
       // The task never says to print, so a kid who only calls power_up sees nothing: say what to do.
       { expr: py`any(l.strip() for l in L)`, hint: "Nothing showed up yet! power_up gives its message back, so print what it gives back, like print(power_up(\"Knight\"))." },
-      { expr: py`any(re.fullmatch(r'.+ gained 10 power!', l) for l in L) and any(re.fullmatch(r'.+ gained (?!10 )-?\d+(\.\d+)? power!', l) for l in L)` },
+      // A message that differs only in capitals or punctuation, like "Knight gained 10 power" with no !, passes
+      // this and fails the next check, which says so (wrong/r1_no_exclaim).
+      { expr: py`(lambda T: any(re.fullmatch(r'.+ gained 10 power', l) for l in T) and any(re.fullmatch(r'.+ gained (?!10 )-?\d+(\.\d+)? power', l) for l in T))([' '.join(re.sub(r'[^\w\s.-]', ' ', l.lower()).split()).strip('. ') for l in L])` },
+      { expr: py`any(re.fullmatch(r'.+ gained 10 power!', l) for l in L) and any(re.fullmatch(r'.+ gained (?!10 )-?\d+(\.\d+)? power!', l) for l in L)`, hint: "So close! Check the capital letters and punctuation in your messages: each should look like [name] gained [amount] power! from the task." },
     ],
     probes: [
       { expr: py`sig('power_up') == (2, 1)`, hint: "Give power_up two parameters, name and amount, and make amount 10 unless it's given." },
@@ -315,10 +425,11 @@ export const BATCH_B = {
       { expr: py`nums([15.0, 20], L=rerun(${EVERY}('scores', '[10, 20]'))[0])`, hint: "Work out both answers from the scores list with your function, so they change when the scores do." },
     ],
   },
-  // The three ratings can share a line (fixture adv_one_line). They are the last 3 lines, or the last line,
-  // so a title line can come first (fixture adv_header_line).
+  // The three ratings can share a line (fixture adv_one_line). They are on 3 lines in a row, or on one line,
+  // so a title line before them (fixture adv_header_line) or a closing line after them (fixture
+  // r1_closing_line) is fine. Ratings for every level from 1 to 10 don't give 10, 30 and 55 in a row.
   ch6_s1: {
-    output: [{ expr: py`nums_per_line([10, 30, 55], L=L[-3:]) or nums([10, 30, 55], L=L[-1:])` }],
+    output: [{ expr: py`any(nums_per_line([10, 30, 55], L=L[k:k + 3]) or nums([10, 30, 55], L=L[k:k + 1]) for k in range(len(L)))` }],
     probes: [
       { expr: py`val('calc_attack(2)') == 6 and val('calc_defense(2)') == 9 and val('power_rating(2)') == 15`, hint: "Make each function return the answer to its formula from the task, using its level parameter." },
       { expr: py`called_from('calc_attack', 'power_rating') and called_from('calc_defense', 'power_rating')`, hint: "power_rating should call calc_attack and calc_defense and add up what they return." },
@@ -340,10 +451,11 @@ export const BATCH_B = {
     ],
   },
   // Changed from exactly 2 lines: printing the global score before the call too is a fine way to show
-  // they're independent (fixture adv_before_and_after). The 50 comes before the last line, which holds 100.
+  // they're independent (fixture adv_before_and_after), and so is a closing line such as "See? They're
+  // independent!" (fixture r1_independent_line). So the output needs a 50 and then a 100 after it.
   // The prototype read no variables, so typed lines passed (wrong/adv_typed_values, adv_never_called).
   ch6_s3: {
-    output: [{ expr: py`len(L) >= 2 and nums([100], L=L[-1:]) and any(nums([50], L=[l]) for l in L[:-1])` }],
+    output: [{ expr: py`nums([50, 100])` }],
     concepts: [
       { expr: py`any_func_assigns('score')`, hint: "Inside your function, make its own score = 50 before printing it." },
       { expr: py`count(ast.Global) == 0`, hint: "Don't use the global keyword here: the function's score should stay separate from the one outside." },
@@ -351,8 +463,11 @@ export const BATCH_B = {
     ],
     probes: [
       { expr: py`ns.get('score') == 100`, hint: "Keep a variable called score, equal to 100, outside the function." },
-      { expr: py`any(f.name in trace and (lambda t: bool(t) and nums([50], L=t) and all(l in L[:-1] for l in t))(callf(f.name)[1]) for f in fdef() if assigns_in_func(f.name, 'score'))`, hint: "Call your function before you print the global score, so its local 50 shows up first." },
-      { expr: py`nums([7], L=rerun({'score': '7'})[0][-1:])`, hint: "At the end, print the global score variable itself, like print(score), instead of typing 100." },
+      // The function is called with 100 for each parameter it needs, as show(score) would be: a parameter
+      // named score that the function sets to 50 is fine (fixture r1_param_shadow). What it prints must come
+      // before the last line that holds 100.
+      { expr: py`any(f.name in trace and (lambda t: bool(t) and nums([50], L=t) and (lambda j: all(l in L[:j] for l in t))(max((i for i, l in enumerate(L) if nums([100], L=[l])), default=0)))(callf(f.name, *[100] * (len(f.args.args) - len(f.args.defaults)))[1]) for f in fdef() if assigns_in_func(f.name, 'score'))`, hint: "Call your function before you print the global score, so its local 50 shows up first." },
+      { expr: py`nums([50, 7], L=rerun({'score': '7'})[0])`, hint: "After calling your function, print the global score variable itself, like print(score), instead of typing 100." },
     ],
   },
   // The task text calls a parameter str, which shadows the built-in; the content could rename it.
@@ -380,6 +495,8 @@ export const BATCH_B = {
       // Correct functions next to typed-in answers passed without this (wrong/adv_typed_output), and so did
       // answers stored and never used (wrong/adv_calls_stored_typed_print).
       { expr: py`'celsius_to_fahrenheit' in trace and 'fahrenheit_to_celsius' in trace and ${USES_ANSWER}('celsius_to_fahrenheit', 0) and ${USES_ANSWER}('fahrenheit_to_celsius', 212)`, hint: "Test both functions: print what celsius_to_fahrenheit(0) and fahrenheit_to_celsius(212) give back." },
+      // Testing with 100 and 32 prints 32 and 100 too, as the typed temperatures (wrong/r1_other_test_values).
+      { expr: py`${TESTED_WITH}('celsius_to_fahrenheit', [0]) and ${TESTED_WITH}('fahrenheit_to_celsius', [212])`, hint: "The task says to test with 0°C and 212°F: give celsius_to_fahrenheit a 0 and fahrenheit_to_celsius a 212." },
     ],
   },
   // A line holding two answers, as print(is_strong("hello"), is_strong("secret42")) prints, counts as two
@@ -394,6 +511,8 @@ export const BATCH_B = {
       // calls on lines of their own before the typed answers passed the trace alone (wrong/adv_calls_then_typed),
       // as did answers stored and never used (wrong/adv_stored_then_typed, adv_loop_stored_typed, adv_dict_stored_typed).
       { expr: py`trace.count('is_strong') >= 2 and ${USES_ANSWER}('is_strong', 'hello')`, hint: "Test your function: call is_strong with \"hello\" and with \"secret42\", and print what it tells you." },
+      // Other passwords, one weak and one strong, give the same weak-then-strong answers (wrong/r1_other_test_passwords).
+      { expr: py`${TESTED_WITH}('is_strong', ['hello', 'secret42'])`, hint: "Test with the two passwords from the task: give is_strong \"hello\" and then \"secret42\"." },
     ],
   },
 
@@ -405,23 +524,30 @@ export const BATCH_B = {
       { expr: py`${CH7_R1}(rerun(${EVERY}('character', "{'name': 'Zed', 'class': 'Bard', 'level': 99, 'health': 7}"))[0], {'name': 'Zed', 'class': 'Bard', 'level': 99, 'health': 7})`, hint: "Print each value by looking it up with its key, like character[\"name\"], instead of typing it." },
     ],
   },
-  // The printed dict can follow a label, as in print("Final player:", player) (fixture ALT_labelled). Its
-  // entries are compared as text, in any order, so a line holding something else in braces can't raise
-  // (ast.literal_eval would, and that fails the whole check).
+  // The printed dict can follow a label, as in print("Final player:", player) (fixture ALT_labelled), and
+  // the probes check the dict itself. See SHOWS_DICT for how the output is read.
   ch7_r2: {
-    output: [{ expr: py`any(m and sorted(re.sub(r'\s*:\s*', ': ', p.strip()) for p in m.group(1).replace('"', "'").split(',')) == ["'gold': 75", "'level': 1", "'name': 'Hero'", "'title': 'Adventurer'", "'xp': 100"] for m in (re.search(r'\{(.*)\}', l) for l in L))` }],
+    output: [{ expr: py`${SHOWS_DICT}(L, {'name': 'Hero', 'xp': 100, 'gold': 75, 'level': 1, 'title': 'Adventurer'})` }],
     probes: [
       { expr: py`ns.get('player') == {'name': 'Hero', 'xp': 100, 'gold': 75, 'level': 1, 'title': 'Adventurer'}`, hint: "Change the player dictionary itself, one step at a time, then print player." },
       { expr: py`rerun(${EVERY}('player', "{'name': 'Hero', 'xp': 5, 'gold': 10}"))[1].ns.get('player', {}).get('gold') == 35`, hint: "Increase gold by adding 25 to what it already is, instead of typing the new total." },
       // xp starts at 0, so xp += 100 also gives 100 in the main run (fixture wrong/xp_added).
       { expr: py`rerun(${EVERY}('player', "{'name': 'Hero', 'xp': 5, 'gold': 10}"))[1].ns.get('player', {}).get('xp') == 100`, hint: "Set xp to exactly 100 with =, instead of adding 100 to it." },
+      // The re-run has to print its own final dict, with gold 35: a typed copy of the answer printed after
+      // doing the steps doesn't change (wrong/r1_typed_final_after_steps).
+      { expr: py`${SHOWS_DICT}(rerun(${EVERY}('player', "{'name': 'Hero', 'xp': 5, 'gold': 10}"))[0], {'name': 'Hero', 'xp': 100, 'gold': 35, 'level': 1, 'title': 'Adventurer'})`, hint: "At the end, print the player dictionary itself, like print(player), instead of typing out the final dictionary." },
     ],
   },
   // Changed from the prototype, which wanted the key: value lines first and a 55 anywhere after them: see
   // BLOCK_THEN_TOTAL. The concept was calls('items') >= 1, which a bare stats.items() line passed
   // (wrong/adv_items_statement).
+  // As in ch5_boss, a near miss such as "Strength: 15" or "strength = 15" gets its own hint
+  // (wrong/r1_capitalized_keys, wrong/r1_equals_format).
   ch7_r3: {
-    output: [{ expr: py`${BLOCK_THEN_TOTAL}(L, ['strength: 15', 'speed: 12', 'magic: 8', 'luck: 20'], 55)` }],
+    output: [
+      { expr: py`${BLOCK_THEN_TOTAL}(L, ['strength: 15', 'speed: 12', 'magic: 8', 'luck: 20'], 55, ${LOOSE})` },
+      { expr: py`${BLOCK_THEN_TOTAL}(L, ['strength: 15', 'speed: 12', 'magic: 8', 'luck: 20'], 55)`, hint: "So close! Check the capital letters, spaces and punctuation in your stat lines: each one should look like [key]: [value] from the task, with the key just as stats has it." },
+    ],
     concepts: [{ expr: py`${LOOPS_OVER}('items')`, hint: "Loop over the dictionary with for key, value in stats.items(): to get each key and value together." }],
     probes: [
       { expr: py`${BLOCK_THEN_TOTAL}(rerun(${EVERY}('stats', "{'a': 1, 'b': 2}"))[0], ['a: 1', 'b: 2'], 3)`, hint: "Print the keys and values and add up the total straight from the stats dictionary, instead of typing them." },
@@ -430,43 +556,50 @@ export const BATCH_B = {
   // A place's name and numbers don't have to share a line: printing the name, then each property on its own
   // line, is fine (fixture ALT_nested_loop). The task says to loop through and print each location, so the
   // places do need lines of their own, which print(world) doesn't give them (wrong/print_world).
+  // The answer is the last line, or the last line that names just one place (ANSWER_AT), so a closing line
+  // after it is fine (fixture r1_closing_line); the places are listed before it. Everything is read in
+  // small letters, so place names printed with .title(), as "Forest" or "Best: Cave", are fine too
+  // (fixture r1_title_case_names).
   ch7_r4: {
     output: [
-      { expr: py`has('forest', '3', '5', 'cave', '8', '10', 'village', '1', '2', L=L[:-1])` },
-      { expr: py`subseq([r're:.*\bforest\b.*', r're:.*\bcave\b.*', r're:.*\bvillage\b.*'], L=L[:-1])`, hint: "Loop through world and print each place on its own line, with its danger and treasure." },
-      { expr: py`'cave' in L[-1]` },
+      { expr: py`(lambda T: any(has('forest', '3', '5', 'cave', '8', '10', 'village', '1', '2', L=T[:i]) and re.search(r'\bcave\b', T[i]) for i in {len(T) - 1, ${ANSWER_AT}(T, ['forest', 'cave', 'village'])} - {None}))([l.lower() for l in L])` },
+      { expr: py`(lambda T: any(subseq([r're:.*\bforest\b.*', r're:.*\bcave\b.*', r're:.*\bvillage\b.*'], L=T[:i]) and re.search(r'\bcave\b', T[i]) for i in {len(T) - 1, ${ANSWER_AT}(T, ['forest', 'cave', 'village'])} - {None}))([l.lower() for l in L])`, hint: "Loop through world and print each place on its own line, with its danger and treasure." },
     ],
     probes: [
       { expr: py`ns.get('world') == {'forest': {'danger': 3, 'treasure': 5}, 'cave': {'danger': 8, 'treasure': 10}, 'village': {'danger': 1, 'treasure': 2}}`, hint: "Make the world dictionary just like the task shows, with a small dictionary inside for each place." },
       // mine's danger is 1, not the prototype's 9: with 9, mine had the most danger too, so a loop that
       // compared danger instead of treasure passed (fixture wrong/max_danger).
-      { expr: py`'mine' in rerun(${EVERY}('world', "{'mine': {'danger': 1, 'treasure': 50}, 'cave': {'danger': 8, 'treasure': 10}}"))[0][-1]`, hint: "Find the place with the most treasure by comparing each place's treasure, so it would work for any world." },
+      { expr: py`(lambda T: any(re.search(r'\bmine\b', T[i]) for i in {len(T) - 1, ${ANSWER_AT}(T, ['mine', 'cave'])} - {None}))([l.lower() for l in rerun(${EVERY}('world', "{'mine': {'danger': 1, 'treasure': 50}, 'cave': {'danger': 8, 'treasure': 10}}"))[0]])`, hint: "Find the place with the most treasure by comparing each place's treasure, so it would work for any world." },
     ],
   },
   // A member's name and stats don't have to share a line (fixture ALT_multi_line). Changed from also
   // wanting the defense values: the content's first hint prints only the attack (fixture adv_follows_hint).
+  // As in ch7_r4, the answer line can come before a closing line (fixture r1_closing_line).
   ch7_r5: {
     output: [
-      { expr: py`has('Knight', '15', 'Mage', '20', 'Rogue', '12', L=L[:-1])` },
-      { expr: py`'Mage' in L[-1]` },
+      { expr: py`(lambda T: any(has('knight', '15', 'mage', '20', 'rogue', '12', L=T[:i]) and re.search(r'\bmage\b', T[i]) for i in {len(T) - 1, ${ANSWER_AT}(T, ['knight', 'mage', 'rogue'])} - {None}))([l.lower() for l in L])` },
     ],
     probes: [
       // The first re-run party has 3 members with the best last. The prototype's had Rogue at index 1, where
       // Mage is in the task's party, so a typed party[1] passed (fixture wrong/typed_index). In the second,
       // the best comes first and two members beat 15, so keeping the last one over a fixed number fails
       // (wrong/adv_threshold_15).
-      { expr: py`'Rogue' in rerun(${EVERY}('party', "[{'name': 'Knight', 'attack': 1, 'defense': 1}, {'name': 'Mage', 'attack': 2, 'defense': 1}, {'name': 'Rogue', 'attack': 30, 'defense': 1}]"))[0][-1] and 'Knight' in rerun(${EVERY}('party', "[{'name': 'Knight', 'attack': 30, 'defense': 1}, {'name': 'Mage', 'attack': 20, 'defense': 1}, {'name': 'Rogue', 'attack': 1, 'defense': 1}]"))[0][-1]`, hint: "Find the member with the highest attack by comparing their attack values, then print that member's name." },
+      { expr: py`all((lambda T: any(re.search(r'\b%s\b' % best, T[i]) for i in {len(T) - 1, ${ANSWER_AT}(T, ['knight', 'mage', 'rogue'])} - {None}))([l.lower() for l in rerun(${EVERY}('party', P))[0]]) for P, best in (("[{'name': 'Knight', 'attack': 1, 'defense': 1}, {'name': 'Mage', 'attack': 2, 'defense': 1}, {'name': 'Rogue', 'attack': 30, 'defense': 1}]", 'rogue'), ("[{'name': 'Knight', 'attack': 30, 'defense': 1}, {'name': 'Mage', 'attack': 20, 'defense': 1}, {'name': 'Rogue', 'attack': 1, 'defense': 1}]", 'knight')))`, hint: "Find the member with the highest attack by comparing their attack values, then print that member's name." },
     ],
   },
-  // Each line can have a label before its value, like "Shield: None" (fixture adv_labels).
+  // Each line can have a label before its value, like "Shield: None" (fixture adv_labels). The answers are
+  // the last 3 lines, so a heading can come first (fixture r1_header).
   ch7_s1: {
-    output: [{ expr: py`lines([r're:(?:.*\W)?Aria', r're:(?:.*\W)?unarmed', r're:(?:.*\W)?None'])` }],
+    output: [
+      { expr: py`len(L) >= 3`, hint: "Print all three lookups, one on each line: the name, then the weapon, then the shield." },
+      { expr: py`lines([r're:(?:.*\W)?Aria', r're:(?:.*\W)?unarmed', r're:(?:.*\W)?None'], L=L[-3:])`, hint: "Print what the three hero.get() lookups give back, in the task's order: the name, then the weapon, then the shield." },
+    ],
     // Changed from calls('get') >= 3: hero.get("shield", "None") types the None in as a default
     // (wrong/adv_default_string_none). The name and the shield take one argument, the weapon two.
     concepts: [{ expr: py`(lambda G: sum(len(c.args) == 1 and not c.keywords for c in G) >= 2 and any(len(c.args) + len(c.keywords) == 2 for c in G))([n for n in ast.walk(TREE) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'get'])`, hint: "Use hero.get() for all three lookups, as the task shows: give a default only for the weapon, and none for the shield." }],
     probes: [
       // The re-run hero has a weapon and a shield, so a typed "unarmed" or "None" shows (wrong/adv_typed_none).
-      { expr: py`lines([r're:(?:.*\W)?Zed', r're:(?:.*\W)?bow', r're:(?:.*\W)?oak'], L=rerun(${EVERY}('hero', "{'name': 'Zed', 'weapon': 'bow', 'shield': 'oak'}"))[0])`, hint: "Print what hero.get() gives back each time, instead of typing the answers." },
+      { expr: py`lines([r're:(?:.*\W)?Zed', r're:(?:.*\W)?bow', r're:(?:.*\W)?oak'], L=rerun(${EVERY}('hero', "{'name': 'Zed', 'weapon': 'bow', 'shield': 'oak'}"))[0][-3:])`, hint: "Print what hero.get() gives back each time, instead of typing the answers." },
     ],
   },
   ch7_s2: {
@@ -510,9 +643,13 @@ export const BATCH_B = {
       { expr: py`(lambda t, r: {'a': 2, 'cat': 1} in [v for k, v in r.ns.items() if isinstance(v, dict) and not k.startswith('__')] and ${COUNT_LINES}(t, [('a', 2), ('cat', 1)]))(*rerun(${EVERY}('text', "'a cat a'")))`, hint: "Split text into words and count each word in a loop, then print the counts from your dictionary, so it would work for any text." },
     ],
   },
+  // The contact lines are the ones naming a contact and its phone, from the final dict or from the 3-contact
+  // dict the program starts with. The last len(d) of them must name each remaining contact once and nothing
+  // else. So a title line is fine (fixture adv_header), and so are lines announcing the steps, even with a
+  // phone in them, like "Added Dan (555-4444)" (fixtures r1_announce_with_phone, r1_announce_steps). A list
+  // printed before the delete still names the deleted contact (wrong/r1_print_before_delete).
   grind_13: {
-    // Only the lines naming a contact and its phone count, so a title line is fine (fixture adv_header).
-    output: [{ expr: py`len(globals_of(dict)) >= 1 and (lambda d: len([l for l in L if any(str(k) in l and str(v) in l for k, v in d.items())]) == len(d) and all(any(str(k) in l and str(v) in l for l in L) for k, v in d.items()))(globals_of(dict)[0])` }],
+    output: [{ expr: py`len(globals_of(dict)) >= 1 and (lambda d: (lambda A: (lambda C: len(C) >= len(d) and (lambda P: all(len(p) == 1 and p[0] in d.items() for p in P) and sorted(repr(p[0]) for p in P) == sorted(map(repr, d.items())))([[kv for kv in A if str(kv[0]) in l and str(kv[1]) in l] for l in C[len(C) - len(d):]]))([l for l in L if any(str(k) in l and str(v) in l for k, v in A)]))(list(d.items()) + [kv for n in ast.walk(TREE) if isinstance(n, ast.Dict) and len(n.keys) == 3 and all(isinstance(x, ast.Constant) for x in n.keys + n.values) for kv in zip([x.value for x in n.keys], [x.value for x in n.values]) if kv not in d.items()]))(globals_of(dict)[0])`, hint: "Once you've added one contact and deleted one, print each contact that's left with its phone, by looping over .items()." }],
     concepts: [
       { expr: py`any(isinstance(n, ast.Dict) and len(n.keys) == 3 for n in ast.walk(TREE))`, hint: "Start with a dictionary that has 3 contacts in it, each one a name: phone pair." },
       // The task only says "add one", so .update() and .setdefault() count too (fixture ALT_update).
@@ -534,30 +671,34 @@ export const BATCH_B = {
   //   "You rolled a 3 on a 6-sided die" works too (fixture adv_label_after_number), the line names one
   //   item, and the list is found inside its line;
   // - the three lines are found by what they hold (CH8_R1), not by being lines 1, 2 and 3;
-  // - each probe patches in two values, not one: seed 0 rolls a 4, so a typed print(4) matched the one
-  //   patched value (wrong/fixed_die), and one value is always matchable by typing it;
-  // - randint must be called with (1, 6): at seed 0, randint(0, 5) rolls a number from 1 to 6 too
-  //   (wrong/adv_randint_0_5);
   // - the item has to come from random.choice(), which the choice probe already needed. As a concept it
   //   comes first, so items[random.randint(0, 2)] is told about choice(), not about the die's randint(1, 6).
+  // The task only says to print a random number from 1 to 6, so the die can be rolled with
+  // random.randint(1, 6), random.randrange(1, 7) (fixture r1_randrange_die), random.choice([1, 2, 3, 4, 5, 6])
+  // (fixture r1_choice_for_die), or randint(0, 5) + 1. DIE_PATCH(v) makes each of them give the v-th smallest
+  // value it can, so all of those roll a v, while randint(0, 5) with no + 1 rolls v - 1 (wrong/adv_randint_0_5).
+  // Each probe patches in two values, not one: seed 0 rolls a 4, so a typed print(4) matched the one patched
+  // value (wrong/fixed_die), and one value is always matchable by typing it. The die's range must hold 6
+  // values: at seed 0, randint(1, 7) rolls a number from 1 to 6 too (wrong/r1_randint_1_7).
   ch8_r1: {
     output: [{ expr: py`(lambda r, it, lst: r is not None and lst is not None and any(1 <= i <= 6 for i in ints(r)) and sorted(ast.literal_eval(re.search(r'\[.*\]', lst).group())) == [1, 2, 3, 4, 5])(*${CH8_R1}(L))` }],
     concepts: [{ expr: py`calls('choice') >= 1`, hint: "Pick the item with random.choice(): give it the list and it picks one thing for you." }],
     probes: [
-      { expr: py`all(v in ints(${CH8_R1}(rerun(patches={'random.randint': lambda a, b, v=v: v})[0])[0] or '') for v in (2, 5))`, hint: "Roll the die with random.randint(1, 6) and print what it gives you." },
-      { expr: py`(lambda w: (rerun(patches={'random.randint': w[0]}), bool(w[1]) and all(c == (1, 6) for c in w[1]))[1])(rec('random.randint'))`, hint: "A die has 6 sides, so roll it with random.randint(1, 6): that gives a number from 1 to 6." },
-      { expr: py`all(v in (${CH8_R1}(rerun(patches={'random.choice': lambda s, v=v: v})[0])[1] or '') for v in ('potion', 'sword'))`, hint: "Pick the item with random.choice() and print what it gives you." },
+      { expr: py`all(v in ints(${CH8_R1}(rerun(patches=${DIE_PATCH}(v))[0])[0] or '') for v in (2, 5))`, hint: "Roll the die with random.randint(1, 6) and print what it gives you." },
+      { expr: py`(lambda a, b: (rerun(patches={'random.randint': a[0], 'random.randrange': b[0]}), all(len(c) != 2 or c[1] - c[0] == 5 for c in a[1]) and all(not (1 <= len(c) <= 3 and all(type(x) is int for x in c)) or len(range(*c)) == 6 for c in b[1]))[1])(rec('random.randint'), rec('random.randrange'))`, hint: "A die has 6 sides, so roll it with random.randint(1, 6): that gives a number from 1 to 6." },
+      { expr: py`all(v in (${CH8_R1}(rerun(patches={'random.choice': lambda s, v=v: v if any(isinstance(x, str) for x in s) else s[0]})[0])[1] or '') for v in ('potion', 'sword'))`, hint: "Pick the item with random.choice() and print what it gives you." },
       { expr: py`all(s in (${CH8_R1}(rerun(patches={'random.shuffle': f})[0])[2] or '') for f, s in ((lambda x: x.reverse(), '[5, 4, 3, 2, 1]'), (lambda x: x.append(x.pop(0)), '[2, 3, 4, 5, 1]')))`, hint: "Shuffle your list with random.shuffle(), then print the list itself." },
     ],
   },
-  // The startswith answer is read from the last line as a yes or a no, so "Yes, it starts with the" works
-  // as well as True (fixture adv_if_yes). The prototype wanted a True after the joined words.
+  // The startswith answer is read as a yes or a no from the last line that reads as one, so "Yes, it starts
+  // with the" works as well as True (fixture adv_if_yes), and a closing line such as "All done!" after it is
+  // fine (fixture r1_closing_line). The prototype wanted a True after the joined words, on the last line.
   // The re-run sentence has "the" later on, so "the" in clean, which is True for it, fails
   // (wrong/adv_in_not_startswith). The prototype's '  hello big world ' had no "the" at all.
   ch8_r2: {
-    output: [{ expr: py`has('6', 'the - quick - brown - fox - jumps - over') and polarity(L[-1]) == 1` }],
+    output: [{ expr: py`has('6', 'the - quick - brown - fox - jumps - over') and [p for p in map(polarity, L) if p][-1:] == [1]` }],
     probes: [
-      { expr: py`(lambda t: has('3', 'hello - the - world', L=t) and polarity(t[-1]) == -1)(rerun(${EVERY}('sentence', "'  hello the world '"))[0])`, hint: "Get each answer from sentence with strip(), split(), len(), join() and startswith(), so they'd change for a different sentence." },
+      { expr: py`(lambda t: has('3', 'hello - the - world', L=t) and [p for p in map(polarity, t) if p][-1:] == [-1])(rerun(${EVERY}('sentence', "'  hello the world '"))[0])`, hint: "Get each answer from sentence with strip(), split(), len(), join() and startswith(), so they'd change for a different sentence." },
     ],
   },
   // Changed from exactly 3 lines: a line before each test is fine (fixture adv_announce_each).
@@ -566,6 +707,11 @@ export const BATCH_B = {
     concepts: [
       { expr: py`count(ast.Try) >= 3`, hint: "Write three separate try/except blocks, one for each error." },
       { expr: py`{'ValueError', 'ZeroDivisionError', 'KeyError'} <= {h.type.id for h in ast.walk(TREE) if isinstance(h, ast.ExceptHandler) and isinstance(h.type, ast.Name)}`, hint: "Name the error in each except: ValueError, ZeroDivisionError and KeyError." },
+      // The message has to be printed inside each except, by print() or a function of the kid's: except
+      // blocks that only pass, next to messages printed after each try (wrong/r1_prints_outside_except) or
+      // inside it (wrong/r1_messages_in_try), print nothing when the error is caught. print(e) is fine
+      // (fixture r1_only_error_object).
+      { expr: py`all(any(isinstance(h.type, ast.Name) and h.type.id == e and any(isinstance(c, ast.Call) and getattr(c.func, 'id', '') in {'print'} | {f.name for f in fdef()} for st in h.body for c in ast.walk(st)) for h in ast.walk(TREE) if isinstance(h, ast.ExceptHandler)) for e in ('ValueError', 'ZeroDivisionError', 'KeyError'))`, hint: "Put a print() with a helpful message inside each except block, so it shows up when that error is caught." },
     ],
     probes: [
       // Each except block's message must show up, so the error really happened. Try blocks around int("5")
@@ -576,18 +722,20 @@ export const BATCH_B = {
       { expr: py`(lambda H: len(H) >= 3 and (lambda M: all(m is None or out.count(m) >= M.count(m) for m in M))([(lambda cs: max(cs, key=len) if cs else None)([p.strip().replace('️', '') for st in h.body for c in ast.walk(st) if isinstance(c, ast.Call) and getattr(c.func, 'id', '') == 'print' for s in ast.walk(c) if isinstance(s, ast.Constant) and isinstance(s.value, str) for p in re.split(r'\{[^{}]*\}|%\S', s.value) if p.strip()]) for h in H]))([h for h in ast.walk(TREE) if isinstance(h, ast.ExceptHandler) and isinstance(h.type, ast.Name) and h.type.id in ('ValueError', 'ZeroDivisionError', 'KeyError')])`, hint: "Each try should run the risky code from the task, like int(\"hello\"), so the error really happens and your except block prints its message." },
     ],
   },
-  // The last line only has to name Sam: "print the highest scorer" doesn't ask for the score
+  // The answer line only has to name Sam: "print the highest scorer" doesn't ask for the score
   // (fixture ALT_name_only). The prototype also wanted 92 on it. The records don't need a line each:
-  // print(records) prints them all (fixture ALT_print_records).
+  // print(records) prints them all (fixture ALT_print_records). The answer is the last line, or the last
+  // line that names just one of the four, so a closing line after it is fine (fixture r1_closing_line). The
+  // names are matched with their capitals, so "Max score" in an answer line doesn't name Max.
   ch8_r4: {
-    output: [{ expr: py`has('Alex', '85', 'Sam', '92', 'Jo', '78', 'Max', '88', L=L[:-1]) and 'Sam' in L[-1]` }],
+    output: [{ expr: py`any(has('Alex', '85', 'Sam', '92', 'Jo', '78', 'Max', '88', L=L[:i]) and 'Sam' in L[i] for i in {len(L) - 1, ${ANSWER_AT}(L, ['Alex', 'Sam', 'Jo', 'Max'])} - {None})` }],
     probes: [
       { expr: py`ns.get('records') == [{'name': 'Alex', 'score': 85}, {'name': 'Sam', 'score': 92}, {'name': 'Jo', 'score': 78}, {'name': 'Max', 'score': 88}]`, hint: "Store each record in records as a dictionary with a name and a score, and turn the score into a number with int()." },
       // Bob is first in the re-run data. The prototype's 'Ann,1\nBob,5' put him at index 1, where Sam
       // is in the task's data, so a typed records[1] passed (fixture wrong/typed_index). He isn't last
       // either: nobody beats 90 in it, so a program that prints only a score over 90 ends on the last
       // record's line (wrong/adv_threshold_90), which would name Bob if he were last.
-      { expr: py`'Bob' in rerun(${EVERY}('data', "'Bob,5\\nAnn,1\\nCy,2'"))[0][-1]`, hint: "Find the highest scorer by comparing the scores in records, so it would work for any data." },
+      { expr: py`(lambda T: any('Bob' in T[i] for i in {len(T) - 1, ${ANSWER_AT}(T, ['Bob', 'Ann', 'Cy'])} - {None}))(rerun(${EVERY}('data', "'Bob,5\\nAnn,1\\nCy,2'"))[0])`, hint: "Find the highest scorer by comparing the scores in records, so it would work for any data." },
     ],
   },
   // The prototype called val('add_item')(inv, ...), which runs the kid's function outside the hidden-run
@@ -626,11 +774,13 @@ export const BATCH_B = {
     concepts: [{ expr: py`any(isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'sorted' and any(k.arg == 'key' and isinstance(k.value, ast.Lambda) for k in n.keywords) for n in ast.walk(TREE))`, hint: "For the length sort, use sorted() with key= and a lambda, as the task asks." }],
     probes: [
       { expr: py`getattr(ns.get('double'), '__name__', '') == '<lambda>' and val('double(7)') == 14`, hint: "Make double with lambda (not def), so that double(7) gives back 14." },
-      // print(double) prints "<function <lambda> at 0x...>", whose address has digits (wrong/adv_prints_function).
-      { expr: py`any(re.search(r'-?\d', l) and '<function' not in l for l in L[:max(1, len(L) - 2)])`, hint: "Test your lambda: print what double gives back for a number, like print(double(5)), before the sorted lists." },
+      // The test is on a line that doesn't name a fruit, before or after the sorted lists (fixture
+      // r1_test_after_sorts). print(double) prints "<function <lambda> at 0x...>", whose address has digits
+      // (wrong/adv_prints_function).
+      { expr: py`any(re.search(r'-?\d', l) and '<function' not in l for l in L if not re.search(r'apple|banana|cherry', l))`, hint: "Test your lambda: print what double gives back for a number, like print(double(5))." },
       // With a different double, the test line must change, so a typed print(10) fails (wrong/typed_double_test).
       // The + 1 changes double(0) too.
-      { expr: py`L[:max(1, len(L) - 2)] != (lambda t: t[:max(1, len(t) - 2)])(rerun({'double': 'lambda x: x * 2 + 1'})[0])`, hint: "Print what double gives back, like print(double(5)), instead of typing the answer." },
+      { expr: py`(lambda T: T(L) != T(rerun({'double': 'lambda x: x * 2 + 1'})[0]))(lambda t: [l for l in t if not re.search(r'apple|banana|cherry', l)])`, hint: "Print what double gives back, like print(double(5)), instead of typing the answer." },
       // A re-run with words that have no ties, so sorting alphabetically and by length give different lists:
       // key=lambda w: w passed the main run (wrong/adv_key_identity), and so did typed lists next to a sorted()
       // call whose answer was thrown away (wrong/adv_typed_lists).
@@ -670,6 +820,9 @@ export const BATCH_B = {
       // With the secret 13 every guess is used, so check_guess must run 4 times: a game loop that compares
       // the guesses itself, leaving check_guess unused, passed without this (wrong/adv_check_guess_unused).
       { expr: py`rerun(patches={'random.randint': seq([13, 1, 1, 1])})[1].trace.count('check_guess') >= 4`, hint: "Use check_guess in your game loop: call it for each guess, and use what it gives back to print the result." },
+      // Calling check_guess on a line by itself and printing results from the loop's own comparisons passed
+      // the count above (wrong/r1_check_guess_ignored).
+      { expr: py`${USES_ANSWER}('check_guess', 5, 3)`, hint: "Use what check_guess gives back: store it, like result = check_guess(guess, secret), and print the result from it." },
       { expr: py`${RESULTS}(rerun(patches={'random.randint': seq([13, 1, 1, 1])})[0])[:4] == ['low', 'high', 'low', 'correct']`, hint: "Pick the secret once with random.randint(1, 20), before the loop, then check every guess against it with check_guess and print each result." },
       { expr: py`(lambda V, s7, s13: V(s7[0])[:3] == ['high', 'high', 'correct'] and (s7[1].trace.count('check_guess') < s13[1].trace.count('check_guess') or not {'high', 'low'} & set(V(s7[0])[3:])))(${RESULTS}, rerun(patches={'random.randint': seq([7, 1, 1, 1])}), rerun(patches={'random.randint': seq([13, 1, 1, 1])}))`, hint: "Stop the game loop with break once a guess is correct." },
       { expr: py`(lambda r7: any(isinstance(d, dict) and isinstance(r7.ns.get(k), dict) and (any(d.get(j) == 4 and r7.ns[k].get(j) == 3 for j in d) or len(d) == 4 and len(r7.ns[k]) == 3) for k, d in ns.items() if not k.startswith('__')))(rerun(patches={'random.randint': seq([7, 1, 1, 1])})[1])`, hint: "Keep track of the attempts in a dictionary, like stats = {\"attempts\": 0}, and add 1 to it for each guess." },
@@ -678,10 +831,11 @@ export const BATCH_B = {
   // len(L) >= 2, not == 2: a safe_divide that prints its own warning and returns None prints 3 lines
   // (fixture ALT_prints_message). The task doesn't say what to give back for b = 0, so returning 0 is
   // fine (fixture ALT_return_zero; the prototype wanted a message), and 10 / 3 can print rounded
-  // (fixture ALT_rounded). The probes check the function itself. The 10 / 3 answer can be on any line before
-  // the last, after a title line say (fixture adv_header); the prototype wanted it first.
+  // (fixture ALT_rounded). The probes check the function itself. The 10 / 3 answer can be on any line,
+  // after a title line say (fixture adv_header), and the (10, 0) test can come first (fixture
+  // r1_zero_test_first); the prototype wanted the 10 / 3 answer first.
   grind_14: {
-    output: [{ expr: py`len(L) >= 2 and nums_approx([10/3], tol=0.05, L=L[:-1])` }],
+    output: [{ expr: py`len(L) >= 2 and nums_approx([10/3], tol=0.05)` }],
     concepts: [{ expr: py`count(ast.Try) >= 1`, hint: "Use try: and except: inside safe_divide to catch the divide-by-zero error." }],
     probes: [
       { expr: py`val('safe_divide(10, 4)') == 2.5`, hint: "safe_divide should return a / b when b isn't zero." },
@@ -690,22 +844,27 @@ export const BATCH_B = {
       // (wrong/adv_typed_first), and so did answers stored and never used (wrong/adv_stored_typed_prints,
       // adv_tuple_stored_typed). A safe_divide that prints its own warning for b = 0 can be called on a line
       // by itself (USES_ANSWER).
-      { expr: py`trace.count('safe_divide') >= 2 and ${USES_ANSWER}('safe_divide', 1, 0)`, hint: "Test your function: print what safe_divide(10, 3) and safe_divide(10, 0) give back." },
+      { expr: py`trace.count('safe_divide') >= 2 and ${USES_ANSWER}('safe_divide', 1, 0, loose=True)`, hint: "Test your function: print what safe_divide(10, 3) and safe_divide(10, 0) give back." },
+      // Two tests without a zero, such as (10, 3) and (10, 2), passed the count above (wrong/r1_no_zero_test).
+      // One safe_divide call has to have a typed 0 for b. A b worked out in the program, such as a loop's
+      // variable, can't be read, so then a typed 0 anywhere outside safe_divide will do (fixture r1_loop_pairs).
+      { expr: py`(lambda X, inside: any(isinstance(x, ast.Constant) and x.value == 0 for x in X) or (any(not isinstance(x, ast.Constant) for x in X) and any(isinstance(n, ast.Constant) and type(n.value) in (int, float) and n.value == 0 and id(n) not in inside for n in ast.walk(TREE))))([x for c in ast.walk(TREE) if isinstance(c, ast.Call) and getattr(c.func, 'id', '') == 'safe_divide' for x in c.args[1:2] + [k.value for k in c.keywords]], {id(m) for f in fdef('safe_divide') for m in ast.walk(f)})`, hint: "The task says to test with (10, 0) too: call safe_divide(10, 0) and print what it gives back." },
     ],
   },
-  // The rolls are the lines before the last one that hold 2 or more numbers, not simply the first 10 lines,
-  // so an extra "Doubles!" line after a roll is fine (fixture ALT_doubles_line; seed 0 rolls doubles first).
-  // A roll's dice are its last 2 numbers once DICE drops labels, so "Die 1: 3, Die 2: 5" is a 3 and a 5
-  // (fixture ALT_die_labels). The count is the last number on the last line once DOUBLES drops a total or
-  // a share, as in "Doubles: 2 out of 10".
+  // The rolls are the lines before the summary that hold 2 or more numbers, not simply the first 10 lines,
+  // so an extra "Doubles!" line after a roll is fine (fixture ALT_doubles_line; seed 0 rolls doubles first),
+  // and so is a heading (fixtures r1_header_comma, r1_header_no_comma) or a closing line (fixture
+  // r1_closing_line): see ROLLS. A roll's dice are its last 2 numbers once DICE drops labels, so
+  // "Die 1: 3, Die 2: 5" is a 3 and a 5 (fixture ALT_die_labels). The count is the last number on the summary
+  // line once DOUBLES drops a total or a share, as in "Doubles: 2 out of 10".
   grind_15: {
     output: [
-      { expr: py`(lambda D: (lambda r: len(r) == 10 and all(1 <= d <= 6 for l in r for d in D(l)[-2:]))([l for l in L[:-1] if len(D(l)) >= 2]))(${DICE})` },
-      { expr: py`(lambda D: ${DOUBLES}(L[-1])[-1:] == [sum(1 for l in L[:-1] if len(D(l)) >= 2 and D(l)[-2] == D(l)[-1])])(${DICE})` },
+      { expr: py`(lambda s, r: s is not None and len(r) == 10 and all(1 <= d <= 6 for l in r for d in ${DICE}(l)[-2:]))(*${ROLLS}(L))` },
+      { expr: py`(lambda s, r: s is not None and ${DOUBLES}(s)[-1:] == [sum(1 for l in r if ${DICE}(l)[-2] == ${DICE}(l)[-1])])(*${ROLLS}(L))` },
     ],
     probes: [
-      { expr: py`${DOUBLES}(rerun(patches={'random.randint': lambda a, b: 3})[0][-1])[-1:] == [10]`, hint: "Roll both dice with random.randint inside your loop, and add 1 to your count every time they match." },
-      { expr: py`${DOUBLES}(rerun(patches={'random.randint': seq([1, 2])})[0][-1])[-1:] == [0]`, hint: "Only count a roll as doubles when both dice show the same number." },
+      { expr: py`${DOUBLES}(${ROLLS}(rerun(patches={'random.randint': lambda a, b: 3})[0])[0] or '')[-1:] == [10]`, hint: "Roll both dice with random.randint inside your loop, and add 1 to your count every time they match." },
+      { expr: py`${DOUBLES}(${ROLLS}(rerun(patches={'random.randint': seq([1, 2])})[0])[0] or '')[-1:] == [0]`, hint: "Only count a roll as doubles when both dice show the same number." },
     ],
   },
 };
