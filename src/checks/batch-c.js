@@ -15,7 +15,24 @@ const CH12_S3_COLOURS = py`(lambda t, want: any((lambda P: all({c for n, c in P 
 // order, with X not straight after them. X is the next run in the ranking, which fits only if the limit is ignored.
 // Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on lines saying a run was skipped don't
 // count ('❌ Run4 doesn't fit'), so a program may still list all 4 runs, ranked, before or after the ones it picks.
-const G23_PICKS = py`(lambda t, P, X, tot: has(tot, L=t) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|over|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))`;
+// 'over' says a run was skipped ('over by 26s', 'goes over 75s', 'over the limit'), except between points and a
+// number, so a pick shown as 'Run1: 120 points over 28s' still counts (points_over_seconds).
+const G23_PICKS = py`(lambda t, P, X, tot: has(tot, L=t) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|(?<!points )(?<!pts )over|over(?!\s*\d)|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))`;
+
+// ch11_r5, ch11_boss: what is wrong with the turn by b degrees after the drive of a mm: 'direction' if it names the
+// other side, 'sign' if it names none and its angle's sign is the other way, else ''. Its angle line is the first
+// line holding b after the drive's line, the first holding a. The lines without numbers between them count too, so
+// a side printed above the angle is read ('Turning left' then 'Gyro target: 90°', two_line_turn), but not a line
+// with a number, which is another move or a motor's ('L: 400  R: 400').
+// Words name a side: left and right, and clockwise (right) and counterclockwise or anticlockwise (left), so a turn
+// 'clockwise' both times fails (clockwise_both). Without a word, a lone L or R or an arrow (← ⬅ ↩ ↰ ↲ ↺ ⟲ ↶ for
+// left, → ➡ ↪ ↱ ↳ ↻ ⟳ ↷ for right) names one, read only on lines saying they turn (turn, rotate, spin, pivot, °
+// or deg) when the angle line does, so 'Turn L 45°' then 'Turn R 90°' fails as the words would (letters_swapped).
+// A signed angle, +45 or -90, outweighs the side named, which may be a bullet ('➡️ Turning -90°',
+// arrow_bullet_signed), as the left turn's -90 already outweighed 'right'. A turn naming no side with a word is
+// read by its angle's sign, as turn() takes it: right is positive and left negative. So the right turn mustn't show
+// -45, and the left one must show -90 unless a letter or an arrow names the left side alone ('Turn L 90°').
+const CH11_TURN = py`(lambda a, b, left: (lambda N, T: (lambda i: (lambda w: (lambda e, v: (lambda s, u, t: (lambda wl, wr, neg, pos: (lambda side: 'direction' if ((side == {'R'} and not neg) if left else (side == {'L'} and not pos)) else ('sign' if not (wl or wr) and t and ((not neg and side != {'L'}) if left else bool(neg)) else ''))((({'L'} if wl else set()) | ({'R'} if wr else set())) if wl or wr else ((({'L'} if re.search(r'(?i)(?<![a-z])l(?![a-z])|[←⬅↩↰↲↺⟲↶]', u) else set()) | ({'R'} if re.search(r'(?i)(?<![a-z])r(?![a-z])|[→➡↪↱↳↻⟳↷]', u) else set())) if t else set())))(re.search(r'(?i)left|counter[\s-]?clockwise|anti[\s-]?clockwise|\bccw\b', s), re.search(r'(?i)right|(?<![a-z-])clockwise|\bcw\b', s), re.search(r'-\s*%d' % b, e), re.search(r'\+\s*%d' % b, e)))('\n'.join(v), '\n'.join(l for l in v if T(l)), bool(T(e))))(w[-1] if w else '', [l for l in w[:-1] if not re.search(r'\d', l)] + w[-1:]))(next((L[i + 1:j + 1] for j in range(i + 1, len(L)) if b in N(L[j])), [])))(next((i for i, l in enumerate(L) if a in N(l)), len(L))))(lambda l: [abs(int(x)) for x in re.findall(r'-?\d+', l)], lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l)))`;
 
 export const BATCH_C = {
   // ---------- Chapter 9 ----------
@@ -735,20 +752,20 @@ export const BATCH_C = {
       { expr: py`has('Ready!') and any(l.endswith('Run complete!') and nums_abs([690, 45, 130, 90, 90, 240], L=L[:i]) for i, l in enumerate(L))`,
         hint: "Your run should print launch's 'Ready!' first, then the moves (690, 45 right, 130, 90 left, 90, arm -240), and end_run's 'Run complete!' after them." },
       // nums_abs ignores direction, so the left turn done as a right one and the grab at +240 passed
-      // (r1_turn_both_right, r1_arm_positive). The turn lines are the first line holding 45 after the 690 drive
-      // and the first holding 90 after the 130 drive; a turn line that names no direction is left to the next check.
+      // (r1_turn_both_right, r1_arm_positive). The turns are read by CH11_TURN: the right turn after the 690 drive
+      // and the left one after the 130 drive. A turn that names no side is left to the next check.
       // The 690 drive, the first line holding 690, mustn't say backward or show -690 (r2_backward_690), and the
       // grab, the first line showing -240, mustn't name the left arm alone (r2_left_arm_grab). The task names no
       // right_arm function here, so the arm is read from the output.
-      { expr: py`(lambda F: not re.search(r'(?i)left', F(690, 45)) or re.search(r'(?i)right', F(690, 45)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda F: not re.search(r'(?i)right', F(130, 90)) or re.search(r'(?i)left|-\s*90', F(130, 90)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
+      { expr: py`(lambda C: C(690, 45, False) != 'direction' and C(130, 90, True) != 'direction')(${CH11_TURN}) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, and grab with the right arm at -240°." },
-      // A turn line naming no direction, such as 'Turning -45°', is read by its sign, as turn() takes it: right is
-      // positive and left negative, so turns done the other way round fail (m_wt2_turns_swapped). Only lines that
-      // say they turn (turn, rotate, spin, pivot, ° or deg) are read this way: when a turn shares a line with the
-      // drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn. A line
-      // naming its direction with a letter or an arrow, 'Turn R 45°' or 'Turn 90° ←', names one, so its angle
-      // needn't have a sign (turn_letter_rl, turn_arrow).
-      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b|(?<![a-z])[lr](?![a-z])|[←→⬅➡↺↻⟲⟳↶↷]', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+      // A turn naming no side with a word, such as 'Turning -45°', is read by its sign, as turn() takes it: right is
+      // positive and left negative, so turns done the other way round fail (m_wt2_turns_swapped). Only angle lines
+      // that say they turn (turn, rotate, spin, pivot, ° or deg) are read this way: when a turn shares a line with
+      // the drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn. A
+      // turn naming its side with a letter or an arrow alone, 'Turn L 90°', '↩️ Turn 90°' or 'Turn 90° ←', needn't
+      // show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow). See CH11_TURN.
+      { expr: py`(lambda C: C(690, 45, False) != 'sign' and C(130, 90, True) != 'sign')(${CH11_TURN})`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -826,11 +843,11 @@ export const BATCH_C = {
       // (r1_turn_right_twice, r1_backward_forward).
       // As in ch11_r5, the 690 drive mustn't be backward (r2_first_drive_backward), and the grab, the first line
       // showing -240, mustn't name the left arm alone (r2_left_arm_and_right).
-      { expr: py`(lambda F: (not re.search(r'(?i)left', F(690, 45)) or re.search(r'(?i)right', F(690, 45))) and (not re.search(r'(?i)right', F(130, 90)) or re.search(r'(?i)left|-\s*90', F(130, 90))) and (not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
+      { expr: py`(lambda C: C(690, 45, False) != 'direction' and C(130, 90, True) != 'direction')(${CH11_TURN}) and (lambda F: not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, grab with the right arm at -240°, and drive backward 350mm at the end." },
-      // As in ch11_r5: turn lines naming no direction, not even with a letter or an arrow, are read by their sign
-      // (m_d_turns_swapped, turn_letter_rl, turn_arrow).
-      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b|(?<![a-z])[lr](?![a-z])|[←→⬅➡↺↻⟲⟳↶↷]', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+      // As in ch11_r5: a turn naming no side with a word is read by its sign (m_d_turns_swapped), and one naming it
+      // with a letter or an arrow alone needn't show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow).
+      { expr: py`(lambda C: C(690, 45, False) != 'sign' and C(130, 90, True) != 'sign')(${CH11_TURN})`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -1067,8 +1084,11 @@ export const BATCH_C = {
       // calibrate(80, 20) is 50, which half the difference (30) gets wrong.
       { expr: py`val('average([1, 2, 3])') == 2 and val('average([1, 2])') == 1.5 and ((val('calibrate([10, 10], [0, 0])') == 5 and val('calibrate([10, 10, 10], [0])') == 5) or (val('calibrate(10, 5)') == 7.5 and val('calibrate(80, 20)') == 50))`,
         hint: "average should return the mean of the list, and calibrate should return the midpoint between the white and black averages." },
-      // Read as in the output check. The threshold is 40 here, so 45 is white.
-      { expr: py`${CH12_S3_COLOURS}(rerun({'white_samples': '[60, 60]', 'black_samples': '[20, 20]'})[0], [(20, 'black'), (45, 'white'), (8, 'black'), (60, 'white')])`,
+      // Read as in the output check. The threshold is 40 here, so 45 is white. None of the samples (66 and 14), nor
+      // their averages, sums or difference, is a reading, so a line showing them next to both colour words gives no
+      // reading a colour. Samples of 60 and 20 did, which rejected 'White: [60, 60] Black: [20, 20]' on one line, and
+      // both averages on one line (samples_one_line, avgs_one_line_rounded, avgs_one_line_f0).
+      { expr: py`${CH12_S3_COLOURS}(rerun({'white_samples': '[66, 66]', 'black_samples': '[14, 14]'})[0], [(20, 'black'), (45, 'white'), (8, 'black'), (60, 'white')])`,
         hint: "Work the threshold out from the samples: when I changed them, the readings should be judged with the new threshold." },
     ],
   },
