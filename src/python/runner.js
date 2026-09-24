@@ -6,6 +6,7 @@ export const GRADE_TIME_LIMIT_MS = 8_000;   // a whole grading pass; each hidden
 const STOP_GRACE_MS = 1_000;               // if an interrupt is swallowed, restart the worker
 
 let worker = null, ready = null, status = "idle", interrupt = null, inputBox = null, active = null, nextId = 1;
+let queue = Promise.resolve(), newest = null;   // see takeTurn()
 const listeners = new Set();
 const setStatus = s => { status = s; listeners.forEach(f => f(s)); };
 
@@ -51,57 +52,83 @@ export function warmUp() {
 
 const newId = () => `${nextId++}-${Math.random().toString(36).slice(2)}`;
 
-// Runs code for the kid to see.
+// One call at a time. A new call first stops the newest one, running or still waiting, because its
+// room may have been left (say, at an input() prompt). It then waits until the worker is free, so the
+// old call's timers can't interrupt or restart the worker under it. Returns the release function.
+async function takeTurn(call) {
+  newest?.stop("stop");
+  newest = call;
+  const turn = queue;
+  let free;
+  queue = new Promise(resolve => { free = resolve; });
+  await turn;
+  return () => { if (newest === call) newest = null; free(); };
+}
+
+// Runs code for the kid to see. The time limit pauses while input() waits for the kid.
 // Resolves to { ok, kind, msg, line, text, capped, stdout, inputs, stopped, timedOut }.
 export async function runCode(code, { onOutput = () => {}, onInputRequest = () => {} } = {}) {
-  await warmUp();
   const id = newId(), inputs = [];
-  let stdout = "";
-  return new Promise(resolve => {
-    let stopReason = null, grace = null;
-    const limit = setTimeout(() => stop("timeout"), RUN_TIME_LIMIT_MS);
-    function finish(res) {
-      clearTimeout(limit); clearTimeout(grace); active = null;
-      resolve({ ...res, stdout, inputs, stopped: stopReason === "stop", timedOut: stopReason === "timeout" });
-    }
-    function stop(reason) {
-      if (stopReason) return;
-      stopReason = reason;
-      Atomics.store(interrupt, 0, 2);
-      cancelInput(inputBox);
-      grace = setTimeout(() => { restart(); finish({ ok: false, kind: "Stopped", restarted: true }); }, STOP_GRACE_MS);
-    }
-    active = {
-      id, stop,
-      answer(text) { inputs.push(text); stdout += text + "\n"; onOutput(text + "\n", "input"); sendAnswer(inputBox, text); },
-      onMessage(m) {
-        if (m.id !== id) return;
-        if (m.type === "stdout") { stdout += m.text; onOutput(m.text, "stdout"); }
-        else if (m.type === "input") onInputRequest();
-        else if (m.type === "result") finish(m);
-      },
-    };
-    resetInput(inputBox);   // drop a Stop or answer left from the last run; the worker is idle now
-    worker.postMessage({ type: "run", id, code });
-  });
+  let stdout = "", stopReason = null, interruptRun = () => {};
+  const stop = reason => { if (!stopReason) { stopReason = reason; interruptRun(); } };
+  // Once stopped, a run counts as Stopped even if it finished anyway, so its room won't go on to grade it.
+  const settle = res => ({ ...res, ...(stopReason ? { ok: false, kind: "Stopped" } : {}), stdout, inputs,
+    stopped: stopReason === "stop", timedOut: stopReason === "timeout" });
+  const release = await takeTurn({ stop });
+  try {
+    await warmUp();
+    if (stopReason) return settle({});   // stopped while it waited for its turn or for Python to load
+    return await new Promise(resolve => {
+      let limit = null, grace = null;
+      const startClock = () => { clearTimeout(limit); limit = setTimeout(() => stop("timeout"), RUN_TIME_LIMIT_MS); };
+      function finish(res) { clearTimeout(limit); clearTimeout(grace); active = null; resolve(settle(res)); }
+      interruptRun = () => {
+        Atomics.store(interrupt, 0, 2);
+        cancelInput(inputBox);
+        grace = setTimeout(() => { restart(); finish({ restarted: true }); }, STOP_GRACE_MS);
+      };
+      active = {
+        id,
+        answer(text) { inputs.push(text); stdout += text + "\n"; onOutput(text + "\n", "input"); sendAnswer(inputBox, text); startClock(); },
+        onMessage(m) {
+          if (m.id !== id) return;
+          if (m.type === "stdout") { stdout += m.text; onOutput(m.text, "stdout"); }
+          else if (m.type === "input") { clearTimeout(limit); onInputRequest(); }   // the kid's thinking time doesn't count
+          else if (m.type === "result") finish(m);
+        },
+      };
+      startClock();
+      resetInput(inputBox);   // drop a Stop or answer left from the last run; the worker is idle now
+      worker.postMessage({ type: "run", id, code });
+    });
+  } finally { release(); }
 }
-export const stopCode = () => active?.stop?.("stop");
+export const stopCode = () => newest?.stop("stop");
 export const answerInput = text => active?.answer?.(text);
 
-// Hidden grading pass. Resolves to { passed, feedback, failures, timedOut? }.
+// Hidden grading pass. Resolves to { passed, feedback, failures, timedOut?, stopped? }.
 export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1 }) {
-  await warmUp();
   const id = newId();
-  return new Promise(resolve => {
-    let grace = null;
-    const limit = setTimeout(() => {
-      Atomics.store(interrupt, 0, 2);
-      grace = setTimeout(() => { restart(); resolve({ passed: false, timedOut: true,
-        feedback: "Checking your program took too long. Look for a loop that never stops." }); }, STOP_GRACE_MS);
-    }, GRADE_TIME_LIMIT_MS);
-    active = { id, onMessage(m) {
-      if (m.id === id && m.type === "graded") { clearTimeout(limit); clearTimeout(grace); active = null; resolve(m); }
-    } };
-    worker.postMessage({ type: "grade", id, code, rule, starter, inputs, attempt });
-  });
+  let stopReason = null, interruptGrade = () => {};
+  const stop = reason => { if (!stopReason) { stopReason = reason; interruptGrade(); } };
+  // Once stopped, a pass says so: grading treats the interrupt as the kid's error, so its own feedback would mislead.
+  const stopped = () => stopReason === "timeout"
+    ? { passed: false, timedOut: true, feedback: "Checking your program took too long. Look for a loop that never stops." }
+    : { passed: false, stopped: true, feedback: "Checking stopped before it finished. Press Run to try again." };
+  const release = await takeTurn({ stop });
+  try {
+    await warmUp();
+    if (stopReason) return stopped();
+    return await new Promise(resolve => {
+      let grace = null;
+      const limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);
+      function finish(res) { clearTimeout(limit); clearTimeout(grace); active = null; resolve(res); }
+      interruptGrade = () => {
+        Atomics.store(interrupt, 0, 2);
+        grace = setTimeout(() => { restart(); finish(stopped()); }, STOP_GRACE_MS);
+      };
+      active = { id, onMessage(m) { if (m.id === id && m.type === "graded") finish(stopReason ? stopped() : m); } };
+      worker.postMessage({ type: "grade", id, code, rule, starter, inputs, attempt });
+    });
+  } finally { release(); }
 }
