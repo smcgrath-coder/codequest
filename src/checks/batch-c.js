@@ -2,6 +2,21 @@
 // Each expr is Python, written with String.raw so its backslashes reach Python as typed.
 const py = String.raw;
 
+// ch12_s3: whether lines t show each (reading, colour) pair of want, with that colour and not the other one. Read
+// one way, each reading goes with the first colour after it on its line ('20 -> black'); read the other way, with
+// the last colour before it ('black: 20', 'Black readings: [20, 45, 8]'), so a list of pairs and readings grouped
+// by colour count too, in any order. A reading on a line with no colour, such as the list of readings, goes with
+// none. "black or white" names no colour, so a header such as 'Testing [20, 45, 8, 60]: black or white?' isn't
+// read as the readings' colour. An earlier rule only asked that the pairs were among those shown, which passed a
+// reading shown under both colours (both_groups, all_white_group, no_else).
+const CH12_S3_COLOURS = py`(lambda t, want: any((lambda P: all({c for n, c in P if n == r and c} == {col} for r, col in want))([(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', re.sub(r'(?i)\b(?:black|white)\s*(?:or|and|/|vs\.?|&)\s*(?:black|white)\b', ' ', l))] for l in t] for j in range(len(tk)) if tk[j][0]]) for m in (True, False)))`;
+
+// grind_23: whether lines t show the runs picked in a rerun: the total points tot, or the names P in a row, in that
+// order, with X not straight after them. X is the next run in the ranking, which fits only if the limit is ignored.
+// Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on lines saying a run was skipped don't
+// count ('❌ Run4 doesn't fit'), so a program may still list all 4 runs, ranked, before or after the ones it picks.
+const G23_PICKS = py`(lambda t, P, X, tot: has(tot, L=t) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|over|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))`;
+
 export const BATCH_C = {
   // ---------- Chapter 9 ----------
   ch9_r1: {
@@ -576,13 +591,12 @@ export const BATCH_C = {
     probes: [
       { expr: py`val("buy(items, 'Sword', 40)") == -1 and val("buy(items, 'Potion', 10)") == 0 and val("buy(items, 'Shield', 100)") == 70`,
         hint: "buy(items, name, gold) should return the gold left after paying, or -1 if the item costs more than the gold." },
-      // With 100 gold every purchase works, so player_gold = buy(...) with no -1 check passed (r2_assign_minus1).
-      // With 55, the Potion and the Shield can't be bought: the balance stays 5 and is never -1. Two checks, so a
-      // program that never prints the balance isn't told it became -1 (r3_prints_price).
+      // With 55 gold, the Sword leaves 5, which the balance must show (r3_prints_price). The Potion and the Shield
+      // can't be bought then, but the task never says what the balance should be when buy returns -1, and with its
+      // 100 gold that never happens, so player_gold = buy(...) with no -1 check is fine (r2_assign_minus1): an
+      // earlier rule rejected any -1 printed here.
       { expr: py`nums([5], L=rerun({'player_gold': '55'})[0])`,
         hint: "When I started with 55 gold, your program never showed the 5 gold left after the Sword: print the balance after each purchase." },
-      { expr: py`not any(re.search(r'(?<![\d.])-1(?!\d)', l) for l in rerun({'player_gold': '55'})[0])`,
-        hint: "When I started with 55 gold, your balance became -1: when buy returns -1, keep the gold you had instead." },
     ],
   },
   // The task asks only for each attack and the HP left, and to stop at 0 HP, so a winner line isn't required:
@@ -731,8 +745,10 @@ export const BATCH_C = {
       // A turn line naming no direction, such as 'Turning -45°', is read by its sign, as turn() takes it: right is
       // positive and left negative, so turns done the other way round fail (m_wt2_turns_swapped). Only lines that
       // say they turn (turn, rotate, spin, pivot, ° or deg) are read this way: when a turn shares a line with the
-      // drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn.
-      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+      // drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn. A line
+      // naming its direction with a letter or an arrow, 'Turn R 45°' or 'Turn 90° ←', names one, so its angle
+      // needn't have a sign (turn_letter_rl, turn_arrow).
+      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b|(?<![a-z])[lr](?![a-z])|[←→⬅➡↺↻⟲⟳↶↷]', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -812,8 +828,9 @@ export const BATCH_C = {
       // showing -240, mustn't name the left arm alone (r2_left_arm_and_right).
       { expr: py`(lambda F: (not re.search(r'(?i)left', F(690, 45)) or re.search(r'(?i)right', F(690, 45))) and (not re.search(r'(?i)right', F(130, 90)) or re.search(r'(?i)left|-\s*90', F(130, 90))) and (not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, grab with the right arm at -240°, and drive backward 350mm at the end." },
-      // As in ch11_r5: turn lines naming no direction are read by their sign (m_d_turns_swapped).
-      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
+      // As in ch11_r5: turn lines naming no direction, not even with a letter or an arrow, are read by their sign
+      // (m_d_turns_swapped, turn_letter_rl, turn_arrow).
+      { expr: py`(lambda F, D, T: (D(F(690, 45)) or not T(F(690, 45)) or not re.search(r'-\s*45', F(690, 45))) and (D(F(130, 90)) or not T(F(130, 90)) or bool(re.search(r'-\s*90', F(130, 90)))))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), ''), lambda l: re.search(r'(?i)left|right|clockwise|\bc?cw\b|(?<![a-z])[lr](?![a-z])|[←→⬅➡↺↻⟲⟳↶↷]', l), lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -937,10 +954,15 @@ export const BATCH_C = {
       // Phase 1 must print 2 more Driving lines than the baseline, and phase 2 must turn right before aligning.
       { expr: py`(lambda D, A: D(rerun({'approach': '[(80, 80), (22, 80), (10, 90), (80, 80)]', 'alignment': '[(10, 10)]'})[0]) - D(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 10)]'})[0]) == 2 and (lambda a, b: any(b[p] == 'aligned' and a == b[:p] + ['turn_right', 'aligned'] + b[p + 1:] for p in range(len(b))))(A(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 22), (5, 5), (90, 10)]'})[0]), A(rerun({'approach': '[(10, 10)]', 'alignment': '[(10, 10)]'})[0])))(lambda t: len([l for l in t if 'driving' in l.lower()]), lambda t: [w.lower().replace(' ', '_') for w in re.findall(r'(?i)turn[ _]right|turn[ _]left|aligned|drive[ _]forward', '\n'.join(t))])`,
         hint: "A reading of exactly 22 is still white: only a reading below 22 means a sensor is on the line, in both phases." },
-      // Alignment data that never gets both sensors on the line: every test above ends aligned, so a 'Squared on
-      // line!' printed after the loop whatever happened passed (r2_squared_always).
-      { expr: py`not any('Squared on line' in l for l in rerun({'alignment': '[(18, 55), (18, 40)]'})[0])`,
-        hint: "Print '✅ Squared on line!' only once both sensors really are on the line." },
+      // 'Squared on line!' comes after phase 2's turns: in the first run, and in a rerun that turns right, then
+      // left, then lines up, the first 'Squared on line!' line must come after those turns, and the rerun mustn't
+      // stop with an error. So one printed before phase 2, or after each reading, fails (squared_before_phase2,
+      // squared_every_reading), and one printed just before 'aligned' is fine (squared_then_aligned). An earlier
+      // probe used data that never lines up and wanted no 'Squared on line!', but the task's data always does, so
+      // a 'Squared on line!' printed after the loop is fine (r2_squared_always, m_ct1_for_break), and a while loop
+      // that read past the end of that data stopped with an error, printed nothing, and so passed (m_ct2_while_hint).
+      { expr: py`(lambda A: (lambda P: P(L, ['turn_right'] * 3) and (lambda t, r: r.error is None and P(t, ['turn_right', 'turn_left']))(*rerun({'alignment': '[(10, 90), (90, 10), (5, 5), (90, 10)]'})))(lambda t, w: (lambda k: k is not None and (lambda it: all(x in it for x in w))(iter(A(t[:k]))))(next((i for i, l in enumerate(t) if 'Squared on line' in l), None))))(lambda t: [w.lower().replace(' ', '_') for w in re.findall(r'(?i)turn[ _]right|turn[ _]left|aligned|drive[ _]forward', '\n'.join(t))])`,
+        hint: "Print '✅ Squared on line!' after phase 2's turns, once both sensors are on the line." },
     ],
   },
   // The menu may also be shown once before the first press, as a real menu would ('=== Program 1 ===' first):
@@ -1029,13 +1051,11 @@ export const BATCH_C = {
       // Within 0.5, so values rounded to whole numbers count: the task sets no precision, and a threshold printed
       // as round(threshold) = 46 was rejected (r1_round_int).
       { expr: py`nums_approx([80, 12.4, 46.2], tol=0.5)`, hint: "Print the white average, the black average and the threshold halfway between them." },
-      // The reading and its colour in either order: the task sets no format, and the prototype wanted the reading
-      // first, which rejected 'black: 20' (r2_color_first). The readings needn't be on lines of their own either:
-      // all 4 may share a line, printed as a list of pairs (m_cu1_avgs_passed), or be grouped by colour ('Black
-      // readings: [20, 45, 8]', grouped_by_colour). So each reading also counts with the first colour after it on its
-      // line, or, read the other way, the last colour before it, in any order: a group lists its readings in the
-      // order they came, which isn't the task's once the threshold moves.
-      { expr: py`subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*black).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*']) or (lambda t, want: any(set(want) <= {(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', l)] for l in t] for j in range(len(tk)) if tk[j][0]} for m in (True, False)))(L, [(20, 'black'), (45, 'black'), (8, 'black'), (60, 'white')])`,
+      // The reading and its colour in either order and in any layout: the task sets no format. The prototype wanted
+      // the reading first, which rejected 'black: 20' (r2_color_first), and each reading on a line of its own,
+      // which rejected a list of pairs (m_cu1_avgs_passed) and readings grouped by colour (grouped_by_colour). See
+      // CH12_S3_COLOURS: a reading shown with both colours fails (both_groups, all_white_group).
+      { expr: py`${CH12_S3_COLOURS}(L, [(20, 'black'), (45, 'black'), (8, 'black'), (60, 'white')])`,
         hint: "Test each reading against your threshold and print whether it is black or white." },
     ],
     probes: [
@@ -1047,8 +1067,8 @@ export const BATCH_C = {
       // calibrate(80, 20) is 50, which half the difference (30) gets wrong.
       { expr: py`val('average([1, 2, 3])') == 2 and val('average([1, 2])') == 1.5 and ((val('calibrate([10, 10], [0, 0])') == 5 and val('calibrate([10, 10, 10], [0])') == 5) or (val('calibrate(10, 5)') == 7.5 and val('calibrate(80, 20)') == 50))`,
         hint: "average should return the mean of the list, and calibrate should return the midpoint between the white and black averages." },
-      // Read as in the output check.
-      { expr: py`(lambda t: subseq([r're:(?i)(?=.*\b20\b)(?=.*black).*', r're:(?i)(?=.*\b45\b)(?=.*white).*', r're:(?i)(?=.*\b8\b)(?=.*black).*', r're:(?i)(?=.*\b60\b)(?=.*white).*'], L=t) or (lambda t, want: any(set(want) <= {(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', l)] for l in t] for j in range(len(tk)) if tk[j][0]} for m in (True, False)))(t, [(20, 'black'), (45, 'white'), (8, 'black'), (60, 'white')]))(rerun({'white_samples': '[60, 60]', 'black_samples': '[20, 20]'})[0])`,
+      // Read as in the output check. The threshold is 40 here, so 45 is white.
+      { expr: py`${CH12_S3_COLOURS}(rerun({'white_samples': '[60, 60]', 'black_samples': '[20, 20]'})[0], [(20, 'black'), (45, 'white'), (8, 'black'), (60, 'white')])`,
         hint: "Work the threshold out from the samples: when I changed them, the readings should be judged with the new threshold." },
     ],
   },
@@ -1126,9 +1146,9 @@ export const BATCH_C = {
       hint: "Work everything out from the readings list, so the answers change when the readings do." }],
   },
   // content bug: all 4 runs fit in 150 s (136 s in total), so the time limit never matters with the task's data.
-  // The rule accepts all 4 runs, and the MATCH_TIME = 75 rerun tests the limit: greedy and best agree there, on
-  // Run1 and Run3 (280 points). The task asks only for the optimal order, so no total has to be printed: the
-  // prototype wanted 455 and, in the rerun, 280 (m_ct2_sorted_numbered).
+  // The rule accepts all 4 runs, and the MATCH_TIME = 75 and 110 reruns test the limit: greedy and best agree
+  // there, on Run1 and Run3 (280 points) and on Run1, Run3 and Run4 (375). The task asks only for the optimal
+  // order, so no total has to be printed: the prototype wanted 455 and, in the rerun, 280 (m_ct2_sorted_numbered).
   // The order is the 4 run names next to each other in the output, after repeats of a name in a row are
   // merged ("Run1 ... Run1 fits!"). The prototype took the last 4 names, so a closing "Most efficient run: Run1"
   // broke it (r1_best_run_after); a list in the given order printed before the sorted one is still fine.
@@ -1139,11 +1159,13 @@ export const BATCH_C = {
     ],
     probes: [
       // In the 75 s rerun the runs picked are Run1 then Run3, and Run4 mustn't follow them: it only fits if the
-      // limit is ignored (no_time_check). Names on lines saying a run was skipped don't count ('❌ Run4 doesn't
-      // fit'), so a program may still list all 4 runs, ranked, before or after the ones it picks. A 280 total
-      // passes too, as before.
-      { expr: py`(lambda t: has('280', L=t) or (lambda N: (lambda n: any(n[i:i + 2] == ['Run1', 'Run3'] and n[i + 2:i + 3] != ['Run4'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|over|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))(rerun({'MATCH_TIME': '75'})[0])`,
+      // limit is ignored (no_time_check). See G23_PICKS.
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '75'})[0], ['Run1', 'Run3'], 'Run4', '280')`,
         hint: "Only add a run if it still fits in MATCH_TIME, so a shorter match picks fewer runs." },
+      // In a 110 s match Run1, Run3 and Run4 fit (101 s, 375 points), so a program that always picks the top two
+      // fails (top_two_always): the 75 s rerun picks the top two, and without a total to check it passed.
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '110'})[0], ['Run1', 'Run3', 'Run4'], 'Run2', '375')`,
+        hint: "Decide each run by the time left in MATCH_TIME, not by a set number of runs, so every run that still fits gets picked." },
       // Runs whose points per second give another order (Run2, Run4, Run3, Run1), so an order typed in by hand
       // fails (r1_hard_order). All 4 still fit in 150 s.
       { expr: py`(lambda N: (lambda n: any(n[i:i + 4] == ['Run2', 'Run4', 'Run3', 'Run1'] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))(re.findall(r'\bRun[1-4]\b', '\n'.join(rerun({'runs': "[{'name': 'Run1', 'time': 28, 'points': 50}, {'name': 'Run2', 'time': 35, 'points': 200}, {'name': 'Run3', 'time': 42, 'points': 100}, {'name': 'Run4', 'time': 31, 'points': 95}]"})[0])))`,
