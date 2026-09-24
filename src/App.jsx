@@ -3,9 +3,12 @@ import * as Tone from "tone";
 import { Music, getTrackForContext } from "./music.js";
 import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
-import { CHAPTERS, TROPHIES, CODEX } from "./content.js";
+import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear } from "./progress.js";
-import { handleCodeKeyDown, CODE_TEXTAREA_PROPS } from "./editor.js";
+import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
+import { runAndGrade } from "./python/flow.js";
+import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
+import { CHECKS } from "./checks.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2276,6 +2279,7 @@ function MapBackground() {
 // ═══════════════════════════════════════════════════════════════════
 
 function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,timeRemaining,sessionActive}){
+  useEffect(()=>{warmUp().catch(()=>{})},[]);   // load Python in the background; a failure means the keyword grader
   const xp=profile.xp,cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const status=ch=>{
     if(ch.comingSoon)return "locked";if(xp<ch.requiredXp)return "locked";
@@ -2540,9 +2544,17 @@ function Codex({profile,onBack}){
 function GrindingZone({profile,onBack}){
   const [challenge,setChallenge]=useState(null);
   const [code,setCode]=useState("");
-  const [output,setOutput]=useState(null);
+  const [parts,setParts]=useState([]);
+  const [waiting,setWaiting]=useState(false);
+  const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
   const [attempts,setAttempts]=useState([]);
+  const [pyStatus,setPyStatus]=useState(pythonStatus);
+  useEffect(()=>{setPyStatus(pythonStatus());return onPythonStatus(setPyStatus)},[]);   // re-read: it may have changed since the first render
+  // Leaving a challenge mid-run stops the program (it may be waiting at input()) and drops its late output and result.
+  const runSeq=useRef(0);
+  const dropRun=()=>{runSeq.current++;stopCode();setIsRunning(false);setWaiting(false);setParts([]);setResult(null)};
+  useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
 
   // Challenges unlock as the player reaches each chapter
   const available=availablePractice(profile.completedRooms);
@@ -2554,20 +2566,24 @@ function GrindingZone({profile,onBack}){
     const pool=cat?available.filter(g=>g.cat===cat):available;
     if(pool.length===0)return;
     const pick=pool[Math.floor(Math.random()*pool.length)];
-    setChallenge(pick);setCode(pick.starterCode);setOutput(null);setAttempts([]);
+    // Practice challenges have no id; their grading rules are keyed by their place in GRIND_CHALLENGES.
+    dropRun();setChallenge({...pick,id:`grind_${GRIND_CHALLENGES.indexOf(pick)}`});setCode(pick.starterCode);setAttempts([]);
   };
 
   const handleRun=async()=>{
     if(isRunning)return;
-    setIsRunning(true);setOutput(null);
+    const seq=++runSeq.current,live=()=>seq===runSeq.current;
+    setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
-      const result=validateOffline(code,challenge,attempts.length);
-      setOutput(result);
-      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-    }finally{setIsRunning(false)}
+      const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
+        fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
+        onOutput:(text,kind)=>{if(live())setParts(p=>appendPart(p,text,kind))},
+        onInputRequest:()=>{if(live())setWaiting(true)}});
+      if(!live())return;
+      setWaiting(false);setResult(r);
+      setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
+    }finally{if(live())setIsRunning(false)}
   };
-
-  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
 
   if(!challenge) return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="flex items-center gap-4 mb-6">
@@ -2603,7 +2619,7 @@ function GrindingZone({profile,onBack}){
     {/* Top bar */}
     <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
       <div className="flex items-center gap-3">
-        <Btn onClick={()=>setChallenge(null)} color={DIM}>← Back</Btn>
+        <Btn onClick={()=>{dropRun();setChallenge(null)}} color={DIM}>← Back</Btn>
         <div>
           <span className="text-sm font-bold" style={{color:"#e67e22"}}>{challenge.name}</span>
           <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#e67e2218",color:"#e67e22"}}>{challenge.cat}</span>
@@ -2622,19 +2638,17 @@ function GrindingZone({profile,onBack}){
       </div>
       {/* Code panel */}
       <div className="flex-1 flex flex-col p-4" style={{maxHeight:"calc(100vh - 56px)"}}>
-        <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
-          {...CODE_TEXTAREA_PROPS} className="flex-1 p-4 rounded-lg text-sm resize-none outline-none mb-3"
-          style={{background:DARK,color:TEXT,fontFamily:MONO,border:`1px solid ${ACCENT}33`,minHeight:"200px"}}/>
-        <div className="flex gap-3 mb-3">
-          <Btn onClick={handleRun} disabled={isRunning}>{isRunning?"Running...":"▶ Run (Ctrl+Enter)"}</Btn>
+        <CodeEditor code={code} setCode={setCode} onRun={handleRun} minHeight={200}/>
+        <div className="flex flex-wrap items-center gap-3 my-3">
+          <Btn onClick={isRunning?stopCode:handleRun} color={isRunning?ERR:ACCENT}>{isRunning?"■ Stop":"▶ Run (Ctrl+Enter)"}</Btn>
+          {result&&<div className="flex items-center gap-2">
+            <span>{result.passes?"✅":"❌"}</span>
+            <span className="text-sm font-bold" style={{color:result.passes?ACCENT:ERR}}>{result.passes?"Great work!":"Not quite — keep trying!"}</span>
+          </div>}
         </div>
-        {output&&<div className="p-3 rounded-lg" style={{background:output.passes?"#0d281822":"#28101822",border:`1px solid ${output.passes?`${ACCENT}44`:`${ERR}44`}`}}>
-          <div className="flex items-center gap-2 mb-1">
-            <span>{output.passes?"✅":"❌"}</span>
-            <span className="text-sm font-bold" style={{color:output.passes?ACCENT:ERR}}>{output.passes?"Great work!":"Not quite — keep trying!"}</span>
-          </div>
-          <pre className="text-xs whitespace-pre-wrap" style={{color:DIM,fontFamily:MONO}}>{output.feedback}</pre>
-        </div>}
+        <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}}
+          error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
+          feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
       </div>
     </div>
   </div>;
@@ -2646,7 +2660,9 @@ function GrindingZone({profile,onBack}){
 
 function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
   const [code,setCode]=useState(challenge.starterCode||"");
-  const [output,setOutput]=useState(null);
+  const [parts,setParts]=useState([]);
+  const [waiting,setWaiting]=useState(false);
+  const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
   const [hintLevel,setHintLevel]=useState(0);
   const [passed,setPassed]=useState(false);
@@ -2657,22 +2673,28 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
   const completedRef=useRef(false);
+  const [pyStatus,setPyStatus]=useState(pythonStatus);
+  useEffect(()=>{setPyStatus(pythonStatus());return onPythonStatus(setPyStatus)},[]);   // re-read: it may have changed since the first render
+  // Leaving the room mid-run stops the program (it may be waiting at input()), and its result gets no sound or victory.
+  const runSeq=useRef(0);
+  useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
 
   const handleRun=async()=>{
     if(isRunning||passed)return;
-    setIsRunning(true);setOutput(null);
+    const seq=++runSeq.current;
+    setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
-      const result=validateOffline(code,challenge,attempts.length);
-
-      setOutput(result);
-      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-
-      if(result.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
+      const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
+        fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
+        onOutput:(text,kind)=>setParts(p=>appendPart(p,text,kind)),
+        onInputRequest:()=>setWaiting(true)});
+      if(seq!==runSeq.current)return;   // the kid left the room
+      setWaiting(false);setResult(r);
+      setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
+      if(r.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
       else{try{SFX.codeFail()}catch(e){}}
     }finally{setIsRunning(false)}
   };
-
-  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
   const concepts=getConceptsForChallenge(challenge);
@@ -2744,22 +2766,17 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs font-mono tracking-wider" style={{color:DIM}}>PYTHON EDITOR</span>
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
-          <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
-            className="flex-1 w-full p-4 rounded-lg resize-none focus:outline-none"
-            style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`,fontFamily:MONO,fontSize:"13px",lineHeight:"1.6",minHeight:"140px",caretColor:ACCENT}}
-            {...CODE_TEXTAREA_PROPS} placeholder="# Write your Python code here..."/>
-          <Btn onClick={handleRun} disabled={isRunning||passed} className="mt-3" color={passed?"#00bfa5":ACCENT}>
-            {isRunning?"⟳ Running...":passed?"✓ Passed!":"▶ Run Code"}</Btn>
+          <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
+          <Btn onClick={isRunning?stopCode:handleRun} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
+            {isRunning?"■ Stop":passed?"✓ Passed!":"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
-          {isRunning&&<div className="text-sm" style={{color:ACCENT}}>⟳ Checking your code...</div>}
-          {output&&<div style={{animation:output.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}}>
-            {output.error?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap" style={{background:"#ff6b6b11",color:ERR,border:"1px solid #ff6b6b33"}}>❌ {output.error}</div>
-            :output.output?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap mb-2" style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`}}>{output.output}</div>:null}
-            {output.feedback&&<div className="p-3 rounded text-sm" style={{background:output.passes?`${ACCENT}11`:`${GOLD}11`,color:output.passes?ACCENT:GOLD,border:`1px solid ${output.passes?`${ACCENT}33`:`${GOLD}33`}`}}>
-              {output.passes?"🎉":"💭"} {output.feedback}</div>}
-          </div>}
+          <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
+            <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}}
+              error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
+              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
+          </div>
         </div>
       </div>
     </div>
