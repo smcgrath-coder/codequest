@@ -41,15 +41,27 @@ const keptLines = (keep, W, checks, spaces, caps) => keptFrom(`[l for l in L if 
 
 // Not in round 3, where these rooms had exact lines([...]) checks: their tasks show what to print but never say "only"
 // or "exactly", so other lines, like a friendly "Which door should I take?" before the answer, are fine (ch1_r1 says
-// "display exactly", and ch1_s1 asks for one print() that shows the poem, so those stay exact). ANSWERS(keep, n) is a
-// Python function of lines R that gives its n answer lines: the lines keep picks when there are n of them. When there
-// aren't, but R has n lines, it gives R itself, so a slip keep doesn't pick, like "Worm" for Warm, is still compared
-// with the task when nothing else is printed (see keptFrom above); otherwise it gives the lines keep picks, however
-// many. Reruns read their lines the same way.
-const ANSWERS = (keep, n) => `(lambda R: (lambda A: A if len(A) == ${n} else R if len(R) == ${n} else A)([l for l in R if ${keep}(l)]))`;
+// "display exactly", and ch1_s1 asks for one print() that shows the poem, so those stay exact). ANSWERS(keep, n, near)
+// is a Python function of lines R that gives its n answer lines: the lines keep picks when there are n of them. When
+// there aren't, but R has n lines, it gives R itself, so a slip keep doesn't pick, like "Worm" for Warm, is still
+// compared with the task when nothing else is printed (see keptFrom above). Otherwise, when the lines keep or near
+// picks are n, it gives those, so the slip is still compared with the task next to a friendly extra line ("Which
+// door?" and then "Worm"), and its hint is about spelling, not about how many lines there are. Else it gives the lines
+// keep picks, however many. Reruns read their lines the same way. near only picks lines keep doesn't, which can't
+// equal the task's, so it changes which hint a wrong program gets, never whether a program passes.
+const ANSWERS = (keep, n, near) => `(lambda R: (lambda A: A if len(A) == ${n} else R if len(R) == ${n} else ${near ? `(lambda N: N if len(N) == ${n} else A)([l for l in R if ${keep}(l) or ${near}(l)])` : 'A'})([l for l in R if ${keep}(l)]))`;
 // A keep for ANSWERS: a line that is one of the messages, with capitals, spaces and punctuation ignored (as in LOOSE).
 const loose = m => m.toLowerCase().replace(/[\W_]+/g, '');
 const ONE_OF = msgs => String.raw`(lambda l: re.sub(r'[\W_]+', '', l.lower()) in ${JSON.stringify(msgs.map(loose))})`;
+// The fewest letters to add, drop or change to turn text a into text b (the edit distance), one row of the table at a
+// time.
+const EDITS = String.raw`(lambda a, b: (lambda prev: ([prev.__setitem__(slice(None), (lambda cur: ([cur.append(min(prev[j + 1] + 1, cur[-1] + 1, prev[j] + (ca != cb))) for j, cb in enumerate(b)], cur)[1])([i + 1])) for i, ca in enumerate(a)], prev[-1])[1])(list(range(len(b) + 1))))`;
+// A near for ANSWERS: a line that, with capitals, spaces and punctuation ignored, is a slip away from one of the
+// messages: at most a quarter of its letters (and at least 1) added, dropped or changed, as in "Worm", "I am a codr"
+// and "Acess granted".
+const NEAR_ONE_OF = msgs => String.raw`(lambda l: (lambda z: any(abs(len(z) - len(m)) <= max(1, len(m) // 4) and ${EDITS}(z, m) <= max(1, len(m) // 4) for m in ${JSON.stringify(msgs.map(loose))}))(re.sub(r'[\W_]+', '', l.lower())))`;
+// ANSWERS for lines that are one of the messages msgs, or a slip away from one.
+const ANSWERS_OF = (msgs, n) => ANSWERS(ONE_OF(msgs), n, NEAR_ONE_OF(msgs));
 // ch4_s1 and grind_0: the lines of L from the first to the last made only of the character c (a regex) and spaces,
 // with whatever is between them, so a line before or after the picture, like "Here is my box:", is fine, but a blank
 // line or anything else inside it isn't. Not in round 3.
@@ -140,10 +152,10 @@ const TRUTHY_WORDS = String.raw`[w for w in [(re.findall(r'(?i)\b(?:truthy|falsy
 
 // ch3_r3, ch3_r4, ch3_r5 and ch3_s2: functions of lines R that give the answer lines, the ones that are one of the
 // room's messages (see ANSWERS above).
-const R3 = ANSWERS(ONE_OF(['Hot', 'Warm', 'Cool', 'Cold']), 1);
-const R4 = ANSWERS(ONE_OF(['Access granted', 'Access denied']), 1);
-const R5 = ANSWERS(ONE_OF(['Tough fight!', 'Easy win!', 'You need a weapon!']), 1);
-const S2 = ANSWERS(ONE_OF(['adult', 'minor', 'boiling', 'not yet', 'game over', 'keep going']), 3);
+const R3 = ANSWERS_OF(['Hot', 'Warm', 'Cool', 'Cold'], 1);
+const R4 = ANSWERS_OF(['Access granted', 'Access denied'], 1);
+const R5 = ANSWERS_OF(['Tough fight!', 'Easy win!', 'You need a weapon!'], 1);
+const S2 = ANSWERS_OF(['adult', 'minor', 'boiling', 'not yet', 'game over', 'keep going'], 3);
 // ch4_r4: the same for the Energy lines and Shutdown!, n of them.
 const ENERGY = n => ANSWERS(String.raw`(lambda l: re.fullmatch(r'energy\d+|shutdown', re.sub(r'[\W_]+', '', l.lower())) is not None)`, n);
 
@@ -217,7 +229,7 @@ export const BATCH_A = {
   ch1_r1: { output: [{ expr: "lines(['Hello, World!'])" }] },
   ch1_r2: {
     // Other lines, like a "Here I go!" first, are fine (see ANSWERS above).
-    output: keptFrom(`${ANSWERS(ONE_OF(['I am a coder', 'I am brave', 'I am ready']), 3)}(L)`, ['I am a coder', 'I am brave', 'I am ready'], [
+    output: keptFrom(`${ANSWERS_OF(['I am a coder', 'I am brave', 'I am ready'], 3)}(L)`, ['I am a coder', 'I am brave', 'I am ready'], [
       ["len(K) == 3", "Print all three lines from the task, each one on a line of its own."],
       [`${LOOSE}(K) == ['iamacoder', 'iambrave', 'iamready']`, "One of your lines isn't right yet, so check its words, and the order of the three lines, against the task."],
     ], "So close! Check the spaces: one space between each word, and none before the first one.",
@@ -225,7 +237,7 @@ export const BATCH_A = {
   },
   ch1_r3: {
     // Other lines are fine (see ANSWERS above): the task asks for a comment and this print(), not for them alone.
-    output: keptFrom(`${ANSWERS(ONE_OF(['Comments help me remember']), 1)}(L)`, ['Comments help me remember'], [
+    output: keptFrom(`${ANSWERS_OF(['Comments help me remember'], 1)}(L)`, ['Comments help me remember'], [
       ["len(K) == 1", "Print the task's message once, spelled just like the task: Comments help me remember."],
       [`${LOOSE}(K) == ['commentshelpmeremember']`, "Check the spelling of your message: it should say Comments help me remember, just like the task."],
     ], "So close! Check the spaces: one space between each word, and none before the first one.",
