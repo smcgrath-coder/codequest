@@ -177,8 +177,10 @@ export const BATCH_C = {
         hint: "add_item should add to the count when the item is already there, and add 1 when no qty is given." },
       { expr: py`(lambda d: (callf('remove_item', d, 'x', 2), d == {})[1])({'x': 2})`,
         hint: "remove_item should take away qty, and delete the item with del when its count reaches 0." },
-      // Each count must sit next to its item, either way round, so print(inv) counts too (ALT_print_dict).
-      { expr: py`(lambda t: all(re.search(r'(?i)%s\W*x?\W*%d\b|\b%d\W*x?\W*%s' % (i, n, n, i), t) for i, n in (('potion', 3), ('arrow', 2))))('\n'.join(callf('show_inventory', {'potion': 3, 'arrow': 2})[1]))`,
+      // The output check above is format-free, so this makes show_inventory show the counts (names_only). As the
+      // prototype did, any number on a line naming the item counts, so 'Item: potion, Qty: 3', 'potions: 3' and
+      // print(inv) all pass (ALT_item_qty, ALT_plural, ALT_print_dict).
+      { expr: py`(lambda t: all(any(i in l.lower() and n in ints(l) for l in t) for i, n in (('potion', 3), ('arrow', 2))))(callf('show_inventory', {'potion': 3, 'arrow': 2})[1])`,
         hint: "show_inventory should print each item with its count, like 'potion: 3'." },
       { expr: py`any('Empty!' in l for l in callf('show_inventory', {})[1])`,
         hint: "show_inventory should print 'Empty!' when there is nothing in the inventory." },
@@ -476,10 +478,11 @@ export const BATCH_C = {
       { expr: py`val('can_fit_run(100, 28)') is True and val('can_fit_run(30, 28)') is False and val('can_fit_run(33, 28, buffer=0)') is True`,
         hint: "can_fit_run should return True only when the run plus the buffer (5 seconds unless you give another) fits in time_left." },
       // Its own "doesn't fit" words instead of polarity(): polarity's \bn't\b can't match inside a word, so it
-      // missed "doesn't" and "can't" (ALT_doesnt_fit). The summary (last 2 lines) must also show 1:40 used, as
-      // the prototype's "50 anywhere" was also met by "-1:50" left after taking away a run that didn't fit
-      // (subtract_anyway).
-      { expr: py`(lambda t: any(re.search(r"(?i)\b(not|no|cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l) for l in t) and (has('0:50', L=t[-2:]) or has('50', L=t[-2:])) and (has('1:40', L=t[-2:]) or has('100', L=t[-2:])))(rerun({'run_times': '[100, 60]'})[0])`,
+      // missed "doesn't" and "can't" (ALT_doesnt_fit). The lines from the first "doesn't fit" on (run 2 is the
+      // last run, so that is the summary) must also show 1:40 used, as the prototype's "50 anywhere" was also
+      // met by "-1:50" left after taking away a run that didn't fit (subtract_anyway). Reading from that line
+      // rather than the last 2 lines lets extra summary lines such as "Runs skipped: 1" pass (ALT_run_counts).
+      { expr: py`(lambda t: (lambda k: k is not None and (has('0:50', L=t[k:]) or has('50', L=t[k:])) and (has('1:40', L=t[k:]) or has('100', L=t[k:])))(next((i for i, l in enumerate(t) if re.search(r"(?i)\b(not|no|cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*)\b|too long", l)), None)))(rerun({'run_times': '[100, 60]'})[0])`,
         hint: "When a run doesn't fit, print that it doesn't fit, and don't take its time away." },
     ],
   },
