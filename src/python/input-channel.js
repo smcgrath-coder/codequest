@@ -29,3 +29,9 @@ export function cancelInput(sab) {
   Atomics.store(ctl, 0, 2);
   Atomics.notify(ctl, 0);
 }
+
+// Call before each run, while the worker is idle. A Stop or answer sent when nobody
+// was waiting stays in the mailbox, and would otherwise skip the next input().
+export function resetInput(sab) {
+  Atomics.store(new Int32Array(sab, 0, 2), 0, 0);
+}

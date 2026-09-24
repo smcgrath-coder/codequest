@@ -190,7 +190,7 @@ In the worker, `input()` has to block until the kid types. The worker waits on a
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Worker } from "node:worker_threads";
-import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput } from "../src/python/input-channel.js";
+import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput, resetInput } from "../src/python/input-channel.js";
 
 // A worker thread that waits for one answer and reports it back.
 function waiter(sab) {
@@ -224,6 +224,18 @@ test("the mailbox is reusable for the next input() call", async () => {
     assert.equal(await got, word);
   }
 });
+
+test("a Stop or answer left over from the last run doesn't skip the next input()", async () => {
+  // e.g. Stop pressed during `while True: pass`, when nobody was waiting for input
+  for (const leftover of [sab => cancelInput(sab), sab => sendAnswer(sab, "stale")]) {
+    const sab = new SharedArrayBuffer(INPUT_BUFFER_BYTES);
+    leftover(sab);
+    resetInput(sab);   // runner.js does this before posting each run
+    const w = waiter(sab), got = reply(w);
+    setTimeout(() => sendAnswer(sab, "Alex"), 50);
+    assert.equal(await got, "Alex");
+  }
+});
 ```
 
 **Step 2: Run it to check that it fails**
@@ -245,6 +257,7 @@ export function waitForAnswer(sab) {
   const ctl = new Int32Array(sab, 0, 2);
   Atomics.wait(ctl, 0, 0);
   const state = Atomics.load(ctl, 0);
+  // TextDecoder refuses views of shared memory, so copy the bytes out first.
   const text = state === 1 ? new TextDecoder().decode(new Uint8Array(sab, HEADER, ctl[1]).slice()) : null;
   Atomics.store(ctl, 0, 0);
   return text;
@@ -265,12 +278,18 @@ export function cancelInput(sab) {
   Atomics.store(ctl, 0, 2);
   Atomics.notify(ctl, 0);
 }
+
+// Call before each run, while the worker is idle. A Stop or answer sent when nobody
+// was waiting stays in the mailbox, and would otherwise skip the next input().
+export function resetInput(sab) {
+  Atomics.store(new Int32Array(sab, 0, 2), 0, 0);
+}
 ```
 
 **Step 4: Run it to check that it passes**
 
 Run: `node --test tests/input-channel.test.js`
-Expected: 3 pass.
+Expected: 4 pass.
 
 **Step 5: Commit**
 
@@ -742,7 +761,7 @@ self.onmessage = async ({ data }) => {
 ```js
 // src/python/runner.js
 // The game's door to Python. One worker is shared by every room; it starts loading on warmUp().
-import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput } from "./input-channel.js";
+import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput, resetInput } from "./input-channel.js";
 
 export const RUN_TIME_LIMIT_MS = 10_000;
 export const GRADE_TIME_LIMIT_MS = 8_000;   // a whole grading pass; each hidden run also has its own limit
@@ -821,6 +840,7 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
         else if (m.type === "result") finish(m);
       },
     };
+    resetInput(inputBox);   // drop a Stop or answer left from the last run; the worker is idle now
     worker.postMessage({ type: "run", id, code });
   });
 }

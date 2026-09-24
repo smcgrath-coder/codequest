@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Worker } from "node:worker_threads";
-import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput } from "../src/python/input-channel.js";
+import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput, resetInput } from "../src/python/input-channel.js";
 
 // A worker thread that waits for one answer and reports it back.
 function waiter(sab) {
@@ -33,5 +33,17 @@ test("the mailbox is reusable for the next input() call", async () => {
     const w = waiter(sab), got = reply(w);
     setTimeout(() => sendAnswer(sab, word), 30);
     assert.equal(await got, word);
+  }
+});
+
+test("a Stop or answer left over from the last run doesn't skip the next input()", async () => {
+  // e.g. Stop pressed during `while True: pass`, when nobody was waiting for input
+  for (const leftover of [sab => cancelInput(sab), sab => sendAnswer(sab, "stale")]) {
+    const sab = new SharedArrayBuffer(INPUT_BUFFER_BYTES);
+    leftover(sab);
+    resetInput(sab);   // runner.js does this before posting each run
+    const w = waiter(sab), got = reply(w);
+    setTimeout(() => sendAnswer(sab, "Alex"), 50);
+    assert.equal(await got, "Alex");
   }
 });
