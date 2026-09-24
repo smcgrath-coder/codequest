@@ -17,7 +17,7 @@ class StopRun(BaseException):
 _BASE_MODULES = set(sys.modules)
 _BUILTINS = dict(vars(builtins))
 _PATCHABLE = {m: dict(vars(m)) for m in (random, math, string, time)}
-_STREAMS = (sys.stdout, sys.stderr, sys.stdin)
+_STREAMS = [sys.stdout, sys.stderr, sys.stdin]   # this run's; clean_slate makes new ones
 _RECURSION = sys.getrecursionlimit()
 
 
@@ -26,6 +26,14 @@ def interruptible_sleep(seconds):
     end = time.monotonic() + max(0.0, float(seconds))
     while (left := end - time.monotonic()) > 0:
         _codequest.sleep_ms(min(left, 0.05) * 1000)
+
+
+def new_streams():
+    """stdout, stderr and stdin on Pyodide's fds, set up like its own. New objects every run, so
+    nothing a run did to the old ones (close, detach, reconfigure, a patched write) carries over."""
+    return [open(1, "w", buffering=1, encoding="utf-8", closefd=False),
+            open(2, "w", buffering=1, encoding="utf-8", errors="backslashreplace", closefd=False),
+            open(0, "r", buffering=1, encoding="utf-8", closefd=False)]
 
 
 def clean_slate(seed=None):
@@ -45,7 +53,9 @@ def clean_slate(seed=None):
                 del d[k]
         d.update(saved)
     time.sleep = interruptible_sleep
+    _STREAMS[:] = new_streams()
     sys.stdout, sys.stderr, sys.stdin = _STREAMS
+    sys.__stdout__, sys.__stderr__, sys.__stdin__ = _STREAMS
     sys.setrecursionlimit(_RECURSION)
     random.seed(seed)
 
@@ -85,6 +95,9 @@ def run_visible(src):
     except BaseException as e:
         return error_info(e)
     finally:                           # the panel's own streams, even if the kid swapped sys.stdout
-        _STREAMS[0].flush()
-        _STREAMS[1].flush()
+        for stream in _STREAMS[:2]:
+            try:
+                stream.flush()
+            except Exception:          # the kid closed or broke it; the result still matters more
+                pass
     return {"ok": True}

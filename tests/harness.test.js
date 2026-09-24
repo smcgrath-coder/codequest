@@ -96,6 +96,13 @@ describe("clean slate between runs", () => {
     assert.equal(run('import sys\nsys.stdout = None\nprint("lost")').ok, true);
     assert.equal(run('print("back")').out, "back\n");
   });
+  const harms = ["sys.stdout.close()", "sys.stderr.close()", "sys.stdin.close()", "sys.__stdout__.close()",
+    "sys.stdout.detach()", "sys.stdout.write = lambda s: len(s)", 'sys.stdout.reconfigure(encoding="ascii")'];
+  for (const harm of harms) test(`${harm} still finishes, and the next run gets working streams`, () => {
+    assert.equal(run(`import sys\n${harm}`).ok, true);
+    const r = run('import sys\nprint("back", sys.stdin.closed, sys.stderr.closed, "é")\nsys.stdout = sys.__stdout__\nprint("again")');
+    assert.equal(r.out, "back False False é\nagain\n");
+  });
   test("random is freshly seeded each visible run (dice vary), even after a run that set a seed", () => {
     const rolls = new Set(Array.from({ length: 6 }, () => {
       run("import random\nrandom.seed(1)");
