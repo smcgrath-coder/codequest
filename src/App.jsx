@@ -4,10 +4,10 @@ import { Music, getTrackForContext } from "./music.js";
 import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
-import { availablePractice, normalizeProfile, afterClear } from "./progress.js";
+import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
 import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
 import { runStopGuard } from "./editor.js";
-import { runAndGrade } from "./python/flow.js";
+import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
 
@@ -2023,9 +2023,9 @@ async function saveProfileList(l){try{localStorage.setItem("cq:profiles",JSON.st
 // SHARED UI COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
-function Btn({children,onClick,color=ACCENT,disabled,className="",style={}}){
+function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",style={}}){
   const handleClick=()=>{try{SFX.init().then(()=>SFX.click())}catch(e){}if(onClick)onClick();};
-  return <button onClick={handleClick} disabled={disabled}
+  return <button onClick={handleClick} disabled={disabled} autoFocus={autoFocus}
     className={`px-5 py-2 rounded font-bold text-sm tracking-wider transition-all duration-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     style={{background:`${color}18`,border:`1px solid ${color}66`,color,fontFamily:MONO,...style}}
     onMouseEnter={e=>{if(!disabled)e.currentTarget.style.boxShadow=`0 0 20px ${color}33`}}
@@ -2079,7 +2079,7 @@ function CharacterCreate({onComplete,existingProfiles}){
 
   const finish=()=>{
     if(!name.trim())return;
-    onComplete({name:name.trim(),avatar:{hair,skin,shirt,accessory},xp:0,completedRooms:[],completedBosses:[],badges:[],trophies:[],equipment:[],createdAt:new Date().toISOString()});
+    onComplete({name:name.trim(),avatar:{hair,skin,shirt,accessory},xp:0,completedRooms:[],completedBosses:[],badges:[],trophies:[],equipment:[],markedDone:[],createdAt:new Date().toISOString()});
   };
 
   const CP=({label,options,value,onChange})=>(
@@ -2420,6 +2420,7 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
 }
 
 function CharacterSheet({profile,onBack}){
+  const markedDone=markedDoneChallenges(profile);
   return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <Btn onClick={onBack} color={DIM} className="mb-6">← Map</Btn>
     <div className="max-w-lg mx-auto">
@@ -2447,6 +2448,13 @@ function CharacterSheet({profile,onBack}){
           <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?"#e67e22":DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
         </div>})}
       </div>
+      {markedDone.length>0&&<div className="mt-6">
+        <h3 className="text-sm font-bold mb-2 tracking-wider uppercase" style={{color:DIM}}>✋ Marked done</h3>
+        <p className="text-xs mb-3" style={{color:DIM}}>You marked these done yourself. Try them again sometime!</p>
+        <div className="flex flex-wrap gap-2">
+          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:"1px solid #ffffff11",color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
+        </div>
+      </div>}
     </div>
   </div>;
 }
@@ -2675,6 +2683,8 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const [showVictory,setShowVictory]=useState(false);
   const [usedHints,setUsedHints]=useState(false);
   const [attempts,setAttempts]=useState([]);
+  const [stuck,setStuck]=useState(0);   // clean runs that didn't pass; enough of them unlock "mark it done"
+  const [markedDone,setMarkedDone]=useState(false);
   const [dialoguePhase,setDialoguePhase]=useState(chapterIntroDialogue?"chapter-intro":challenge.npcDialogue?"room-intro":"play");
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
@@ -2686,6 +2696,8 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
   const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
+  // Passing, or marking the room done: the victory screen follows.
+  const win=()=>{setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500)};
   const handleRun=async()=>{
     if(isRunning||passed)return;
     runStop.started();
@@ -2700,10 +2712,15 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       if(seq!==runSeq.current)return;   // the kid left the room
       setWaiting(false);setResult(r);
       setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
-      if(r.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
+      if(countsAsStuck(r))setStuck(n=>n+1);
+      if(r.passes)win();
       else{try{SFX.codeFail()}catch(e){}}
     }finally{setIsRunning(false);setChecking(false)}
   };
+  // The safety valve for a grading mistake: never on a replay (nothing to unblock), or while code is running.
+  const canMarkDone=!replaying&&!passed&&!isRunning&&stuck>=STUCK_TRIES_TO_MARK_DONE;
+  // The button goes away once pressed, so CONTINUE takes the focus: Tab can't leave the code editor.
+  const markDone=()=>{if(!canMarkDone)return;setMarkedDone(true);win()};
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
   const concepts=getConceptsForChallenge(challenge);
@@ -2777,14 +2794,15 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
           <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
-            {isRunning?"■ Stop":passed?"✓ Passed!":"▶ Run Code"}</Btn>
+            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
           <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
             <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
               error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
-              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
+              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}
+              onMarkDone={canMarkDone?markDone:undefined}/>
           </div>
         </div>
       </div>
@@ -2798,12 +2816,14 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
         <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
         {replaying
           ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
+          :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
           :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
-        {!usedHints&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
+        {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
         <Btn onClick={()=>{
           // Once only: the overlay closes so a second Enter/Space can't award XP again
           if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
-          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints)}} color={isBoss?GOLD:ACCENT}>CONTINUE →</Btn>
+          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})}} color={isBoss?GOLD:ACCENT}
+          autoFocus={markedDone}>CONTINUE →</Btn>
       </div>
     </div>}
   </div>;
@@ -2918,8 +2938,9 @@ export default function App(){
   };
   const selectBoss=boss=>{try{SFX.roomEnter()}catch(e){}setCurrentChallenge(boss);setIsBossChallenge(true);setReplaying((profile.completedBosses||[]).includes(boss.id));setChapterIntroNpc(null);setChapterIntroDialogue(null);setScreen("challenge")};
 
-  const completeChallenge=async(earnedXp,noHints)=>{
-    const r=afterClear(profile,{id:currentChallenge.id,isBoss:isBossChallenge,xp:earnedXp,noHints,roomsThisSession:roomsThisSession+1});
+  // markedDone: the kid marked the room done (half XP, never No Peeking); afterClear applies it.
+  const completeChallenge=async(earnedXp,noHints,{markedDone=false}={})=>{
+    const r=afterClear(profile,{id:currentChallenge.id,isBoss:isBossChallenge,xp:earnedXp,noHints,roomsThisSession:roomsThisSession+1,markedDone});
     if(r.firstClear)try{SFX.xpGain()}catch(e){}
     if(r.changed)await persistProfile(r.profile);
     setRoomsThisSession(n=>n+1);

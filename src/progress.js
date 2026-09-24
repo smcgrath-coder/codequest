@@ -7,6 +7,16 @@ const LEGACY_TROPHY_IDS = { act1_grad: "act1_complete", explorer: "side_quest_fa
 
 const unique = list => [...new Set(list || [])];
 
+// A room the player marks done themselves (after the grader keeps saying no to code that runs) is worth
+// this share of its XP.
+export const MARK_DONE_XP_FACTOR = 0.5;
+
+// Every main room, side quest and boss by id, for turning saved ids back into names.
+const CHALLENGES_BY_ID = new Map(CHAPTERS.flatMap(c => [
+  ...c.rooms.map(r => [r.id, { id: r.id, name: r.name, isBoss: false }]),
+  ...(c.boss ? [[c.boss.id, { id: c.boss.id, name: c.boss.name, isBoss: true }]] : []),
+]));
+
 // Practice challenges unlock once the player has cleared a room in their
 // chapter or any later one.
 export function availablePractice(completedRooms) {
@@ -60,7 +70,13 @@ export function normalizeProfile(p) {
     completedRooms: unique(p.completedRooms),
     completedBosses: unique(p.completedBosses),
     trophies: unique((p.trophies || []).map(id => LEGACY_TROPHY_IDS[id] || id)),
+    markedDone: unique(p.markedDone),
   };
+}
+
+// The rooms and bosses the player marked done, in the order they did it: [{ id, name, isBoss }].
+export function markedDoneChallenges(profile) {
+  return unique(profile.markedDone).map(id => CHALLENGES_BY_ID.get(id)).filter(Boolean);
 }
 
 // XP, badges and records are only awarded the first time a room or boss is
@@ -86,9 +102,16 @@ export function recordClear(profile, { id, isBoss, xp }) {
 // popup each), then the boss badge. `changed` says whether to save. Replays
 // give no XP, records or badge, but can still earn play-style trophies such as
 // No Peeking.
-export function afterClear(profile, { id, isBoss, xp, noHints, roomsThisSession }) {
-  const { profile: cleared, firstClear, badge } = recordClear(profile, { id, isBoss, xp });
-  const { trophies, newTrophies } = earnTrophies(cleared, { noHints, roomsThisSession });
+// markedDone: the player marked the room done themselves. It gives half XP and
+// never No Peeking, and is remembered in profile.markedDone. A boss still gives
+// its badge, so the next chapter opens. Marking done a room already cleared
+// changes nothing.
+export function afterClear(profile, { id, isBoss, xp, noHints, roomsThisSession, markedDone = false }) {
+  const gained = markedDone ? Math.round(xp * MARK_DONE_XP_FACTOR) : xp;
+  const { profile: recorded, firstClear, badge } = recordClear(profile, { id, isBoss, xp: gained });
+  if (markedDone && !firstClear) return { profile, firstClear, badge: null, newTrophies: [], changed: false };
+  const cleared = markedDone ? { ...recorded, markedDone: unique([...(recorded.markedDone || []), id]) } : recorded;
+  const { trophies, newTrophies } = earnTrophies(cleared, { noHints: noHints && !markedDone, roomsThisSession });
   if (!firstClear && newTrophies.length === 0) return { profile, firstClear, badge: null, newTrophies, changed: false };
   return { profile: { ...cleared, trophies }, firstClear, badge, newTrophies, changed: true };
 }

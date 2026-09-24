@@ -1,6 +1,6 @@
-import { test } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { runAndGrade } from "../src/python/flow.js";
+import { runAndGrade, countsAsStuck } from "../src/python/flow.js";
 
 const challenge = { id: "ch1_r1", starterCode: "# Type your code below\n" };
 const rule = { output: [{ expr: "lines(['Hello, World!'])" }] };
@@ -92,4 +92,52 @@ test("onGrading is never called when nothing is graded", async () => {
     await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade, runner, onGrading: () => called++ });
     assert.equal(called, 0, name);
   }
+});
+
+describe("stuck attempts (they unlock the Mark it done button)", () => {
+  const clean = { ok: true, inputs: [] };
+  const run = (runner, extra = {}) => runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade, runner, ...extra });
+
+  test("a clean Python run that the grader rejects is stuck", async () => {
+    assert.equal(countsAsStuck(await run(fakeRunner(clean, { passed: false, feedback: "Not quite" }))), true);
+  });
+
+  test("a clean Python run that passes is not stuck", async () => {
+    assert.equal(countsAsStuck(await run(fakeRunner(clean, { passed: true, feedback: "Great work!" }))), false);
+  });
+
+  test("a crash is not stuck: the kid has a real error to fix", async () => {
+    const crash = { ok: false, kind: "ZeroDivisionError", line: 1, text: "ZeroDivisionError: division by zero" };
+    assert.equal(countsAsStuck(await run(fakeRunner(crash, {}))), false);
+  });
+
+  test("a run the kid stopped is not stuck", async () => {
+    assert.equal(countsAsStuck(await run(fakeRunner({ ok: false, kind: "Stopped", stopped: true }, {}))), false);
+  });
+
+  test("a clean Python run graded by the keyword grader (no rule, or grading failed) is stuck when it fails", async () => {
+    const failing = () => ({ passes: false, feedback: "no", error: null });
+    assert.equal(countsAsStuck(await run(fakeRunner(clean, {}), { rule: undefined, fallbackGrade: failing })), true);
+    const noGrade = { ...fakeRunner(clean, {}), grade: async () => { throw new Error("load failed"); } };
+    assert.equal(countsAsStuck(await run(noGrade, { fallbackGrade: failing })), true);
+  });
+
+  test("without Python, a keyword-grader miss with no keyword error is stuck", async () => {
+    const failing = () => ({ passes: false, feedback: "Close! Check the spelling.", error: null });
+    assert.equal(countsAsStuck(await run({ available: () => false }, { fallbackGrade: failing })), true);
+  });
+
+  test("without Python, a keyword error (the checker found a mistake) is not stuck", async () => {
+    const mistake = () => ({ passes: false, feedback: "no", error: "missing quote" });
+    assert.equal(countsAsStuck(await run({ available: () => false }, { fallbackGrade: mistake })), false);
+  });
+
+  test("without Python, a keyword-grader pass is not stuck", async () => {
+    assert.equal(countsAsStuck(await run({ available: () => false })), false);
+  });
+
+  test("no result yet is not stuck", () => {
+    assert.equal(countsAsStuck(null), false);
+    assert.equal(countsAsStuck(undefined), false);
+  });
 });

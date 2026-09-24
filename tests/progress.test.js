@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { availablePractice, earnTrophies, normalizeProfile, recordClear, afterClear } from "../src/progress.js";
+import { availablePractice, earnTrophies, normalizeProfile, recordClear, afterClear, MARK_DONE_XP_FACTOR, markedDoneChallenges } from "../src/progress.js";
 import { CHAPTERS, TROPHIES, GRIND_CHALLENGES } from "../src/content.js";
 
 const chapter = id => CHAPTERS.find(c => c.id === id);
@@ -94,6 +94,12 @@ describe("loading old saves", () => {
     assert.deepEqual(p.completedRooms, []);
     assert.deepEqual(p.completedBosses, []);
     assert.deepEqual(p.trophies, []);
+    assert.deepEqual(p.markedDone, []);
+  });
+
+  test("duplicate marked-done records are removed", () => {
+    const p = normalizeProfile({ xp: 10, markedDone: ["ch1_r4", "ch1_r4", "ch1_boss"] });
+    assert.deepEqual(p.markedDone, ["ch1_r4", "ch1_boss"]);
   });
 });
 
@@ -179,5 +185,98 @@ describe("what happens after a clear (the popup queue)", () => {
     assert.equal(r.changed, false);
     assert.equal(r.profile, p);
     assert.deepEqual(r.newTrophies, []);
+  });
+});
+
+describe("marking a room done (the safety valve for grading mistakes)", () => {
+  const fresh = { xp: 0, completedRooms: [], completedBosses: [], badges: [], equipment: [], trophies: [], markedDone: [] };
+  const markDone = (p, id, isBoss, xp, noHints = true) =>
+    afterClear(p, { id, isBoss, xp, noHints, roomsThisSession: 1, markedDone: true });
+
+  test("half XP is a named constant", () => {
+    assert.equal(MARK_DONE_XP_FACTOR, 0.5);
+  });
+
+  test("a first clear marked done gives half XP, rounded, and records the room as cleared and marked", () => {
+    const r = markDone(fresh, "ch1_r4", false, 15);
+    assert.equal(r.firstClear, true);
+    assert.equal(r.changed, true);
+    assert.equal(r.profile.xp, 8);
+    assert.deepEqual(r.profile.completedRooms, ["ch1_r4"]);
+    assert.deepEqual(r.profile.markedDone, ["ch1_r4"]);
+  });
+
+  test("marking done never earns No Peeking, even with no hints used", () => {
+    const r = markDone(fresh, "ch1_r1", false, 10, true);
+    assert.ok(!r.profile.trophies.includes("no_hints"));
+    assert.ok(!r.newTrophies.some(t => t.id === "no_hints"));
+  });
+
+  test("it still counts as a clear for the other trophies", () => {
+    const r = markDone(fresh, "ch1_r1", false, 10);
+    assert.deepEqual(r.newTrophies.map(t => t.id), ["first_clear"]);
+  });
+
+  test("a boss marked done still awards its badge and equipment, so the next chapter opens", () => {
+    const p = { ...fresh, completedRooms: ["ch1_r1"], trophies: ["first_clear"] };
+    const r = markDone(p, "ch1_boss", true, 50);
+    assert.deepEqual(r.badge, chapter("ch1").badge);
+    assert.deepEqual(r.profile.badges, [chapter("ch1").badge]);
+    assert.deepEqual(r.profile.equipment, [chapter("ch1").equipment]);
+    assert.deepEqual(r.profile.completedBosses, ["ch1_boss"]);
+    assert.deepEqual(r.profile.markedDone, ["ch1_boss"]);
+    assert.equal(r.profile.xp, 25);
+  });
+
+  test("marked-done rooms are added to the list the save already has", () => {
+    const once = markDone(fresh, "ch1_r4", false, 15).profile;
+    const r = markDone(once, "ch1_r5", false, 15);
+    assert.deepEqual(r.profile.markedDone, ["ch1_r4", "ch1_r5"]);
+    assert.equal(r.profile.xp, 16);
+  });
+
+  test("a save from before this feature (no markedDone field) is handled", () => {
+    const { markedDone, ...old } = fresh;
+    assert.deepEqual(markDone(old, "ch1_r4", false, 15).profile.markedDone, ["ch1_r4"]);
+  });
+
+  test("marking done a room already cleared changes nothing", () => {
+    const p = { ...recordClear(fresh, { id: "ch1_r1", isBoss: false, xp: 10 }).profile, trophies: ["first_clear"] };
+    const r = markDone(p, "ch1_r1", false, 10, true);
+    assert.equal(r.firstClear, false);
+    assert.equal(r.changed, false);
+    assert.equal(r.profile, p);
+    assert.deepEqual(r.newTrophies, []);
+    assert.equal(r.badge, null);
+  });
+
+  test("a normal clear doesn't mark the room done and keeps full XP", () => {
+    const r = afterClear(fresh, { id: "ch1_r4", isBoss: false, xp: 15, noHints: false, roomsThisSession: 1 });
+    assert.equal(r.profile.xp, 15);
+    assert.deepEqual(r.profile.markedDone, []);
+  });
+
+  test("afterClear does not mutate the profile it is given", () => {
+    const before = JSON.stringify(fresh);
+    markDone(fresh, "ch1_boss", true, 50);
+    assert.equal(JSON.stringify(fresh), before);
+  });
+});
+
+describe("the Character Sheet's marked-done list", () => {
+  test("rooms and bosses are looked up by id, in the order they were marked", () => {
+    const got = markedDoneChallenges({ markedDone: ["ch1_boss", "ch1_r4"] });
+    assert.deepEqual(got.map(c => c.name), ["The Terminal Guardian", "Memory Crystals"]);
+    assert.deepEqual(got.map(c => c.isBoss), [true, false]);
+  });
+
+  test("ids no longer in the game are skipped, and duplicates shown once", () => {
+    const got = markedDoneChallenges({ markedDone: ["gone_room", "ch1_r4", "ch1_r4"] });
+    assert.deepEqual(got.map(c => c.id), ["ch1_r4"]);
+  });
+
+  test("a profile with nothing marked (or no field) gives an empty list", () => {
+    assert.deepEqual(markedDoneChallenges({ markedDone: [] }), []);
+    assert.deepEqual(markedDoneChallenges({}), []);
   });
 });
