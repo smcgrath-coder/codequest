@@ -97,7 +97,7 @@ codequest/
 │   ├── App.jsx          ← Screens, pixel art and game flow
 │   ├── content.js       ← Chapters, challenges, trophies, Codex, practice
 │   ├── python/          ← Runs kids' code in real Python (Pyodide)
-│   │   ├── runner.js        ← Page-side API: run, stop, answer input(), grade, fallback detection
+│   │   ├── runner.js        ← Page-side API: run, stop, answer input(), grade, restart, fallback detection
 │   │   ├── py.worker.js     ← Web Worker that loads Pyodide once for the whole app
 │   │   ├── worker-core.js   ← Runs and grades inside the worker (testable in Node)
 │   │   ├── harness.py       ← Runs kid code as main.py, with a clean slate every run

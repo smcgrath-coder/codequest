@@ -41,7 +41,7 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
 }
 
 // onMarkDone, when given, shows the "mark it done" button. ChallengeRoom passes it after 3 clean runs that didn't pass.
-// fallbackNote, for a result from the keyword grader: "late" while Python is still loading, else any truthy value.
+// fallbackNote, for a result from the keyword grader: "late" if Python was still loading, else any truthy value.
 export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking, error, feedback, passed, fallbackNote, onMarkDone }) {
   const [answer, setAnswer] = useState("");
   const inputRef = useRef(null);
