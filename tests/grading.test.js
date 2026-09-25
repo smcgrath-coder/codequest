@@ -55,4 +55,17 @@ describe("hints that point the right way", () => {
     assert.equal(g.passed, false);
     assert.match(g.feedback, /Turning left 90°/);
   });
+
+  // Where a room's hints add up to a whole program, a kid who types them in as shown passes.
+  const hints = id => challenges.find(c => c.id === id).hints;
+  const programs = {
+    ch4_r3: () => `word = "python"\n\n${hints("ch4_r3")[1]}\n`,
+    ch4_boss: () => `${hints("ch4_boss")[0]}\n\nprint("LIFTOFF!")\n\n${hints("ch4_boss")[1]}\n`,
+    ch5_r1: () => `${hints("ch5_r1")[0]}\n${hints("ch5_r1")[1]}\n`,
+    ch5_r3: () => `scores = [85, 42, 91, 67, 73, 55]\n\n${hints("ch5_r3")[1]}\n`,
+  };
+  for (const [id, program] of Object.entries(programs)) test(`${id}: following the hints passes`, () => {
+    const g = grade(challenges.find(c => c.id === id), program());
+    assert.equal(g.passed, true, g.feedback);
+  });
 });

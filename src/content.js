@@ -608,7 +608,7 @@ export const CHAPTERS = [
         ],
         narrative:"A tall bookshelf with numbered slots. Each book sits in a precise position — first, second, third...",
         task:"Create: favorites = [4 items of your choice]\nPrint favorites[0] (first)\nPrint favorites[-1] (last)\nPrint favorites[1] (second)\nAlso print how many items: len(favorites)",
-        hints:["favorites = [\"pizza\", \"gaming\", \"dogs\", \"music\"]","print(favorites[0]), print(favorites[-1]), print(len(favorites))"],
+        hints:["favorites = [\"pizza\", \"gaming\", \"dogs\", \"music\"]","print(favorites[0])\nprint(favorites[-1])\nprint(favorites[1])\nprint(len(favorites))"],
         starterCode:"# Create a list of 4 favorites\n\n# Print first, last, second, and length\n",
         expectedBehavior:"Must create list with 4 items, access by index [0], [-1], [1], and print len()",xpReward:15},
       {id:"ch5_r2",name:"Rearranging",scene:"archives",npc:"index",

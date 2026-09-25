@@ -317,8 +317,8 @@ export const BATCH_B = {
   // with distinct names, so a typed print(4) for the length fails (wrong/typed_length) and a label can't
   // match an item by accident. None of its items has 5 letters, so len(favorites[0]) can't give the length
   // by chance (wrong/r2_len_of_first_item).
-  // content bug: the room's second hint, print(favorites[0]), print(favorites[-1]), print(len(favorites)),
-  // leaves out favorites[1]. The first output check spots a kid who followed it and says what's missing.
+  // The first output check spots a kid who leaves out favorites[1], as the room's second hint once did
+  // (wrong/missing_second_item), and says what's missing.
   ch5_r1: {
     output: [
       { expr: py`not (isinstance(ns.get('favorites'), list) and len(ns['favorites']) >= 2 and (lambda f: len(L) >= 3 and str(f[0]) in L[-3] and str(f[-1]) in L[-2] and nums([len(f)], L=L[-1:]) and not any(str(f[1]) in l for l in L))(ns['favorites']))`, hint: "Almost! The task asks for the second item too: print favorites[1] after the last item, then the length." },
