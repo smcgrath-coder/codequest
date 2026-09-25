@@ -43,7 +43,8 @@ const pick = r => ({ passes: !!r.passes, feedback: r.feedback, keywordError: r.e
 // device. No reference, alternative or wrong answer in tests/fixtures, and no starter code, uses any of them.
 const INSIDES = [
   /\b(__globals__|__code__|__subclasses__|__import__|__dict__|__closure__|__getattribute__|__builtins__|__self__|_getframe|f_globals|f_locals|f_back|f_builtins|tb_frame|gi_frame|cr_frame|_codequest|ctypes|importlib|getmembers)\b/,
-  /\b(getattr|setattr|delattr|vars|compile|exec)\s*\(/,   // called, not a word in a story
+  /(?:^|[^.\w])(getattr|setattr|delattr|vars|compile|exec)\s*\(/,   // the built-in called: not a word in a story, nor re.compile
+  // (no lookbehind: Safari before 16.4 can't parse one, and those devices need this file for the fallback)
   /\.\s*modules\b/,   // sys.modules
   /pyodide/,     // anywhere in a name: pyodide, pyodide_js, and the _pyodide modules already in sys.modules
   ...["js", "gc", "inspect", "builtins"].flatMap(m => [

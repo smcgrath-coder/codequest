@@ -824,7 +824,7 @@ export const BATCH_C = {
       // turn naming its side with a letter or an arrow alone, 'Turn L 90°', '↩️ Turn 90°' or 'Turn 90° ←', needn't
       // show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow). See CH11_TURNS.
       { expr: py`'sign' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)])`,
-        hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
+        hint: "Your turn lines don't say which way the robot turns. Print the side, like 'Turning left 90°', or give the angle a sign: positive for right, negative for left." },
     ],
     probes: [
       { expr: py`'Run1' in trace`, hint: "Call Run1() at the bottom of your program." },
@@ -906,7 +906,7 @@ export const BATCH_C = {
       // As in ch11_r5: a turn naming no side with a word is read by its sign (m_d_turns_swapped), and one naming it
       // with a letter or an arrow alone needn't show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow).
       { expr: py`'sign' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)])`,
-        hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
+        hint: "Your turn lines don't say which way the robot turns. Print the side, like 'Turning left 90°', or give the angle a sign: positive for right, negative for left." },
     ],
     probes: [
       { expr: py`all({'straight', 'turn'} <= set(ns.get(k, {})) for k in ('SPEED_FAST', 'SPEED_NORMAL'))`,

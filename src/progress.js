@@ -104,8 +104,9 @@ export function recordClear(profile, { id, isBoss, xp }) {
 // No Peeking.
 // markedDone: the player marked the room done themselves. It gives half XP and
 // never No Peeking, and is remembered in profile.markedDone. A boss still gives
-// its badge, so the next chapter opens. Marking done a room already cleared
-// changes nothing.
+// its badge and equipment. Chapters open on XP alone, so the half left out can
+// mean a side quest or two before the next chapter. Marking done a room already
+// cleared changes nothing.
 export function afterClear(profile, { id, isBoss, xp, noHints, roomsThisSession, markedDone = false }) {
   const gained = markedDone ? Math.round(xp * MARK_DONE_XP_FACTOR) : xp;
   const { profile: recorded, firstClear, badge } = recordClear(profile, { id, isBoss, xp: gained });

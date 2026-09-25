@@ -46,3 +46,13 @@ describe("wrong answers fail", () => {
     assert.equal(grade(c, fixture("wrong", f)).passed, false);
   });
 });
+
+// A turn_left(deg) helper that prints only the angle is a real kid's program: the hint must not steer it to
+// turn_left(-90), which is backwards code, so it offers printing the side first.
+describe("hints that point the right way", () => {
+  for (const f of ["ch11_r5__unsigned_side_helpers.py", "ch11_boss__unsigned_side_helpers.py"]) test(f, () => {
+    const g = grade(challenges.find(x => x.id === f.split("__")[0]), fixture("wrong", f));
+    assert.equal(g.passed, false);
+    assert.match(g.feedback, /Turning left 90°/);
+  });
+});

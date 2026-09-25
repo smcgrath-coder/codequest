@@ -224,7 +224,9 @@ describe("code that reaches into Python's insides", () => {
       'print("Greetings from js land")', "frame = 1\nf_score = 2", "code = 'abc'\nglobals_left = 3", "print(__name__)",
       // The words themselves in a story or a variable name, not called or imported.
       'print("You inspect the chest.")', 'print("The wizard compiles his spells")', 'print("Execute the plan!")',
-      "vars_left = 2\nprint(vars_left)", 'print("Loading modules...")', 'print("The builtins of the castle")', "executioner = 'Bob'"])
+      "vars_left = 2\nprint(vars_left)", 'print("Loading modules...")', 'print("The builtins of the castle")', "executioner = 'Bob'",
+      // A method of the same name is the module's own, not the built-in (import re, then re.compile).
+      'import re\npattern = re.compile("[0-9]+")\nprint(pattern.findall("a1b22"))'])
       assert.equal(reachesIntoPython(code), false, code);
   });
 
