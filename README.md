@@ -6,6 +6,7 @@ An RPG-style game that teaches Python programming through 12 chapters of challen
 
 - **4 Acts, 12 Chapters, 108 Rooms** — progressive Python curriculum from `print()` to Pybricks robotics
 - **Real Python in the browser** — kids' code actually runs (Python 3.14 via [Pyodide](https://pyodide.org)), with real output, `input()`, a Stop button and kid-friendly error messages. It's graded by what it does, not by keywords.
+- **Mark it done** — rooms unlock in order and the grader still turns down a few correct programs, so after 3 clean runs that don't pass, a kid can mark the room done for half XP instead of staying stuck
 - **Boss Battles** — test mastery at the end of each chapter
 - **Side Quests** — optional challenges for bonus XP
 - **Built-in Guide** — progressive, context-aware hints with no API needed

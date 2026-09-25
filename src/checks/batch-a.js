@@ -1,4 +1,4 @@
-// Grading rules for chapters 1-4 and practice grind_0-7 (ported from rules_a.py). Format: see src/checks.js.
+// Grading rules for chapters 1-4 and practice grind_0-7 (ported from rules_a.py in docs/plans/pyodide-prototype/, removed after 4bb8e83). Format: see src/checks.js.
 // Hints are read by 9-12 year olds: one step to take, never the whole answer.
 // Where rules_a.py built an expected-lines list with code (a comprehension or '-' * 20), the list is
 // written out here. It passes the same programs, and grading.py only names the first wrong line

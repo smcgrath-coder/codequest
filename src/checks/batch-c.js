@@ -1,4 +1,4 @@
-// Grading rules for chapters 9-12 and practice grind_16-23 (ported from rules_c.py). Format: see src/checks.js.
+// Grading rules for chapters 9-12 and practice grind_16-23 (ported from rules_c.py in docs/plans/pyodide-prototype/, removed after 4bb8e83). Format: see src/checks.js.
 // Each expr is Python, written with String.raw so its backslashes reach Python as typed.
 const py = String.raw;
 

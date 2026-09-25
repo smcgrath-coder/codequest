@@ -1,4 +1,4 @@
-// Grading rules for chapters 5-8 and practice grind_8-15 (ported from rules_b.py). Format: see src/checks.js.
+// Grading rules for chapters 5-8 and practice grind_8-15 (ported from rules_b.py in docs/plans/pyodide-prototype/, removed after 4bb8e83). Format: see src/checks.js.
 // py`...` is String.raw: each expr is the Python text exactly as written, backslashes and quotes included.
 // The Python helpers below are spliced into exprs with ${...}; no expr uses ${ for anything else.
 const py = String.raw;

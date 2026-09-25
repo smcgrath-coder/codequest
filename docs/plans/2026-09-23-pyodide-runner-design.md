@@ -147,6 +147,15 @@ The rules live in `src/checks.js`, one per challenge, keyed by id and kept separ
 
 **Known content bugs.** grind_17 (seed 42 makes "Correct!" unreachable), ch12_boss (Run2 never launches) and grind_23 (all runs fit, so the time limit is never tested) get rules that accept the reference solution. The content fixes are a follow-up.
 
+### Mark it done
+
+Added after the first release: a safety valve for grading mistakes. The grader still rejects about 3% of typical correct programs, and main rooms unlock in order, so a wrong "no" must never block a kid for good.
+
+- **When it appears.** After 3 "stuck" Runs in a room or boss (`STUCK_TRIES_TO_MARK_DONE`), the OUTPUT panel shows "I think my answer is right — mark it done". A Run is stuck when the code ran cleanly but didn't pass, or, without Python, when the keyword grader said no without finding a keyword error (`countsAsStuck` in `flow.js`).
+- **What doesn't count.** Runs that can't be a correct answer graded wrongly: empty code, comments only, or the starter unchanged; a crash or a Stop; a grading pass that was stopped or ran too long; and code that reaches into Python's insides, which isn't graded at all.
+- **What it gives.** The room clears through the normal victory screen ("Marked done — half XP"), for half XP and never No Peeking. A boss still gives its badge. The character sheet lists marked-done rooms under "Marked done", so the kid can come back to them.
+- **Where it doesn't appear.** Never on a replay, never while code is running, and not in the Practice Arena, where nothing is locked.
+
 ## 4. Testing and rollout
 
 - **`node:test` with real Pyodide.** The tests load the pinned `pyodide` npm package, with no network. For every challenge:
