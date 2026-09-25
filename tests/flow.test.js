@@ -117,6 +117,16 @@ describe("stuck attempts (they unlock the Mark it done button)", () => {
     assert.equal(countsAsStuck(await run(fakeRunner({ ok: false, kind: "Stopped", stopped: true }, {}))), false);
   });
 
+  test("a grading pass that was stopped or ran too long is not stuck: it never judged the code", async () => {
+    // What gradeCode resolves to when the kid presses Stop during "Checking your code…", or it times out.
+    for (const graded of [{ passed: false, stopped: true, feedback: "Checking stopped before it finished. Press Run to try again." },
+      { passed: false, timedOut: true, feedback: "Checking your program took too long. Look for a loop that never stops." }]) {
+      const r = await run(fakeRunner(clean, graded));
+      assert.equal(r.mode, "python"); assert.equal(r.run.ok, true); assert.equal(r.passes, false);
+      assert.equal(countsAsStuck(r, { code: "print(1)", starter: challenge.starterCode }), false, graded.feedback);
+    }
+  });
+
   test("a clean Python run graded by the keyword grader (no rule, or grading failed) is stuck when it fails", async () => {
     const failing = () => ({ passes: false, feedback: "no", error: null });
     assert.equal(countsAsStuck(await run(fakeRunner(clean, {}), { rule: undefined, fallbackGrade: failing })), true);

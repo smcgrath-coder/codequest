@@ -51,12 +51,12 @@ const INSIDES_FEEDBACK = "Your program reaches into Python's insides, so I can't
 
 // A "stuck" Run: the kid's own code ran cleanly (no crash, not stopped) but didn't pass, so the grader may
 // be the one that's wrong. Without Python, a keyword error counts as a real mistake. Empty code, or the
-// starter left as it was, can't be a misgraded answer, and code that wasn't graded because it reaches into
-// Python's insides wasn't misgraded either. STUCK_TRIES_TO_MARK_DONE of these unlock the room's "mark it
-// done" button.
+// starter left as it was, can't be a misgraded answer. Nor can code that was never judged: a grading pass
+// that was stopped (Stop during "Checking your code…") or ran too long, or code that wasn't graded because it
+// reaches into Python's insides. STUCK_TRIES_TO_MARK_DONE of these unlock the room's "mark it done" button.
 export const STUCK_TRIES_TO_MARK_DONE = 3;
 export function countsAsStuck(result, { code, starter = "" } = {}) {
-  if (!result || result.passes || result.insides) return false;
+  if (!result || result.passes || result.insides || result.graded?.stopped || result.graded?.timedOut) return false;
   if (code !== undefined && (!codeLines(code) || codeLines(code) === codeLines(starter))) return false;
   return result.mode === "fallback" ? !result.keywordError : !!result.run?.ok;
 }
