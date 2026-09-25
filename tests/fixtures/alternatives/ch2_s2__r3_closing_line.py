@@ -1,0 +1,6 @@
+word = "Code"
+print(word * 3)
+print(word[0])
+print(word[-1])
+print("-" * 20)
+print("Mirror room cleared!")

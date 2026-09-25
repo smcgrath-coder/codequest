@@ -3,9 +3,13 @@ import * as Tone from "tone";
 import { Music, getTrackForContext } from "./music.js";
 import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
-import { CHAPTERS, TROPHIES, CODEX } from "./content.js";
-import { availablePractice, normalizeProfile, afterClear } from "./progress.js";
-import { handleCodeKeyDown, CODE_TEXTAREA_PROPS } from "./editor.js";
+import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
+import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
+import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
+import { runStopGuard } from "./editor.js";
+import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
+import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
+import { CHECKS } from "./checks.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2019,9 +2023,9 @@ async function saveProfileList(l){try{localStorage.setItem("cq:profiles",JSON.st
 // SHARED UI COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
-function Btn({children,onClick,color=ACCENT,disabled,className="",style={}}){
+function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",style={}}){
   const handleClick=()=>{try{SFX.init().then(()=>SFX.click())}catch(e){}if(onClick)onClick();};
-  return <button onClick={handleClick} disabled={disabled}
+  return <button onClick={handleClick} disabled={disabled} autoFocus={autoFocus}
     className={`px-5 py-2 rounded font-bold text-sm tracking-wider transition-all duration-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     style={{background:`${color}18`,border:`1px solid ${color}66`,color,fontFamily:MONO,...style}}
     onMouseEnter={e=>{if(!disabled)e.currentTarget.style.boxShadow=`0 0 20px ${color}33`}}
@@ -2075,7 +2079,7 @@ function CharacterCreate({onComplete,existingProfiles}){
 
   const finish=()=>{
     if(!name.trim())return;
-    onComplete({name:name.trim(),avatar:{hair,skin,shirt,accessory},xp:0,completedRooms:[],completedBosses:[],badges:[],trophies:[],equipment:[],createdAt:new Date().toISOString()});
+    onComplete({name:name.trim(),avatar:{hair,skin,shirt,accessory},xp:0,completedRooms:[],completedBosses:[],badges:[],trophies:[],equipment:[],markedDone:[],createdAt:new Date().toISOString()});
   };
 
   const CP=({label,options,value,onChange})=>(
@@ -2276,6 +2280,7 @@ function MapBackground() {
 // ═══════════════════════════════════════════════════════════════════
 
 function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,timeRemaining,sessionActive}){
+  useEffect(()=>{warmUp().catch(()=>{})},[]);   // load Python in the background; a failure means the keyword grader
   const xp=profile.xp,cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const status=ch=>{
     if(ch.comingSoon)return "locked";if(xp<ch.requiredXp)return "locked";
@@ -2415,6 +2420,7 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
 }
 
 function CharacterSheet({profile,onBack}){
+  const markedDone=markedDoneChallenges(profile);
   return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <Btn onClick={onBack} color={DIM} className="mb-6">← Map</Btn>
     <div className="max-w-lg mx-auto">
@@ -2442,6 +2448,13 @@ function CharacterSheet({profile,onBack}){
           <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?"#e67e22":DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
         </div>})}
       </div>
+      {markedDone.length>0&&<div className="mt-6">
+        <h3 className="text-sm font-bold mb-2 tracking-wider uppercase" style={{color:DIM}}>✋ Marked done</h3>
+        <p className="text-xs mb-3" style={{color:DIM}}>You marked these done yourself. Try them again sometime!</p>
+        <div className="flex flex-wrap gap-2">
+          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:"1px solid #ffffff11",color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
+        </div>
+      </div>}
     </div>
   </div>;
 }
@@ -2540,9 +2553,19 @@ function Codex({profile,onBack}){
 function GrindingZone({profile,onBack}){
   const [challenge,setChallenge]=useState(null);
   const [code,setCode]=useState("");
-  const [output,setOutput]=useState(null);
+  const [parts,setParts]=useState([]);
+  const [waiting,setWaiting]=useState(false);
+  const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
+  const [checking,setChecking]=useState(false);   // the hidden grading pass is running
   const [attempts,setAttempts]=useState([]);
+  const [pyStatus,setPyStatus]=useState(pythonStatus);
+  useEffect(()=>{setPyStatus(pythonStatus());return onPythonStatus(setPyStatus)},[]);   // re-read: it may have changed since the first render
+  // Leaving a challenge mid-run stops the program (it may be waiting at input()) and drops its late output and result.
+  const runSeq=useRef(0);
+  const dropRun=()=>{runSeq.current++;stopCode();setIsRunning(false);setChecking(false);setWaiting(false);setParts([]);setResult(null)};
+  useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
+  const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
   // Challenges unlock as the player reaches each chapter
   const available=availablePractice(profile.completedRooms);
@@ -2554,20 +2577,26 @@ function GrindingZone({profile,onBack}){
     const pool=cat?available.filter(g=>g.cat===cat):available;
     if(pool.length===0)return;
     const pick=pool[Math.floor(Math.random()*pool.length)];
-    setChallenge(pick);setCode(pick.starterCode);setOutput(null);setAttempts([]);
+    // Practice challenges have no id; their grading rules are keyed by their place in GRIND_CHALLENGES.
+    dropRun();setChallenge({...pick,id:`grind_${GRIND_CHALLENGES.indexOf(pick)}`});setCode(pick.starterCode);setAttempts([]);
   };
 
   const handleRun=async()=>{
     if(isRunning)return;
-    setIsRunning(true);setOutput(null);
+    runStop.started();
+    const seq=++runSeq.current,live=()=>seq===runSeq.current;
+    setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
-      const result=validateOffline(code,challenge,attempts.length);
-      setOutput(result);
-      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-    }finally{setIsRunning(false)}
+      const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
+        fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
+        onOutput:(text,kind)=>{if(live())setParts(p=>appendPart(p,text,kind))},
+        onInputRequest:()=>{if(live())setWaiting(true)},
+        onGrading:()=>{if(live())setChecking(true)}});
+      if(!live())return;
+      setWaiting(false);setResult(r);
+      setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
+    }finally{if(live()){setIsRunning(false);setChecking(false)}}
   };
-
-  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
 
   if(!challenge) return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="flex items-center gap-4 mb-6">
@@ -2603,7 +2632,7 @@ function GrindingZone({profile,onBack}){
     {/* Top bar */}
     <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
       <div className="flex items-center gap-3">
-        <Btn onClick={()=>setChallenge(null)} color={DIM}>← Back</Btn>
+        <Btn onClick={()=>{dropRun();setChallenge(null)}} color={DIM}>← Back</Btn>
         <div>
           <span className="text-sm font-bold" style={{color:"#e67e22"}}>{challenge.name}</span>
           <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#e67e2218",color:"#e67e22"}}>{challenge.cat}</span>
@@ -2622,19 +2651,17 @@ function GrindingZone({profile,onBack}){
       </div>
       {/* Code panel */}
       <div className="flex-1 flex flex-col p-4" style={{maxHeight:"calc(100vh - 56px)"}}>
-        <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
-          {...CODE_TEXTAREA_PROPS} className="flex-1 p-4 rounded-lg text-sm resize-none outline-none mb-3"
-          style={{background:DARK,color:TEXT,fontFamily:MONO,border:`1px solid ${ACCENT}33`,minHeight:"200px"}}/>
-        <div className="flex gap-3 mb-3">
-          <Btn onClick={handleRun} disabled={isRunning}>{isRunning?"Running...":"▶ Run (Ctrl+Enter)"}</Btn>
+        <CodeEditor code={code} setCode={setCode} onRun={handleRun} minHeight={200}/>
+        <div className="flex flex-wrap items-center gap-3 my-3">
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} color={isRunning?ERR:ACCENT}>{isRunning?"■ Stop":"▶ Run (Ctrl+Enter)"}</Btn>
+          {result&&<div className="flex items-center gap-2">
+            <span>{result.passes?"✅":"❌"}</span>
+            <span className="text-sm font-bold" style={{color:result.passes?ACCENT:ERR}}>{result.passes?"Great work!":"Not quite — keep trying!"}</span>
+          </div>}
         </div>
-        {output&&<div className="p-3 rounded-lg" style={{background:output.passes?"#0d281822":"#28101822",border:`1px solid ${output.passes?`${ACCENT}44`:`${ERR}44`}`}}>
-          <div className="flex items-center gap-2 mb-1">
-            <span>{output.passes?"✅":"❌"}</span>
-            <span className="text-sm font-bold" style={{color:output.passes?ACCENT:ERR}}>{output.passes?"Great work!":"Not quite — keep trying!"}</span>
-          </div>
-          <pre className="text-xs whitespace-pre-wrap" style={{color:DIM,fontFamily:MONO}}>{output.feedback}</pre>
-        </div>}
+        <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
+          error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
+          feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"&&(result.late?"late":"device")}/>
       </div>
     </div>
   </div>;
@@ -2646,33 +2673,54 @@ function GrindingZone({profile,onBack}){
 
 function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
   const [code,setCode]=useState(challenge.starterCode||"");
-  const [output,setOutput]=useState(null);
+  const [parts,setParts]=useState([]);
+  const [waiting,setWaiting]=useState(false);
+  const [result,setResult]=useState(null);
   const [isRunning,setIsRunning]=useState(false);
+  const [checking,setChecking]=useState(false);   // the hidden grading pass is running
   const [hintLevel,setHintLevel]=useState(0);
   const [passed,setPassed]=useState(false);
   const [showVictory,setShowVictory]=useState(false);
   const [usedHints,setUsedHints]=useState(false);
   const [attempts,setAttempts]=useState([]);
+  const [stuck,setStuck]=useState(0);   // clean runs that didn't pass; enough of them unlock "mark it done"
+  const [markedDone,setMarkedDone]=useState(false);
   const [dialoguePhase,setDialoguePhase]=useState(chapterIntroDialogue?"chapter-intro":challenge.npcDialogue?"room-intro":"play");
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
   const completedRef=useRef(false);
+  const [pyStatus,setPyStatus]=useState(pythonStatus);
+  useEffect(()=>{setPyStatus(pythonStatus());return onPythonStatus(setPyStatus)},[]);   // re-read: it may have changed since the first render
+  // Leaving the room mid-run stops the program (it may be waiting at input()), and its result gets no sound or victory.
+  const runSeq=useRef(0);
+  useEffect(()=>()=>{runSeq.current++;stopCode()},[]);
+  const [runStop]=useState(runStopGuard);   // Run turns into Stop in place, so the second click of a double-click is ignored
 
+  // Passing, or marking the room done: the victory screen follows.
+  const win=()=>{setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500)};
   const handleRun=async()=>{
     if(isRunning||passed)return;
-    setIsRunning(true);setOutput(null);
+    runStop.started();
+    const seq=++runSeq.current;
+    setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
     try{
-      const result=validateOffline(code,challenge,attempts.length);
-
-      setOutput(result);
-      setAttempts(prev=>[...prev,{code,feedback:result.feedback,passed:result.passes}]);
-
-      if(result.passes){setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500);}
+      const r=await runAndGrade({code,challenge,rule:CHECKS[challenge.id],attempt:attempts.length+1,
+        fallbackGrade:validateOffline,runner:PYTHON_RUNNER,
+        onOutput:(text,kind)=>setParts(p=>appendPart(p,text,kind)),
+        onInputRequest:()=>setWaiting(true),
+        onGrading:()=>setChecking(true)});
+      if(seq!==runSeq.current)return;   // the kid left the room
+      setWaiting(false);setResult(r);
+      setAttempts(prev=>[...prev,{code,feedback:r.feedback,passed:r.passes}]);
+      if(countsAsStuck(r,{code,starter:challenge.starterCode}))setStuck(n=>n+1);
+      if(r.passes)win();
       else{try{SFX.codeFail()}catch(e){}}
-    }finally{setIsRunning(false)}
+    }finally{setIsRunning(false);setChecking(false)}
   };
-
-  const handleKeyDown=e=>handleCodeKeyDown(e,handleRun);
+  // The safety valve for a grading mistake: never on a replay (nothing to unblock), or while code is running.
+  const canMarkDone=!replaying&&!passed&&!isRunning&&stuck>=STUCK_TRIES_TO_MARK_DONE;
+  // The button goes away once pressed, so CONTINUE takes the focus: Tab can't leave the code editor.
+  const markDone=()=>{if(!canMarkDone)return;setMarkedDone(true);win()};
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
   const concepts=getConceptsForChallenge(challenge);
@@ -2708,8 +2756,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {hintLevel<challenge.hints.length&&<button onClick={()=>{setHintLevel(h=>h+1);setUsedHints(true)}}
             className="text-xs px-3 py-1 rounded cursor-pointer" style={{color:GOLD,background:`${GOLD}11`,border:`1px solid ${GOLD}33`}}>
             💡 Hint ({challenge.hints.length-hintLevel} left)</button>}
-          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs whitespace-pre-wrap"
-            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>💡 {h}</div>)}
+          {/* The bulb sits in its own column, so every line of a code hint starts at the same edge, and copying the hint leaves it out */}
+          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs flex gap-2"
+            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>
+            <span aria-hidden="true" className="select-none">💡</span><div className="whitespace-pre-wrap min-w-0">{h}</div></div>)}
         </div>
 
         {/* Help buttons */}
@@ -2744,22 +2794,18 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs font-mono tracking-wider" style={{color:DIM}}>PYTHON EDITOR</span>
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
-          <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleKeyDown}
-            className="flex-1 w-full p-4 rounded-lg resize-none focus:outline-none"
-            style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`,fontFamily:MONO,fontSize:"13px",lineHeight:"1.6",minHeight:"140px",caretColor:ACCENT}}
-            {...CODE_TEXTAREA_PROPS} placeholder="# Write your Python code here..."/>
-          <Btn onClick={handleRun} disabled={isRunning||passed} className="mt-3" color={passed?"#00bfa5":ACCENT}>
-            {isRunning?"⟳ Running...":passed?"✓ Passed!":"▶ Run Code"}</Btn>
+          <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
+            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
-          {isRunning&&<div className="text-sm" style={{color:ACCENT}}>⟳ Checking your code...</div>}
-          {output&&<div style={{animation:output.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}}>
-            {output.error?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap" style={{background:"#ff6b6b11",color:ERR,border:"1px solid #ff6b6b33"}}>❌ {output.error}</div>
-            :output.output?<div className="p-3 rounded text-sm font-mono whitespace-pre-wrap mb-2" style={{background:DARK,color:"#e6e6e6",border:`1px solid #ffffff11`}}>{output.output}</div>:null}
-            {output.feedback&&<div className="p-3 rounded text-sm" style={{background:output.passes?`${ACCENT}11`:`${GOLD}11`,color:output.passes?ACCENT:GOLD,border:`1px solid ${output.passes?`${ACCENT}33`:`${GOLD}33`}`}}>
-              {output.passes?"🎉":"💭"} {output.feedback}</div>}
-          </div>}
+          <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
+            <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
+              error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
+              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"&&(result.late?"late":"device")}
+              onMarkDone={canMarkDone?markDone:undefined}/>
+          </div>
         </div>
       </div>
     </div>
@@ -2772,12 +2818,14 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
         <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
         {replaying
           ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
+          :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
           :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
-        {!usedHints&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
+        {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
         <Btn onClick={()=>{
           // Once only: the overlay closes so a second Enter/Space can't award XP again
           if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
-          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints)}} color={isBoss?GOLD:ACCENT}>CONTINUE →</Btn>
+          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})}} color={isBoss?GOLD:ACCENT}
+          autoFocus={markedDone}>CONTINUE →</Btn>
       </div>
     </div>}
   </div>;
@@ -2892,8 +2940,9 @@ export default function App(){
   };
   const selectBoss=boss=>{try{SFX.roomEnter()}catch(e){}setCurrentChallenge(boss);setIsBossChallenge(true);setReplaying((profile.completedBosses||[]).includes(boss.id));setChapterIntroNpc(null);setChapterIntroDialogue(null);setScreen("challenge")};
 
-  const completeChallenge=async(earnedXp,noHints)=>{
-    const r=afterClear(profile,{id:currentChallenge.id,isBoss:isBossChallenge,xp:earnedXp,noHints,roomsThisSession:roomsThisSession+1});
+  // markedDone: the kid marked the room done (half XP, never No Peeking); afterClear applies it.
+  const completeChallenge=async(earnedXp,noHints,{markedDone=false}={})=>{
+    const r=afterClear(profile,{id:currentChallenge.id,isBoss:isBossChallenge,xp:earnedXp,noHints,roomsThisSession:roomsThisSession+1,markedDone});
     if(r.firstClear)try{SFX.xpGain()}catch(e){}
     if(r.changed)await persistProfile(r.profile);
     setRoomsThisSession(n=>n+1);

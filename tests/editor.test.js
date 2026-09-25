@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { indentEdit, handleCodeKeyDown } from "../src/editor.js";
+import { indentEdit, handleCodeKeyDown, runStopGuard, RUN_STOP_GAP_MS } from "../src/editor.js";
 
 // Applies an edit the way the textarea will, returning the new text and selection.
 function apply(value, selStart, selEnd, opts) {
@@ -109,5 +109,47 @@ describe("handleCodeKeyDown", () => {
     handleCodeKeyDown(key(el, "Enter", { metaKey: true }), () => runs++);
     handleCodeKeyDown(key(el, "Enter"), () => runs++);
     assert.equal(runs, 2);
+  });
+});
+
+describe("Run/Stop button (runStopGuard)", () => {
+  // A fake clock the test moves by hand.
+  const fakeClock = () => { let t = 0; const now = () => t; now.to = ms => { t = ms; }; return now; };
+  const clicksAt = (guard, now, times) => times.map(ms => { now.to(ms); return guard.click(); });
+
+  test("the first click counts", () => {
+    const now = fakeClock();
+    assert.deepEqual(clicksAt(runStopGuard(now), now, [1000]), [true]);
+  });
+
+  test("the second click of a double-click is ignored, so it doesn't stop the run the first click started", () => {
+    const now = fakeClock();
+    assert.deepEqual(clicksAt(runStopGuard(now), now, [1000, 1250]), [true, false]);
+  });
+
+  test("a click after a pause counts", () => {
+    const now = fakeClock();
+    assert.deepEqual(clicksAt(runStopGuard(now), now, [1000, 1000 + RUN_STOP_GAP_MS]), [true, true]);
+  });
+
+  test("a burst of quick clicks counts once, even when the burst lasts longer than the gap", () => {
+    const now = fakeClock();
+    assert.deepEqual(clicksAt(runStopGuard(now), now, [1000, 1250, 1500, 1750, 2400]), [true, false, false, false, true]);
+  });
+
+  test("a click just after Ctrl+Enter starts a run is ignored", () => {
+    const now = fakeClock(), guard = runStopGuard(now);
+    now.to(1000); guard.started();
+    assert.deepEqual(clicksAt(guard, now, [1200, 1800]), [false, true]);
+  });
+
+  test("the gap covers a usual system double-click (500 ms)", () => {
+    assert.equal(RUN_STOP_GAP_MS, 500);
+  });
+
+  test("uses the real clock by default", () => {
+    const guard = runStopGuard();
+    assert.equal(guard.click(), true);
+    assert.equal(guard.click(), false);
   });
 });

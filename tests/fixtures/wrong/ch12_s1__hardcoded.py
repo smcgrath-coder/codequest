@@ -1,0 +1,16 @@
+# Gyro Turn Simulator
+
+print("Gyro: 0°")
+print("Gyro: 15°")
+print("Gyro: 32°")
+print("Gyro: 48°")
+print("Gyro: 65°")
+print("Gyro: 78°")
+print("Gyro: 91°")
+print("Turn to 90° done! Final angle: 91°")
+print("Gyro: 0°")
+print("Gyro: -10°")
+print("Gyro: -22°")
+print("Gyro: -38°")
+print("Gyro: -46°")
+print("Turn to -45° done! Final angle: -46°")

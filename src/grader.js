@@ -2,6 +2,12 @@
 // NON-LLM VALIDATION ENGINE (Built-in Guide mode)
 // ═══════════════════════════════════════════════════════════════════
 
+// The keyword checker. Kids' code is normally run for real in Python
+// (src/python/) and graded by what it does (src/checks.js). This file is the
+// fallback for devices that can't run Python there (old browsers, or a host
+// without the cross-origin isolation headers): it reads the code without
+// running it. Its concept list and help text are also used by the Guide.
+
 // Removes comments and blanks the literal text of strings (quotes and prefixes
 // such as f"" are kept), so the rules below only ever look at real code. A
 // string stays on the line where it starts, even a multi-line one. The

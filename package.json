@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "^22.0.0 || >=24.0.0"
   },
   "description": "CodeQuest — A Python Learning Adventure Game",
   "scripts": {
@@ -14,6 +14,7 @@
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
+    "pyodide": "314.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tone": "^14.7.77"
@@ -24,6 +25,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vite-plugin-static-copy": "4.1.1"
   }
 }
