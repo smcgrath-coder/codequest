@@ -380,11 +380,13 @@ test("a call gives up on Python still loading after LOAD_TIME_LIMIT_MS, so its r
   assert.equal(run.done, false, "still waiting for Python");
   await advance(2_000);
   assert.match(run.error?.message ?? "(still waiting)", /too long to load/);
+  assert.equal(run.error.late, true, "so the room can say Python is still loading");
   assert.equal(pythonStatus(), "loading", "a slow load isn't marked unavailable");
   // The wait counts from when loading started, so once Python is late, calls fall back at once.
   const grade = track(gradeCode("print hi", { rule: {} }));
   await advance(50);
   assert.match(grade.error?.message ?? "(still waiting)", /too long to load/);
+  assert.equal(grade.error.late, true);
   w.stalled = false;   // the download finally finishes
   await advance(50);
   assert.equal(pythonStatus(), "ready");

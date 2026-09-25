@@ -52,6 +52,16 @@ test("if Python fails to load mid-way, the keyword grader is used", async () => 
   assert.equal(r.mode, "fallback");
 });
 
+test("if Python is still loading after the load limit, the keyword grader is used and the result says Python was late", async () => {
+  const late = Object.assign(new Error("Python is taking too long to load"), { late: true });
+  const r = await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade,
+    runner: { available: () => true, run: async () => { throw late; } } });
+  assert.equal(r.mode, "fallback"); assert.equal(r.feedback, "keyword ok"); assert.equal(r.late, true);
+  const failed = await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade,
+    runner: { available: () => true, run: async () => { throw new Error("load failed"); } } });
+  assert.equal(failed.late, undefined, "a failed load isn't late");
+});
+
 test("if grading can't reach Python after the run, the keyword grader grades it", async () => {
   const runner = { ...fakeRunner({ ok: true, inputs: [] }, {}), grade: async () => { throw new Error("load failed"); } };
   const r = await runAndGrade({ code: "print(1)", challenge, rule, attempt: 1, fallbackGrade, runner });

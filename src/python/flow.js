@@ -4,15 +4,15 @@ import { friendlyError } from "./friendly.js";
 
 // runner is { available, run, grade, restart }, backed by runner.js in the game. attempt counts from 1, this one included.
 // onGrading() is called just before the hidden grading pass, so the room can say it's checking; never without one.
-// Resolves to { mode: "python" | "fallback", passes, feedback, error, keywordError, run, graded, insides }; which
-// fields are set depends on how far it got.
+// Resolves to { mode: "python" | "fallback", passes, feedback, error, keywordError, run, graded, insides, late };
+// which fields are set depends on how far it got. late: true is a fallback because Python is still loading.
 export async function runAndGrade({ code, challenge, rule, attempt, runner, fallbackGrade, onOutput, onInputRequest, onGrading }) {
   // The keyword grader (validateOffline) takes the number of earlier attempts, as the rooms have always passed it.
   const keyword = () => pick(fallbackGrade(code, challenge, attempt - 1));
   if (!runner.available()) return { mode: "fallback", ...keyword() };
   let run;
   try { run = await runner.run(code, { onOutput, onInputRequest }); }
-  catch { return { mode: "fallback", ...keyword() }; }   // Python failed to load, or is taking too long
+  catch (e) { return { mode: "fallback", ...keyword(), ...(e?.late && { late: true }) }; }   // Python failed to load, or is late
   // Kid code shares its interpreter with grading, so code that reaches into Python's insides could rewrite
   // grading or fake its reply. It still runs, so the kid sees what it printed, but it isn't graded, and Python
   // is restarted so nothing it changed can touch later runs. See reachesIntoPython().

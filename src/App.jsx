@@ -2661,7 +2661,7 @@ function GrindingZone({profile,onBack}){
         </div>
         <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
           error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
-          feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}/>
+          feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"&&(result.late?"late":"device")}/>
       </div>
     </div>
   </div>;
@@ -2801,7 +2801,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
             <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
               error={result?.error||(result?.mode==="fallback"&&result.keywordError?{headline:result.keywordError}:null)}
-              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"}
+              feedback={result?.feedback} passed={result?.passes} fallbackNote={result?.mode==="fallback"&&(result.late?"late":"device")}
               onMarkDone={canMarkDone?markDone:undefined}/>
           </div>
         </div>

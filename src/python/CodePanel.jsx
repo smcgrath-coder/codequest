@@ -41,6 +41,7 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
 }
 
 // onMarkDone, when given, shows the "mark it done" button. ChallengeRoom passes it after 3 clean runs that didn't pass.
+// fallbackNote, for a result from the keyword grader: "late" while Python is still loading, else any truthy value.
 export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking, error, feedback, passed, fallbackNote, onMarkDone }) {
   const [answer, setAnswer] = useState("");
   const inputRef = useRef(null);
@@ -67,7 +68,7 @@ export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking
     </div>}
     {feedback && <div className="p-3 rounded text-sm" style={{ background: passed ? `${ACCENT}11` : `${GOLD}11`, color: passed ? ACCENT : GOLD,
       border: `1px solid ${passed ? `${ACCENT}33` : `${GOLD}33`}` }}>{passed ? "🎉" : "💭"} {feedback}</div>}
-    {fallbackNote && <div className="text-xs mt-2" style={{ color: DIM }}>{status === "loading"   // a slow download; see runner.js's untilReady()
+    {fallbackNote && <div className="text-xs mt-2" style={{ color: DIM }}>{fallbackNote === "late"   // a slow download; see runner.js's untilReady()
       ? "Python is still loading, so this time I checked your code without running it."
       : "This device can't run Python here, so I checked your code without running it."}</div>}
     {onMarkDone && <div className="flex flex-wrap items-center gap-2 mt-3">

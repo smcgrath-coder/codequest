@@ -27,9 +27,10 @@ function spawn() {
   inputBox = new SharedArrayBuffer(INPUT_BUFFER_BYTES);
   setStatus("loading");
   let booting = true, slow = null;
-  // Rejects if this worker is still loading after LOAD_TIME_LIMIT_MS; never once it has booted.
+  // Rejects if this worker is still loading after LOAD_TIME_LIMIT_MS; never once it has booted. late: true
+  // lets the room say Python is still loading, not that this device can't run it.
   loadLimit = new Promise((_, reject) => {
-    slow = setTimeout(() => reject(new Error("Python is taking too long to load")), LOAD_TIME_LIMIT_MS);
+    slow = setTimeout(() => reject(Object.assign(new Error("Python is taking too long to load"), { late: true })), LOAD_TIME_LIMIT_MS);
   });
   loadLimit.catch(() => {});
   ready = new Promise((resolve, reject) => {
