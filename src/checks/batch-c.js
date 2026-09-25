@@ -2,28 +2,99 @@
 // Each expr is Python, written with String.raw so its backslashes reach Python as typed.
 const py = String.raw;
 
+// ch12_s3: the colour to read for the colour c asked about in a question, given the rest r of the line after its
+// question mark: c after yes or true, the other colour after no, not or false ('Is 20 white? no', f5_question_format).
+// With neither, none if the answer names a colour instead, before any number ('Reading 20: is it white? It is
+// black', f5_is_it_line), else c, as before questions were read. A colour after a number is another group's
+// ('Which are black? [20, 45, 8] Which are white? [60]', f5_which_one_line; 'Are these white? [60] and these are
+// black: [20, 45, 8]', f5_group_then_statement), so a question heading a group ('Which are black? [20, 45, 8]',
+// f5_which_are_grouped) or getting no answer ('20 is black?!', f5_is_colour_interrobang) still counts.
+const CH12_S3_ANSWER = py`(lambda c, r: (lambda a: (c if a.group(1).lower() in ('yes', 'yep', 'yeah', 'true') else {'black': 'white', 'white': 'black'}[c.lower()]) if a else '' if re.match(r'(?i)\D*(?:black|white)', r) else c)(re.match(r'(?i)\W*(yes|yep|yeah|true|no|nope|not|false)\b', r)))`;
+
+// ch12_s3: line l with the colour words that name no colour taken out. "black or white" names none, so a header such
+// as 'Testing [20, 45, 8, 60]: black or white?' isn't read as the readings' colour. A colour asked about after is or
+// are ('Is 20 white?', 'Which are black?') is replaced by the one CH12_S3_ANSWER reads for it. A colour with a
+// question mark after anything else still counts ('Black? [20, 45, 8]').
+const CH12_S3_LINE = py`(lambda l: re.sub(r'(?i)\b((?:is|are)\b[^?]*?)\b(black|white)\s*\?', lambda q: '%s %s ' % (q.group(1), ${CH12_S3_ANSWER}(q.group(2), q.string[q.end():])), re.sub(r'(?i)\b(?:black|white)\s*(?:or|and|/|vs\.?|&)\s*(?:black|white)\b', ' ', l)))`;
+
 // ch12_s3: whether lines t show each (reading, colour) pair of want, with that colour and not the other one. Read
 // one way, each reading goes with the first colour after it on its line ('20 -> black'); read the other way, with
 // the last colour before it ('black: 20', 'Black readings: [20, 45, 8]'), so a list of pairs and readings grouped
 // by colour count too, in any order. A reading on a line with no colour, such as the list of readings, goes with
-// none. "black or white" names no colour, so a header such as 'Testing [20, 45, 8, 60]: black or white?' isn't
-// read as the readings' colour. An earlier rule only asked that the pairs were among those shown, which passed a
-// reading shown under both colours (both_groups, all_white_group, no_else).
-const CH12_S3_COLOURS = py`(lambda t, want: any((lambda P: all({c for n, c in P if n == r and c} == {col} for r, col in want))([(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(r'(?i)(?<![\d.])(20|45|8|60)(?!\.?\d)|(black|white)', re.sub(r'(?i)\b(?:black|white)\s*(?:or|and|/|vs\.?|&)\s*(?:black|white)\b', ' ', l))] for l in t] for j in range(len(tk)) if tk[j][0]]) for m in (True, False)))`;
+// none. The readings are those of want, as whole numbers, which may be printed with a zero decimal part ('20.0 ->
+// black', f5_reading_float), but not as part of another number (12.4, 46.2). The lines are read as CH12_S3_LINE
+// leaves them. An earlier rule only asked that the pairs were among those shown, which passed a reading shown
+// under both colours (both_groups, all_white_group, no_else).
+const CH12_S3_COLOURS = py`(lambda t, want: (lambda R: any((lambda P: all({c for n, c in P if n == r and c} == {col} for r, col in want))([(int(tk[j][0]), next((c for _, c in (tk[j + 1:] if m else tk[:j][::-1]) if c), '').lower()) for tk in [[x.groups() for x in re.finditer(R, ${CH12_S3_LINE}(l))] for l in t] for j in range(len(tk)) if tk[j][0]]) for m in (True, False)))(r'(?i)(?<![\d.])(%s)(?:\.0+)?(?!\.?\d)|(black|white)' % '|'.join(sorted({str(r) for r, _ in want}, key=len, reverse=True))))`;
 
-// grind_23: whether lines t show the runs picked in a rerun: the total points tot, or the names P in a row, in that
-// order, with X not straight after them. X is the next run in the ranking, which fits only if the limit is ignored.
-// Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on lines saying a run was skipped don't
-// count ('❌ Run4 doesn't fit'), so a program may still list all 4 runs, ranked, before or after the ones it picks.
-// 'over' says a run was skipped ('over by 26s', 'goes over 75s', 'over the limit'), except between points and a
-// number, so a pick shown as 'Run1: 120 points over 28s' still counts (points_over_seconds).
-const G23_PICKS = py`(lambda t, P, X, tot: has(tot, L=t) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not (polarity(l) == -1 or re.search(r"(?i)\b(cannot|can[’']t|won[’']t|doesn[’']t|isn[’']t|skip\w*|exceed\w*|(?<!points )(?<!pts )over|over(?!\s*\d)|left out|drop\w*)\b|too long|too much|out of time|❌|✗|✘|✖|🚫|⛔", l)) for x in re.findall(r'\bRun[1-4]\b', l)]))`;
+// grind_23: whether line l says a run was skipped ('❌ Run4 doesn't fit'). Any n't counts ("Run4 wouldn't fit",
+// "Couldn't fit Run4", f5_wouldnt_fit, f5_couldnt), and so does 'over' ('over by 26s', 'goes over 75s', 'over the
+// limit'), except between points and a number, so a pick shown as 'Run1: 120 points over 28s' still counts
+// (points_over_seconds), or after 'left' ('Run1 picked (47s left over)', f5_left_over_on_pick). So does going past
+// the limit ('would go past the time limit', f5_past_limit), and needing more than the time left ('Run4 needs 31s,
+// only 5s left', f5_only_left), unless the line says the run was picked or fits ('needs 42s: picked, only 5s left',
+// f5_only_left_on_pick).
+const G23_SKIP = py`(lambda l: polarity(l) == -1 or bool(re.search(r"(?i)\b(cannot|\w+n[’']t|(?:ca|wo|does|is|did|would|could|should|was|do)nt|skip\w*|exceed\w*|(?<!left )(?<!left-)(?:(?<!points )(?<!pts )over|over(?!\s*\d))|left out|drop\w*)\b|too long|too much|out of time|\bpast (?:the |your )?(?:\w+ )?(?:limit|time)\b|\b(?:go|goes|going|went) past\b|\bpast \d|❌|✗|✘|✖|🚫|⛔", l)) or bool(re.search(r'(?i)\bneed\w*\b.*\bonly\b.*\bleft\b', l) and not re.search(r'(?i)\b(fits?|picked|added|chosen|taken)\b', l)))`;
 
-// ch11_r5, ch11_boss: what is wrong with the turn by b degrees after the drive of a mm: 'direction' if it names the
-// other side, 'sign' if it names none and its angle's sign is the other way, else ''. Its angle line is the first
-// line holding b after the drive's line, the first holding a. The lines without numbers between them count too, so
-// a side printed above the angle is read ('Turning left' then 'Gyro target: 90°', two_line_turn), but not a line
-// with a number, which is another move or a motor's ('L: 400  R: 400').
+// grind_23: the shape of line l, or of a piece of one: l with its run names and numbers blanked, its spaces merged
+// and the separators at its end (, ; | -> →) taken off, so the steps of a running total have the same shape
+// ('Run3: total 280' and 'Run4: total 375'; 'Run3(280) ' and 'Run4(375) ').
+const G23_SHAPE = py`(lambda l: re.sub(r'(?:[\s,;|]|->|→)+$', '', re.sub(r'\s+', ' ', re.sub(r'\d+(?:\.\d+)?', '#', re.sub(r'\bRun[1-4]\b', 'Run', l)))).strip())`;
+
+// grind_23: whether lines t show tot, the total points of the runs picked, P, other than as a step of a running
+// total that goes on past the limit. X is the next run in the ranking and nxt the total with X added. Each line is
+// read in pieces, each from a run name up to the next one, the first from the line's start. A piece showing tot is
+// such a step when its line names P's last run and no other and a later line of the same shape (G23_SHAPE) shows nxt
+// and names X and no other ('Run3: total 280' then 'Run4: total 375', f5_leak_cumulative_no_limit,
+// f5_so_far_no_limit), or when it names P's last run and the next piece on its line has its shape, names X and shows
+// nxt ('Plan: Run1(120) Run3(280) Run4(375) Run2(455)', f5_leak_one_line). That is how a program ignoring MATCH_TIME
+// prints its running total, unless the line with X says what would happen (if, would, could), or it or a line after
+// it is a skip line (S, from G23_SKIP): a program may print the total each run would make, then its verdict ('Run4:
+// 375 pts in 101s' then '  -> skipped', f5_decision_next_line; 'Checking Run4: 101s, 375 pts' then '  Too long,
+// skipped', f5_checking_then_verdict; 'Run4: 375 points, 101s' then 'Run4 doesn't fit',
+// f5_candidate_then_named_skip), which a program ignoring MATCH_TIME never says, though it may say each run was
+// added ('Run4: 375 pts in 101s' then '  -> added', f5_leak_added_below). After a line naming X alone, the lines
+// read (K) go up to the next line naming runs but not X. K stops at the first skip line it reads and keeps its
+// answer for each line, as many lines can ask it about the same one (a loop printing 'Run4: total 375' and '  ->
+// skipped' until the output runs out, f5_loop_forgot_advance). After a line of pieces the lines read also go up to
+// the next line naming runs but not X, so a leak's line for each run after it doesn't hide it ('Run1: 28s, not over
+// 75s', f5_one_line_each_run_status; 'Run1 - 28s - didn't skip', f5_one_line_each_run_didnt_skip), but of those
+// only the lines naming X are read ('Run1(120) Run3(280) Run4(375) Run2(360)' then 'Skipped: Run4, Run2',
+// f5_one_line_then_skipped_list): a closing line naming no run isn't about X ('No runs skipped',
+// f5_leak_one_line_none_skipped; an empty 'Skipped: ', f5_one_line_each_run_skipped_list; "Don't forget to charge
+// the robot!", f5_leak_one_line_closing_note). tot counts when any piece shows it other than as such a step, so the
+// running total of every run may come before the right total ('Best in 75s: 280 points', f5_table_then_best). A
+// line naming no run is no step, whatever follows it ('Total: 280' then 'Run4 next: 375 pts in 101s - too slow',
+// f5_after_total_too_slow, f5_after_total_more_than, f5_after_total_gt,
+// f5_skip_shows_total_no_word; in the 110 s rerun, where nxt is also the points of all 4 runs, 'Best: 375 points'
+// then 'All runs (Run1, Run2, Run3, Run4): 455 points', f5_all_runs_named_total, f5_grand_total_after), and neither
+// is one followed only by lines of other shapes ('Run3: total 280' then 'Run4 would make it 375 but takes 31s',
+// f5_would_make_running).
+const G23_TOTAL = py`(lambda t, P, X, tot, nxt, S: (lambda R, N, W: (lambda K: any(has(tot, L=[u]) and not ((R(l) == {P[-1]} and any(N(t[j]) and R(t[j]) == {X} and ${G23_SHAPE}(t[j]) == ${G23_SHAPE}(l) and not K(j) and not W(t[j]) for j in range(i + 1, len(t)))) or (k + 1 < len(U) and R(u) == {P[-1]} and R(U[k + 1]) == {X} and N(U[k + 1]) and ${G23_SHAPE}(u) == ${G23_SHAPE}(U[k + 1]) and not (S(l) or next((X in R(t[q]) for q in range(i + 1, len(t)) if R(t[q]) and (X not in R(t[q]) or S(t[q]))), False)) and not W(l))) for i, l in enumerate(t) for U in [re.split(r'(?=\bRun[1-4]\b)', l)] for k, u in enumerate(U)))(lambda j, c={}: c[j] if j in c else c.setdefault(j, next((not (q > j and R(t[q]) and X not in R(t[q])) for q in range(j, len(t)) if (q > j and R(t[q]) and X not in R(t[q])) or S(t[q])), False))))(lambda l: set(re.findall(r'\bRun[1-4]\b', l)), lambda l: re.search(r'(?<![\d.])%s(?!\d)' % nxt, l), lambda l: re.search(r'(?i)\b(?:if|would|could)\b', l)))`;
+
+// grind_23: whether lines t show the runs picked in a rerun: the total points tot (G23_TOTAL), or the names P in a
+// row, in that order, with X not straight after them. X is the next run in the ranking, which fits only if the limit
+// is ignored, and nxt the total with it. Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on
+// skip lines (G23_SKIP) don't count, so a program may still list all 4 runs, ranked, before or after the ones it
+// picks.
+const G23_PICKS = py`(lambda t, P, X, tot, nxt: (lambda S: ${G23_TOTAL}(t, P, X, tot, nxt, S) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not S(l) for x in re.findall(r'\bRun[1-4]\b', l)]))(${G23_SKIP}))`;
+
+// ch11_r5, ch11_boss: what is wrong with each turn of T, a turn by b degrees after the drive of a mm given as
+// (a, b, left): 'direction' if it names the other side, 'sign' if it names none and its angle's sign is the other
+// way, else ''. Its angle line is the first line holding b after the drive's line, the first holding a. The lines
+// without numbers between them count too, so a side printed above the angle is read ('Turning left' then 'Gyro
+// target: 90°', two_line_turn), but not a line with a number, which is another move or a motor's ('L: 400  R:
+// 400'). So do the lines without numbers after the angle line, up to the next line with a number, so a side printed
+// below it is read too ('Turning 90°' then '  Direction: left', f5_dir_below), but only when the angle line says it
+// turns and no turn's angle line shows a minus on its angle. When a turn shares a line with the drive before it,
+// the angle line found can be the next drive's ('Drive 90mm'), and the lines after that are another move's
+// ('Grabbing with the right arm', f5_shared_line_arm_words). When an angle shows a minus, the program signs its
+// angles, and the signs decide, as they did before the lines below were read: those lines can name a side for
+// another reason ('Turn 45°' then '  (negative means left)', f5_legend_negative_left; '  left motor forward',
+// f5_one_motor_signed; 'TURN 45 °' then '(left wheel drives)', f5_pivot_wheel_below_signed; 'Turn -45°' then
+// '  right wheel forward, left wheel back', f5_wheels_below_swapped, f5_wheels_below_signed). A line below naming
+// both sides says nothing of the turn's side ('Turn right 45°' then '  left wheel forward, right wheel back'), so it
+// isn't read either, as before these lines were.
 // Words name a side: left and right, and clockwise (right) and counterclockwise or anticlockwise (left), so a turn
 // 'clockwise' both times fails (clockwise_both). Without a word, a lone L or R or an arrow (← ⬅ ↩ ↰ ↲ ↺ ⟲ ↶ for
 // left, → ➡ ↪ ↱ ↳ ↻ ⟳ ↷ for right) names one, read only on lines saying they turn (turn, rotate, spin, pivot, °
@@ -32,7 +103,27 @@ const G23_PICKS = py`(lambda t, P, X, tot: has(tot, L=t) or (lambda N: (lambda n
 // arrow_bullet_signed), as the left turn's -90 already outweighed 'right'. A turn naming no side with a word is
 // read by its angle's sign, as turn() takes it: right is positive and left negative. So the right turn mustn't show
 // -45, and the left one must show -90 unless a letter or an arrow names the left side alone ('Turn L 90°').
-const CH11_TURN = py`(lambda a, b, left: (lambda N, T: (lambda i: (lambda w: (lambda e, v: (lambda s, u, t: (lambda wl, wr, neg, pos: (lambda side: 'direction' if ((side == {'R'} and not neg) if left else (side == {'L'} and not pos)) else ('sign' if not (wl or wr) and t and ((not neg and side != {'L'}) if left else bool(neg)) else ''))((({'L'} if wl else set()) | ({'R'} if wr else set())) if wl or wr else ((({'L'} if re.search(r'(?i)(?<![a-z])l(?![a-z])|[←⬅↩↰↲↺⟲↶]', u) else set()) | ({'R'} if re.search(r'(?i)(?<![a-z])r(?![a-z])|[→➡↪↱↳↻⟳↷]', u) else set())) if t else set())))(re.search(r'(?i)left|counter[\s-]?clockwise|anti[\s-]?clockwise|\bccw\b', s), re.search(r'(?i)right|(?<![a-z-])clockwise|\bcw\b', s), re.search(r'-\s*%d' % b, e), re.search(r'\+\s*%d' % b, e)))('\n'.join(v), '\n'.join(l for l in v if T(l)), bool(T(e))))(w[-1] if w else '', [l for l in w[:-1] if not re.search(r'\d', l)] + w[-1:]))(next((L[i + 1:j + 1] for j in range(i + 1, len(L)) if b in N(L[j])), [])))(next((i for i, l in enumerate(L) if a in N(l)), len(L))))(lambda l: [abs(int(x)) for x in re.findall(r'-?\d+', l)], lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l)))`;
+// CH11_TURNS is built from the pieces below.
+// The numbers on line l, without their signs.
+const CH11_NUMS = py`(lambda l: [abs(int(x)) for x in re.findall(r'-?\d+', l)])`;
+// Whether line l says it turns.
+const CH11_SAYS_TURN = py`(lambda l: re.search(r'(?i)turn|rotat|spin|pivot|°|deg', l))`;
+// The sides, a set of 'L' and 'R', that lines v name with a word.
+const CH11_WORD_SIDES = py`(lambda v: (lambda s: ({'L'} if re.search(r'(?i)left|counter[\s-]?clockwise|anti[\s-]?clockwise|\bccw\b', s) else set()) | ({'R'} if re.search(r'(?i)right|(?<![a-z-])clockwise|\bcw\b', s) else set()))('\n'.join(v)))`;
+// The turn by b degrees after the drive of a mm, as (e, v): its angle line e, and the lines v read for it, which
+// are the lines without numbers between the drive's line and e, then e, then, if below and e says it turns, the
+// lines without numbers after it, up to the next line with a number, leaving out those naming both sides with
+// words. ('', []) if there is no such line.
+const CH11_TURN_LINES = py`(lambda a, b, below: (lambda i: (lambda j: (L[j], [l for l in L[i + 1:j] if not re.search(r'\d', l)] + [L[j]] + ([l for l in L[j + 1:next((k for k in range(j + 1, len(L)) if re.search(r'\d', L[k])), len(L))] if ${CH11_WORD_SIDES}([l]) != {'L', 'R'}] if below and ${CH11_SAYS_TURN}(L[j]) else [])) if j is not None else ('', []))(next((j for j in range(i + 1, len(L)) if b in ${CH11_NUMS}(L[j])), None)))(next((i for i, l in enumerate(L) if a in ${CH11_NUMS}(l)), len(L))))`;
+// The sides that those of lines v saying they turn name with a lone letter or an arrow.
+const CH11_MARK_SIDES = py`(lambda v: (lambda u: ({'L'} if re.search(r'(?i)(?<![a-z])l(?![a-z])|[←⬅↩↰↲↺⟲↶]', u) else set()) | ({'R'} if re.search(r'(?i)(?<![a-z])r(?![a-z])|[→➡↪↱↳↻⟳↷]', u) else set()))('\n'.join(l for l in v if ${CH11_SAYS_TURN}(l))))`;
+// The sides the turn with angle line e and lines v names: those named with a word, else, if e says it turns, those
+// named with a letter or an arrow.
+const CH11_SIDES = py`(lambda e, v: ${CH11_WORD_SIDES}(v) or (${CH11_MARK_SIDES}(v) if ${CH11_SAYS_TURN}(e) else set()))`;
+// What is wrong with the turn (a, b, left), reading the lines below its angle if below.
+const CH11_TURN = py`(lambda a, b, left, below: (lambda e, v: (lambda side, neg, pos: 'direction' if ((side == {'R'} and not neg) if left else (side == {'L'} and not pos)) else 'sign' if not ${CH11_WORD_SIDES}(v) and ${CH11_SAYS_TURN}(e) and ((not neg and side != {'L'}) if left else bool(neg)) else '')(${CH11_SIDES}(e, v), re.search(r'-\s*%d' % b, e), re.search(r'\+\s*%d' % b, e)))(*${CH11_TURN_LINES}(a, b, below)))`;
+// What is wrong with each turn of T, reading the lines below the angles when no angle line shows a minus on its angle.
+const CH11_TURNS = py`(lambda T: (lambda below: [${CH11_TURN}(a, b, left, below) for a, b, left in T])(not any(re.search(r'-\s*%d' % b, ${CH11_TURN_LINES}(a, b, False)[0]) for a, b, _ in T)))`;
 
 export const BATCH_C = {
   // ---------- Chapter 9 ----------
@@ -752,20 +843,20 @@ export const BATCH_C = {
       { expr: py`has('Ready!') and any(l.endswith('Run complete!') and nums_abs([690, 45, 130, 90, 90, 240], L=L[:i]) for i, l in enumerate(L))`,
         hint: "Your run should print launch's 'Ready!' first, then the moves (690, 45 right, 130, 90 left, 90, arm -240), and end_run's 'Run complete!' after them." },
       // nums_abs ignores direction, so the left turn done as a right one and the grab at +240 passed
-      // (r1_turn_both_right, r1_arm_positive). The turns are read by CH11_TURN: the right turn after the 690 drive
+      // (r1_turn_both_right, r1_arm_positive). The turns are read by CH11_TURNS: the right turn after the 690 drive
       // and the left one after the 130 drive. A turn that names no side is left to the next check.
       // The 690 drive, the first line holding 690, mustn't say backward or show -690 (r2_backward_690), and the
       // grab, the first line showing -240, mustn't name the left arm alone (r2_left_arm_grab). The task names no
       // right_arm function here, so the arm is read from the output.
-      { expr: py`(lambda C: C(690, 45, False) != 'direction' and C(130, 90, True) != 'direction')(${CH11_TURN}) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
+      { expr: py`'direction' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)]) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, and grab with the right arm at -240°." },
       // A turn naming no side with a word, such as 'Turning -45°', is read by its sign, as turn() takes it: right is
       // positive and left negative, so turns done the other way round fail (m_wt2_turns_swapped). Only angle lines
       // that say they turn (turn, rotate, spin, pivot, ° or deg) are read this way: when a turn shares a line with
       // the drive before it, the line found for it can be the next drive ('Drive 90mm'), which isn't a turn. A
       // turn naming its side with a letter or an arrow alone, 'Turn L 90°', '↩️ Turn 90°' or 'Turn 90° ←', needn't
-      // show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow). See CH11_TURN.
-      { expr: py`(lambda C: C(690, 45, False) != 'sign' and C(130, 90, True) != 'sign')(${CH11_TURN})`,
+      // show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow). See CH11_TURNS.
+      { expr: py`'sign' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)])`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -843,11 +934,11 @@ export const BATCH_C = {
       // (r1_turn_right_twice, r1_backward_forward).
       // As in ch11_r5, the 690 drive mustn't be backward (r2_first_drive_backward), and the grab, the first line
       // showing -240, mustn't name the left arm alone (r2_left_arm_and_right).
-      { expr: py`(lambda C: C(690, 45, False) != 'direction' and C(130, 90, True) != 'direction')(${CH11_TURN}) and (lambda F: not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
+      { expr: py`'direction' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)]) and (lambda F: not re.search(r'(?i)forward', F(240, 350)) or re.search(r'(?i)back|-\s*350', F(240, 350)))(lambda a, b: next((l for l in L[next((i for i, l in enumerate(L) if a in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), len(L)) + 1:] if b in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and bool(re.search(r'-\s*240', out)) and not re.search(r'(?i)back|-\s*690', next((l for l in L if 690 in [abs(int(x)) for x in re.findall(r'-?\d+', l)]), '')) and (lambda g: not re.search(r'(?i)left', g) or bool(re.search(r'(?i)right', g)))(next((l for l in L if re.search(r'-\s*240', l)), ''))`,
         hint: "Check the directions: drive forward 690mm, turn right 45°, turn left 90°, grab with the right arm at -240°, and drive backward 350mm at the end." },
       // As in ch11_r5: a turn naming no side with a word is read by its sign (m_d_turns_swapped), and one naming it
       // with a letter or an arrow alone needn't show -90 (turn_letter_rl, turn_hook_emoji, turn_arrow).
-      { expr: py`(lambda C: C(690, 45, False) != 'sign' and C(130, 90, True) != 'sign')(${CH11_TURN})`,
+      { expr: py`'sign' not in ${CH11_TURNS}([(690, 45, False), (130, 90, True)])`,
         hint: "Your turn lines show only an angle, so its sign is the direction: a right turn is a positive angle and a left turn a negative one." },
     ],
     probes: [
@@ -1068,10 +1159,11 @@ export const BATCH_C = {
       // Within 0.5, so values rounded to whole numbers count: the task sets no precision, and a threshold printed
       // as round(threshold) = 46 was rejected (r1_round_int).
       { expr: py`nums_approx([80, 12.4, 46.2], tol=0.5)`, hint: "Print the white average, the black average and the threshold halfway between them." },
-      // The reading and its colour in either order and in any layout: the task sets no format. The prototype wanted
-      // the reading first, which rejected 'black: 20' (r2_color_first), and each reading on a line of its own,
-      // which rejected a list of pairs (m_cu1_avgs_passed) and readings grouped by colour (grouped_by_colour). See
-      // CH12_S3_COLOURS: a reading shown with both colours fails (both_groups, all_white_group).
+      // Each reading on a line with its colour, the colour after it for every reading or before it for every one: the
+      // task sets no format. The prototype wanted the reading first, which rejected 'black: 20' (r2_color_first), and
+      // each reading on a line of its own, which rejected a list of pairs (m_cu1_avgs_passed) and readings grouped by
+      // colour (grouped_by_colour). See CH12_S3_COLOURS: a reading shown with both colours fails (both_groups,
+      // all_white_group).
       { expr: py`${CH12_S3_COLOURS}(L, [(20, 'black'), (45, 'black'), (8, 'black'), (60, 'white')])`,
         hint: "Test each reading against your threshold and print whether it is black or white." },
     ],
@@ -1178,13 +1270,13 @@ export const BATCH_C = {
         hint: "Sort the runs by points per second (points / time), best first, and print them in that order." },
     ],
     probes: [
-      // In the 75 s rerun the runs picked are Run1 then Run3, and Run4 mustn't follow them: it only fits if the
-      // limit is ignored (no_time_check). See G23_PICKS.
-      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '75'})[0], ['Run1', 'Run3'], 'Run4', '280')`,
+      // In the 75 s rerun the runs picked are Run1 then Run3 (280 points), and Run4 mustn't follow them, nor the
+      // total go on to 375 with it: it only fits if the limit is ignored (no_time_check). See G23_PICKS.
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '75'})[0], ['Run1', 'Run3'], 'Run4', '280', '375')`,
         hint: "Only add a run if it still fits in MATCH_TIME, so a shorter match picks fewer runs." },
-      // In a 110 s match Run1, Run3 and Run4 fit (101 s, 375 points), so a program that always picks the top two
-      // fails (top_two_always): the 75 s rerun picks the top two, and without a total to check it passed.
-      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '110'})[0], ['Run1', 'Run3', 'Run4'], 'Run2', '375')`,
+      // In a 110 s match Run1, Run3 and Run4 fit (101 s, 375 points; 455 with Run2), so a program that always picks
+      // the top two fails (top_two_always): the 75 s rerun picks the top two, and without a total to check it passed.
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '110'})[0], ['Run1', 'Run3', 'Run4'], 'Run2', '375', '455')`,
         hint: "Decide each run by the time left in MATCH_TIME, not by a set number of runs, so every run that still fits gets picked." },
       // Runs whose points per second give another order (Run2, Run4, Run3, Run1), so an order typed in by hand
       // fails (r1_hard_order). All 4 still fit in 150 s.
