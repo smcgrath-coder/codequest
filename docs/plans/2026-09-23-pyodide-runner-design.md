@@ -72,7 +72,7 @@ These come from measurement, not memory: npm, Node 24, Chrome 153 and Firefox 15
   - `runner.js` is the main-thread API, e.g. `run(code, { onOutput, onInput, onDone })`, `grade(code, challenge, recordedInputs)`, `stop()`, and a status of loading, ready or unavailable.
   - `py.worker.js` is a module worker that loads Pyodide once for the whole app.
   - `harness.py` runs kid code as `main.py`, so traceback line numbers match the editor.
-- **When loading happens.** Loading starts in the background when the world map first appears. A Run pressed while loading shows "Waking up Python…" and runs as soon as Python is ready.
+- **When loading happens.** Loading starts in the background when the world map first appears. A Run pressed while loading shows "Waking up Python…" and runs as soon as Python is ready. Stop works while it waits. If Python is still loading 45 s after loading started (`LOAD_TIME_LIMIT_MS`), as on a stalled download, a Run waiting for it gives up and uses the keyword grader, and so does every Run until Python is ready. Loading carries on, so a slow load never makes Python unavailable.
 - **Fallback.** Feature detection covers module workers, WebAssembly and SharedArrayBuffer (via `crossOriginIsolated`). If detection fails or loading fails, the game uses the keyword grader (`validateOffline`) with a small "output isn't available on this device" note.
 - **Limits:**
   - Stop button: sets the interrupt buffer.

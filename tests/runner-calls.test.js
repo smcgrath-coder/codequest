@@ -2,7 +2,7 @@
 // on a fake clock. The real worker is checked in the browser (Task 15).
 import { test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { runCode, gradeCode, stopCode, answerInput, pythonStatus } from "../src/python/runner.js";
+import { runCode, gradeCode, stopCode, answerInput, pythonStatus, LOAD_TIME_LIMIT_MS } from "../src/python/runner.js";
 
 // Stands in for py.worker.js. Each line of the code is one step:
 //   ask      waits at input() until the page answers or cancels
@@ -14,9 +14,10 @@ import { runCode, gradeCode, stopCode, answerInput, pythonStatus } from "../src/
 const workers = [];
 class FakeWorker {
   static broken = false;   // new Worker() throws, as when the browser can't start one
+  static stalled = false;  // new workers don't boot until their own `stalled` is cleared, as on a slow network
   constructor() {
     if (FakeWorker.broken) throw new Error("Worker can't start");
-    workers.push(this); this.jobs = []; this.sent = []; this.dead = false;
+    workers.push(this); this.jobs = []; this.sent = []; this.dead = false; this.stalled = FakeWorker.stalled;
   }
   postMessage(m) {
     if (m.type === "init") { this.interrupt = new Int32Array(m.interrupt); this.box = new Int32Array(m.input, 0, 2); this.booting = true; return; }
@@ -31,7 +32,7 @@ class FakeWorker {
   step() {
     const job = this.jobs[0];
     if (this.dead) return;
-    if (this.booting) { this.booting = false; return this.send({ type: "ready" }); }
+    if (this.booting) { if (!this.stalled) { this.booting = false; this.send({ type: "ready" }); } return; }
     if (!job) return;
     if (!job.started) { job.started = true; this.interrupt[0] = 0; }   // as worker-core's begin() does
     if (job.waiting) {   // blocked in Atomics.wait until the mailbox changes
@@ -285,6 +286,69 @@ test("a grading pass that fails inside grading still answers if the worker can't
   const again = track(runCode("print again"));
   await advance(200);
   assert.equal(again.value.stdout, "again\n");
+});
+
+// A first visit on a slow school network: Python is still downloading. A grading pass that fails inside
+// grading restarts the worker, and the new one is slow to load. Returns it.
+async function slowLoad() {
+  FakeWorker.stalled = true;
+  try {
+    const grade = track(gradeCode("internal", { rule: {} }));
+    await advance(100);
+    assert.equal(grade.value.internal, "PythonError: boom");
+  } finally { FakeWorker.stalled = false; }
+  assert.equal(pythonStatus(), "loading");
+  return workers.at(-1);
+}
+
+test("Stop while Python is still loading ends that call at once, and loading carries on for the next call", async () => {
+  const w = await slowLoad(), spawned = workers.length;
+  const run = track(runCode("print hi"));
+  await advance(5_000);
+  assert.equal(run.done, false, "waiting for Python");
+  stopCode();
+  await advance(50);
+  assert.equal(run.done, true, "Stop works while Python loads");
+  assert.equal(run.value.kind, "Stopped");
+  assert.equal(run.value.stopped, true);
+  assert.equal(run.value.stdout, "");
+  const grade = track(gradeCode("print hi", { rule: {} }));
+  await advance(1_000);
+  stopCode();
+  await advance(50);
+  assert.equal(grade.value.stopped, true);
+  assert.equal(pythonStatus(), "loading", "still loading");
+  w.stalled = false;   // the download finishes
+  const next = track(runCode("print later"));
+  await advance(200);
+  assert.equal(next.value.ok, true);
+  assert.equal(next.value.stdout, "later\n");
+  assert.equal(workers.length, spawned, "the same worker: Stop didn't restart the load");
+  assert.deepEqual(w.sent.map(m => m.code), ["print later"], "the stopped calls never reached it");
+});
+
+test("a call gives up on Python still loading after LOAD_TIME_LIMIT_MS, so its room falls back, but a later call uses Python once it's ready", async () => {
+  const w = await slowLoad(), spawned = workers.length;
+  const run = track(runCode("print hi"));
+  await advance(LOAD_TIME_LIMIT_MS - 1_000);
+  assert.equal(run.done, false, "still waiting for Python");
+  await advance(2_000);
+  assert.match(run.error?.message ?? "(still waiting)", /too long to load/);
+  assert.equal(pythonStatus(), "loading", "a slow load isn't marked unavailable");
+  // The wait counts from when loading started, so once Python is late, calls fall back at once.
+  const grade = track(gradeCode("print hi", { rule: {} }));
+  await advance(50);
+  assert.match(grade.error?.message ?? "(still waiting)", /too long to load/);
+  w.stalled = false;   // the download finally finishes
+  await advance(50);
+  assert.equal(pythonStatus(), "ready");
+  const next = track(runCode("print later"));
+  await advance(200);
+  assert.equal(next.value.stdout, "later\n");
+  const graded = track(gradeCode("print later", { rule: {} }));
+  await advance(200);
+  assert.equal(graded.value.passed, true);
+  assert.equal(workers.length, spawned, "no restart");
 });
 
 // Last: these leave Python unavailable until a later call starts a worker again.

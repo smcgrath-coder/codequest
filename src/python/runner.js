@@ -3,12 +3,13 @@ import { INPUT_BUFFER_BYTES, sendAnswer, cancelInput, resetInput } from "./input
 
 export const RUN_TIME_LIMIT_MS = 10_000;
 export const GRADE_TIME_LIMIT_MS = 8_000;   // a whole grading pass; each hidden run also has its own limit
+export const LOAD_TIME_LIMIT_MS = 45_000;   // a first download on a slow school network; see untilReady()
 const STOP_GRACE_MS = 1_000;               // if an interrupt is swallowed, restart the worker
 // Taken at load, like worker-core.js's. Grading's rule and inputs are turned into JSON here, on the page,
 // because in the worker kid code could plant an inherited toJSON (through `import js`) and change them.
 const jsonStringify = JSON.stringify;
 
-let worker = null, ready = null, status = "idle", interrupt = null, inputBox = null, active = null, nextId = 1;
+let worker = null, ready = null, loadLimit = null, status = "idle", interrupt = null, inputBox = null, active = null, nextId = 1;
 let queue = Promise.resolve(), newest = null;   // see takeTurn()
 const listeners = new Set();
 const setStatus = s => { status = s; listeners.forEach(f => f(s)); };
@@ -25,13 +26,19 @@ function spawn() {
   interrupt = new Int32Array(new SharedArrayBuffer(4));
   inputBox = new SharedArrayBuffer(INPUT_BUFFER_BYTES);
   setStatus("loading");
-  let booting = true;
+  let booting = true, slow = null;
+  // Rejects if this worker is still loading after LOAD_TIME_LIMIT_MS; never once it has booted.
+  loadLimit = new Promise((_, reject) => {
+    slow = setTimeout(() => reject(new Error("Python is taking too long to load")), LOAD_TIME_LIMIT_MS);
+  });
+  loadLimit.catch(() => {});
   ready = new Promise((resolve, reject) => {
     // Only this worker's own boot report counts. Later, kid code (through `import js`) could post
     // "ready" or "fatal", or throw in the worker, and none of that must change the status.
     const booted = err => {
       if (!booting) return;
       booting = false;
+      clearTimeout(slow);
       if (err) { setStatus("unavailable"); reject(err); } else { setStatus("ready"); resolve(); }
     };
     worker.onmessage = ({ data }) => {
@@ -66,6 +73,19 @@ export function warmUp() {
   catch (e) { setStatus("unavailable"); return Promise.reject(e); }
 }
 
+// A call's first step: waits for Python to load. setInterrupt gets a function that ends the wait at once, for
+// a Stop. Rejects, so the room falls back to the keyword grader, when Python can't load or when it has been
+// loading for LOAD_TIME_LIMIT_MS, as a stalled download would. That time counts from when loading started, so
+// once Python is late every call falls back at once. Either way loading carries on, and calls use Python again
+// as soon as it's ready: a slow load never marks it unavailable.
+function untilReady(setInterrupt) {
+  return new Promise((resolve, reject) => {
+    setInterrupt(resolve);
+    warmUp().then(resolve, reject);
+    if (status === "loading") loadLimit.catch(reject);
+  });
+}
+
 const newId = () => `${nextId++}-${Math.random().toString(36).slice(2)}`;
 
 // One call at a time. A new call first stops the newest one, running or still waiting, because its
@@ -83,8 +103,8 @@ async function takeTurn(call) {
 
 // Runs code for the kid to see. The time limit pauses while input() waits for the kid.
 // Resolves to { ok, kind, msg, line, text, capped, stdout, inputs, stopped, timedOut }, plus
-// restarted: true when a stuck worker had to be replaced. Rejects when this device can't run Python
-// or Python fails to load, so the caller can fall back to the keyword grader.
+// restarted: true when a stuck worker had to be replaced. Rejects when this device can't run Python, or
+// Python fails to load or is late (see untilReady()), so the caller can fall back to the keyword grader.
 export async function runCode(code, { onOutput = () => {}, onInputRequest = () => {} } = {}) {
   const id = newId(), inputs = [];
   let stdout = "", stopReason = null, interruptRun = () => {};
@@ -94,7 +114,7 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
     stopped: stopReason === "stop", timedOut: stopReason === "timeout" });
   const release = await takeTurn({ stop });
   try {
-    await warmUp();
+    if (!stopReason) await untilReady(end => { interruptRun = end; });   // a Stop while Python loads ends the wait
     if (stopReason) return settle({});   // stopped while it waited for its turn or for Python to load
     return await new Promise(resolve => {
       let limit = null, grace = null;
@@ -131,7 +151,7 @@ export const stopCode = () => newest?.stop("stop");
 export const answerInput = text => active?.answer?.(text);
 
 // Hidden grading pass. Resolves to { passed, feedback, failures, timedOut?, stopped? }.
-// Rejects like runCode when this device can't run Python or Python fails to load.
+// Rejects like runCode when this device can't run Python, or Python fails to load or is late.
 export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1 }) {
   const id = newId(), ruleJson = jsonStringify(rule), inputsJson = jsonStringify(inputs || []);
   let stopReason = null, interruptGrade = () => {};
@@ -142,7 +162,7 @@ export async function gradeCode(code, { rule, starter = "", inputs = [], attempt
     : { passed: false, stopped: true, feedback: "Checking stopped before it finished. Press Run to try again." };
   const release = await takeTurn({ stop });
   try {
-    await warmUp();
+    if (!stopReason) await untilReady(end => { interruptGrade = end; });
     if (stopReason) return stopped();
     return await new Promise(resolve => {
       let limit = null, grace = null;

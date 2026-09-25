@@ -66,7 +66,9 @@ export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking
     </div>}
     {feedback && <div className="p-3 rounded text-sm" style={{ background: passed ? `${ACCENT}11` : `${GOLD}11`, color: passed ? ACCENT : GOLD,
       border: `1px solid ${passed ? `${ACCENT}33` : `${GOLD}33`}` }}>{passed ? "🎉" : "💭"} {feedback}</div>}
-    {fallbackNote && <div className="text-xs mt-2" style={{ color: DIM }}>This device can't run Python here, so I checked your code without running it.</div>}
+    {fallbackNote && <div className="text-xs mt-2" style={{ color: DIM }}>{status === "loading"   // a slow download; see runner.js's untilReady()
+      ? "Python is still loading, so this time I checked your code without running it."
+      : "This device can't run Python here, so I checked your code without running it."}</div>}
     {onMarkDone && <div className="flex flex-wrap items-center gap-2 mt-3">
       <button type="button" onClick={onMarkDone} aria-label="I think my answer is right — mark it done, for half XP"
         className="text-xs px-3 py-1.5 rounded cursor-pointer" style={{ color: DIM, background: "transparent", border: `1px solid ${DIM}44` }}>

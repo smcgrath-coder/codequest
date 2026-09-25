@@ -12,7 +12,7 @@ export async function runAndGrade({ code, challenge, rule, attempt, runner, fall
   if (!runner.available()) return { mode: "fallback", ...keyword() };
   let run;
   try { run = await runner.run(code, { onOutput, onInputRequest }); }
-  catch { return { mode: "fallback", ...keyword() }; }   // Python failed to load
+  catch { return { mode: "fallback", ...keyword() }; }   // Python failed to load, or is taking too long
   if (!run.ok) return { mode: "python", passes: false, run, error: friendlyError(run, code) };
   if (!rule) return { mode: "python", run, ...keyword() };
   let graded;
