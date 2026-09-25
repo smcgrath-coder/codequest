@@ -48,6 +48,14 @@ test("the next run after a stop works normally", () => {
   assert.equal(stdout(t.run('print("fine")')), "fine\n");
 });
 
+test("the harness breaking is marked internal, but a kid's own exception class named Internal is the kid's error", async () => {
+  const kid = result(t.run('class Internal(Exception):\n    pass\nraise Internal("oops")'));
+  assert.equal(kid.kind, "Internal"); assert.equal(kid.line, 3); assert.equal(kid.internal, undefined);
+  const broken = await makeCore();   // its own core: this breaks the harness for good
+  const r = result(broken.run('import time\ntime.sleep.__globals__["error_info"] = None\n1 / 0'));
+  assert.equal(r.kind, "Internal"); assert.equal(r.internal, true); assert.match(r.text, /object is not callable/);
+});
+
 test("a long line of output cut off by the cap reports Stopped, not an internal error", () => {
   // Output with no newlines waits in Python's buffer and reaches the cap in big chunks.
   const r = result(t.run('for i in range(30000):\n    print(i, end=" ")'));

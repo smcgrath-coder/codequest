@@ -11,6 +11,7 @@ const SURPRISING = new Set(["help", "id", "iter", "hex", "oct", "ord", "chr", "d
 export function friendlyError(r, code = "") {
   if (!r || r.ok) return null;
   if (r.kind === "Stopped") return { headline: stoppedMessage(r), line: null, code: "", python: "" };
+  if (r.internal) return internalMessage(r.text || "");
   const lines = code.split("\n");
   const n = r.line ?? null, src = n ? (lines[n - 1] || "").trim() : "";
   const at = n ? `Line ${n}` : "Your code";
@@ -25,6 +26,15 @@ function stoppedMessage(r) {
   if (r.capped) return "Your program printed so much that I stopped it. Is a print() stuck inside a loop that never ends?";
   if (r.timedOut) return `Your program was still running after ${RUN_TIME_LIMIT_MS / 1000} seconds, so I stopped it. Is there a loop that never ends? A while loop needs something inside it that makes the condition False, or a break.`;
   return "You stopped the program.";
+}
+
+// The harness itself broke (see worker-core.js), and runner.js has restarted Python. The traceback is of the
+// harness's own code, so only its last line is kept for "What Python said". A raised recursion limit and a
+// function that calls itself forever break Python this way, before its RecursionError can happen.
+function internalMessage(text) {
+  const last = text.trim().split("\n").pop();
+  const hint = /Maximum call stack size exceeded/.test(text) ? " If it happens again, look for a function that keeps calling itself." : "";
+  return { headline: `Something went wrong inside Python itself, so I've restarted it. Press Run to try again.${hint}`, line: null, code: "", python: last };
 }
 
 // Modules the course uses: its challenges import random and math, and time.sleep works. Python adds

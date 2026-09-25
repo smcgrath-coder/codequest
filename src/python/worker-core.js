@@ -67,9 +67,10 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
       let res;
       try { res = call(runVisible, code); }
       catch (e) {
-        // The cap or a Stop can land in the harness's own code, such as its final flush.
+        // The cap or a Stop can land in the harness's own code, such as its final flush. Anything else means
+        // the harness itself broke; internal: true tells that from a kid's own exception class named Internal.
         res = e?.type === "KeyboardInterrupt" ? { ok: false, kind: "Stopped", msg: "", line: null, text: "" }
-          : { ok: false, kind: "Internal", text: String(e) };
+          : { ok: false, kind: "Internal", internal: true, text: String(e) };
       }
       flush();
       const capped = current.capped;

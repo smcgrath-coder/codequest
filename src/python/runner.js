@@ -103,7 +103,8 @@ async function takeTurn(call) {
 
 // Runs code for the kid to see. The time limit pauses while input() waits for the kid.
 // Resolves to { ok, kind, msg, line, text, capped, stdout, inputs, stopped, timedOut }, plus
-// restarted: true when a stuck worker had to be replaced. Rejects when this device can't run Python, or
+// restarted: true when a stuck worker had to be replaced. internal: true (with kind "Internal") means the
+// harness itself broke, and the worker is replaced then too. Rejects when this device can't run Python, or
 // Python fails to load or is late (see untilReady()), so the caller can fall back to the keyword grader.
 export async function runCode(code, { onOutput = () => {}, onInputRequest = () => {} } = {}) {
   const id = newId(), inputs = [];
@@ -137,7 +138,10 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
           if (m.id !== id) return;
           if (m.type === "stdout") { stdout += m.text; onOutput(m.text, "stdout"); }
           else if (m.type === "input") { asking = true; clearTimeout(limit); onInputRequest(); }   // the kid's thinking time doesn't count
-          else if (m.type === "result") finish(m);
+          else if (m.type === "result") {
+            if (m.internal) restartQuietly();   // Python itself broke: see gradeCode's m.internal
+            finish(m);
+          }
         },
       };
       resetInput(inputBox);   // drop a Stop or answer left from the last run; the worker is idle now

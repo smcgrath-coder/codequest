@@ -146,3 +146,29 @@ test("an unknown error falls back to Python's own words", () => {
 test("a successful run has nothing to explain", () => {
   assert.equal(friendlyError({ ok: true }, ""), null);
 });
+
+// The harness itself broke (kind "Internal"): runner.js has already restarted Python.
+const HARNESS_BROKE = "PythonError: Traceback (most recent call last):\n  File \"<exec>\", line 191, in run_visible\n  File \"<exec>\", line 149, in run_as_main\n  File \"main.py\", line 3, in <module>\n    1/0\n    ~^~\nZeroDivisionError: division by zero\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"<exec>\", line 197, in run_visible\nTypeError: 'NoneType' object is not callable\n";
+
+test("an error inside Python itself says so and that Python was restarted, and keeps only Python's last line", () => {
+  const f = friendlyError({ ok: false, kind: "Internal", internal: true, text: HARNESS_BROKE }, "x = 1\ny = 2\n1/0");
+  assert.match(f.headline, /^Something went wrong inside Python itself, so I've restarted it\. Press Run to try again\.$/);
+  assert.equal(f.line, null);
+  assert.equal(f.code, "");
+  assert.equal(f.python, "TypeError: 'NoneType' object is not callable", "no traceback of the harness's own code");
+});
+
+test("Python broken by runaway recursion, after the kid raised the recursion limit, points at the recursion", () => {
+  // sys.setrecursionlimit(100000), then a function that calls itself forever: what the worker reports.
+  const f = friendlyError({ ok: false, kind: "Internal", internal: true, text: "RangeError: Maximum call stack size exceeded" }, "");
+  assert.match(f.headline, /inside Python itself, so I've restarted it/);
+  assert.match(f.headline, /a function that keeps calling itself/);
+  assert.equal(f.python, "RangeError: Maximum call stack size exceeded");
+});
+
+test("a kid's own exception class named Internal gets Python's own words, not the Python-broke message", () => {
+  const code = 'class Internal(Exception):\n    pass\nraise Internal("oops")';
+  const f = explain(code);
+  assert.equal(f.line, 3);
+  assert.equal(f.headline, "Line 3: Internal: oops");
+});

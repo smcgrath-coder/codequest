@@ -8,7 +8,8 @@ import { runCode, gradeCode, stopCode, answerInput, pythonStatus, restartPython,
 //   ask      waits at input() until the page answers or cancels
 //   print X  prints X
 //   spin     loops until interrupted
-//   internal grading itself fails, as when Python breaks in grading's own code
+//   internal Python itself breaks: grading fails in its own code, or a visible run reports kind "Internal"
+//   raise X  the kid's code raises its own error of kind X
 //   except   (first line) swallows interrupts, like a bare except:, so only terminate() ends it
 // Its thread takes one step per slice of fake time (see advance()).
 const workers = [];
@@ -47,7 +48,10 @@ class FakeWorker {
     const [op, text] = (job.steps[0] || "end").split(" ");
     if (op === "ask") { job.waiting = true; this.send({ type: "input", id: job.id }); }
     else if (op === "print") { this.send({ type: "stdout", id: job.id, text: text + "\n" }); job.steps.shift(); }
-    else if (op === "internal") this.end({ passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: "PythonError: boom" });
+    else if (op === "internal") this.end(job.type === "grade"
+      ? { passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: "PythonError: boom" }
+      : { ok: false, kind: "Internal", internal: true, text: "RangeError: Maximum call stack size exceeded" });
+    else if (op === "raise") this.end({ ok: false, kind: text, msg: "oops", line: 1, text: `${text}: oops` });   // the kid's own error
     else if (op !== "spin") this.end(job.type === "grade" ? { passed: true, feedback: "Nice!" } : { ok: true, kind: null });
   }
 }
@@ -266,6 +270,25 @@ test("a grading pass that fails inside grading restarts the worker in the backgr
   assert.equal(old.sent.at(-1).code, "internal", "the old worker got nothing after the failed pass");
   assert.equal(workers.at(-1).sent.at(-1).code, "print hi", "the next Run went to the new worker");
   assert.equal(pythonStatus(), "ready");
+});
+
+test("a visible run that breaks Python itself restarts the worker in the background too", async () => {
+  // Say sys.setrecursionlimit(100000) and runaway recursion: Pyodide can't be trusted after that.
+  const spawned = workers.length, old = workers.at(-1);
+  const run = track(runCode("print hi\ninternal"));
+  await advance(200);
+  assert.equal(run.value.kind, "Internal");
+  assert.equal(run.value.stdout, "hi\n");
+  assert.equal(old.dead, true, "the old worker is gone");
+  assert.equal(workers.length, spawned + 1, "one restart");
+  const next = track(runCode("print hi"));
+  await advance(200);
+  assert.equal(next.value.stdout, "hi\n");
+  assert.equal(workers.at(-1).sent.at(-1).code, "print hi", "the next Run went to the new worker");
+  const kids = track(runCode("raise Internal"));   // class Internal(Exception) is the kid's, and breaks nothing
+  await advance(200);
+  assert.equal(kids.value.kind, "Internal");
+  assert.equal(workers.length, spawned + 1, "no restart for the kid's own error");
 });
 
 test("a grading pass that fails inside grading still answers if the worker can't be restarted, and the next call rejects", async () => {
