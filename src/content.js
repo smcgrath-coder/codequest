@@ -395,8 +395,8 @@ export const CHAPTERS = [
           "Test it: create variables with falsy values and check what Python thinks of them.",
         ],
         narrative:"A chamber of shadows. Some torches glow, others are dark. Truth and emptiness intertwine.",
-        task:"Test these values with if/else:\nprint whether each is truthy or falsy:\n0, \"\", \"hello\", 42, None\n(Use: if value: print(\"truthy\") else: print(\"falsy\"))",
-        hints:["if 0: print('truthy') else: print('falsy') → falsy","0, \"\", None are falsy. \"hello\", 42 are truthy."],
+        task:"Test these values with if/else:\nprint whether each is truthy or falsy:\n0, \"\", \"hello\", 42, None\nUse this for each value:\nif value:\n    print(\"truthy\")\nelse:\n    print(\"falsy\")",
+        hints:["value = 0\nif value:\n    print(\"truthy\")\nelse:\n    print(\"falsy\")  # 0 is falsy, so this prints falsy","0, \"\", None are falsy. \"hello\", 42 are truthy."],
         starterCode:"# Test each value\nvalues_to_test = [0, \"\", \"hello\", 42, None]\n\n",
         expectedBehavior:"Must test multiple values and correctly identify truthy vs falsy. 0, empty string, None are falsy; 'hello', 42 are truthy.",xpReward:12},
       {id:"ch3_s2",name:"The Quick Path",scene:"crossroads",npc:"cipher",optional:true,
@@ -494,7 +494,7 @@ export const CHAPTERS = [
         ],
         narrative:"Ancient text spirals around the tower wall. Each letter glows as you pass it.",
         task:"word = \"python\"\nLoop through each character.\nPrint each letter and whether it's a vowel or consonant.\n(Vowels: a, e, i, o, u)",
-        hints:["for char in word:","if char in \"aeiou\": print(f\"{char} - vowel\") else: print(f\"{char} - consonant\")"],
+        hints:["for char in word:","for char in word:\n    if char in \"aeiou\":\n        print(f\"{char} - vowel\")\n    else:\n        print(f\"{char} - consonant\")"],
         starterCode:"word = \"python\"\n\nfor char in word:\n",
         expectedBehavior:"Must loop through string 'python' and classify each character as vowel or consonant",xpReward:18},
       {id:"ch4_r4",name:"The Spinning Room",scene:"tower",npc:"iterator",
@@ -576,7 +576,7 @@ export const CHAPTERS = [
       ],
       narrative:"At the tower's peak, gears lock into position. A massive countdown display awaits activation.",
       task:"1. Countdown from 10 to 1 (skip 7!)\n2. Print \"LIFTOFF!\"\n3. Print Altitude: 100 through Altitude: 500 (by 100s)\nUse loops for everything!",
-      hints:["for i in range(10, 0, -1): if i == 7: continue","for alt in range(100, 501, 100): print(f\"Altitude: {alt}\")"],
+      hints:["for i in range(10, 0, -1):\n    if i == 7:\n        continue\n    print(i)","for alt in range(100, 501, 100): print(f\"Altitude: {alt}\")"],
       starterCode:"# Countdown (skip 7)\n\n# Liftoff\n\n# Altitude\n",
       expectedBehavior:"Must countdown 10-1 skipping 7 using continue, print LIFTOFF!, then print altitudes 100-500 by 100s",xpReward:60},
   },
@@ -1216,7 +1216,7 @@ export const CHAPTERS = [
       { id:"ch9_s3", name:"Menu System", xpReward:13, optional:true,
         npc:"pixel", npcDialogue:["Game menus let players choose what to do. They're just while loops with choices!"],
         task:"Build a menu system:\n1. choices = [\"1\", \"2\", \"1\", \"3\"]\n2. Loop through choices, for each one:\n   - If \"1\": print \"⚔️ Fight!\"\n   - If \"2\": print \"🎒 Inventory\"\n   - If \"3\": print \"👋 Goodbye!\" and break\n   - Else: print \"Unknown choice\"",
-        hints:["for choice in choices: if choice == '1': ...","Don't forget the break on choice '3'"],
+        hints:["for choice in choices:\n    if choice == \"1\":\n        print(\"⚔️ Fight!\")\n    # add elif for \"2\" and \"3\", and else for anything else","Don't forget the break on choice '3'"],
         starterCode:"choices = [\"1\", \"2\", \"1\", \"3\"]\n\n# Menu loop\n",
         expectedBehavior:"Must loop through choices, handle each option with if/elif, break on 3"
       },
@@ -1272,7 +1272,7 @@ export const CHAPTERS = [
           "add_item, remove_item, show_inventory — three functions, infinite adventures."
         ],
         task:"Build an inventory system:\n1. inventory = {} (empty dict)\n2. add_item(inv, item, qty=1) — adds item, stacks if exists\n3. remove_item(inv, item, qty=1) — removes qty, deletes key if 0\n4. show_inventory(inv) — prints each item and count, or \"Empty!\" \n5. Test:\n   - Add 3 potions, 1 sword, 2 arrows\n   - Show inventory\n   - Remove 1 potion, remove 2 arrows\n   - Show inventory again",
-        hints:["if item in inv: inv[item] += qty else: inv[item] = qty","After removing, check if inv[item] <= 0: del inv[item]"],
+        hints:["def add_item(inv, item, qty=1):\n    if item in inv:\n        inv[item] += qty\n    else:\n        inv[item] = qty","After removing, check if inv[item] <= 0: del inv[item]"],
         starterCode:"# Inventory system\ninventory = {}\n\n# add_item, remove_item, show_inventory\n\n# Test it\n",
         expectedBehavior:"Must define 3 functions, add stacks correctly, remove decrements and deletes at 0, show formats nicely, test sequence produces correct output"
       },
@@ -1302,7 +1302,7 @@ export const CHAPTERS = [
       { id:"ch10_s1", name:"Loot Tables", xpReward:13, optional:true,
         npc:"champion", npcDialogue:["Rare loot makes games addictive. Let's build a drop system with weighted randomness!"],
         task:"Build a loot system:\n1. loot_table = [{\"name\":\"Gold Coin\",\"rarity\":\"common\"}, {\"name\":\"Health Potion\",\"rarity\":\"common\"}, {\"name\":\"Magic Ring\",\"rarity\":\"rare\"}, {\"name\":\"Dragon Scale\",\"rarity\":\"legendary\"}]\n2. Function get_drop(table) — common=60%, rare=30%, legendary=10% chance. Use random.randint(1,100)\n3. Simulate 10 drops with random.seed(42), print each and count by rarity",
-        hints:["roll = random.randint(1,100); if roll <= 60: pick from common items","Filter table by rarity, then random.choice from that filtered list"],
+        hints:["roll = random.randint(1, 100)\nif roll <= 60:\n    rarity = \"common\"\n# add elif and else for rare (30%) and legendary (10%)","Filter table by rarity, then random.choice from that filtered list"],
         starterCode:"import random\nrandom.seed(42)\n\nloot_table = [\n    # Add items with rarity\n]\n\n# get_drop function\n\n# Simulate 10 drops\n",
         expectedBehavior:"Must define loot table with rarities, function uses randint for weighted selection, simulate 10 drops, count and print results"
       },
@@ -1505,7 +1505,7 @@ export const CHAPTERS = [
           "Your team's menu handles 4 runs. Let's build one!"
         ],
         task:"Build a competition menu system:\n1. current_program = 1, max_programs = 4\n2. Function show_menu(num) — prints \"=== Program [num] ===\"\n3. Function run_program(num) — prints \"🚀 Launching Run [num]...\" then \"✅ Run [num] complete!\"\n4. Simulate button presses: buttons = [\"right\",\"right\",\"center\",\"center\",\"left\",\"center\",\"center\"]\n5. For each button:\n   - \"left\": decrement (wrap 1→4)\n   - \"right\": increment (wrap 4→1)\n   - \"center\": launch current run, then auto-advance\n6. Show menu after each button press",
-        hints:["Wrap: if current < 1: current = max; if current > max: current = 1","After center: run the program, THEN increment with wrap"],
+        hints:["# Wrap around after each change:\nif current_program < 1:\n    current_program = max_programs\nif current_program > max_programs:\n    current_program = 1","After center: run the program, THEN increment with wrap"],
         starterCode:"# Competition Menu System\ncurrent_program = 1\nmax_programs = 4\n\nbuttons = [\"right\", \"right\", \"center\", \"center\", \"left\", \"center\", \"center\"]\n\n# Functions\n\n# Process button presses\n",
         expectedBehavior:"Must define show_menu and run_program functions, process all button presses with correct increment/decrement/wrap logic, auto-advance after center, show menu each step"
       },
