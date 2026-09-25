@@ -205,6 +205,15 @@ describe("code that reaches into Python's insides", () => {
     "import random, js", "import math as m, js", "from js import self", "import pyodide_js", "import pyodide.code", 'import sys\nsys.modules["_pyodide_core"]',
     "import _codequest", "import gc\ngc.get_referrers(print)", "from gc import get_objects", "from js.console import log", "import ctypes",
     '__import__("js")', "import importlib",
+    // A name built from pieces, or looked up another way (the final review's bypasses).
+    'import time\ngetattr(time.sleep, "__glob" + "als__")["EVAL_EXPR"] = None',
+    "import time, inspect\nprint(inspect.getmembers(time.sleep))",
+    "ex" + 'ec("import time")',   // split so a security hook doesn't read it as a shell call
+    'code = compile("1", "x", "eval")', "import time\nprint(vars(time))", "print(print.__self__.__dict__)",
+    "f = lambda: 1\nprint(f.__closure__)", 'setattr(print, "x", 1)', 'delattr(print, "x")', "print(object.__getattribute__)",
+    "import sys\nprint(sys.modules)", "import builtins", "print(__builtins__)",
+    // Python reads a fullwidth letter in a name as the plain one (NFKC), so time.sleep.__ｇlobals__ is __globals__.
+    "import time\ntime.sleep.__ｇlobals__",
   ];
   test("each way in is spotted", () => {
     for (const code of ways) assert.equal(reachesIntoPython(code), true, code);
@@ -212,7 +221,10 @@ describe("code that reaches into Python's insides", () => {
 
   test("ordinary programs that look a little like them are not", () => {
     for (const code of ["import json", "import random, math", "jsx = 1\nprint(jsx)", "gc_count = 3", "from math import gcd",
-      'print("Greetings from js land")', "frame = 1\nf_score = 2", "code = 'abc'\nglobals_left = 3", "print(__name__)"])
+      'print("Greetings from js land")', "frame = 1\nf_score = 2", "code = 'abc'\nglobals_left = 3", "print(__name__)",
+      // The words themselves in a story or a variable name, not called or imported.
+      'print("You inspect the chest.")', 'print("The wizard compiles his spells")', 'print("Execute the plan!")',
+      "vars_left = 2\nprint(vars_left)", 'print("Loading modules...")', 'print("The builtins of the castle")', "executioner = 'Bob'"])
       assert.equal(reachesIntoPython(code), false, code);
   });
 

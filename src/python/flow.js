@@ -34,19 +34,24 @@ const pick = r => ({ passes: !!r.passes, feedback: r.feedback, keywordError: r.e
 // Names no challenge needs that lead into the interpreter's own workings: the globals and frames of the
 // harness's and grading's functions (time.sleep.__globals__, sys._getframe(1).f_globals), code and class
 // internals, the garbage collector, and the JavaScript side (import js, pyodide, _codequest), where kid code
-// could replace the worker's message handler. Matched anywhere in the source, strings included, so
-// getattr(f, "__globals__") counts too. It stops copy-paste cheats and accidents, not a determined kid, who
-// can always fake their own progress on their own device. No reference, alternative or wrong answer in
-// tests/fixtures, and no starter code, uses any of them.
+// could replace the worker's message handler. Also the ways to reach a name without typing it: getattr and
+// its kin, vars, getmembers, and running code from a string (exec, compile), each only where it is called, so
+// the words can still appear in a story ("You inspect the chest"). Matched anywhere in the source, strings
+// included, so getattr(f, "__globals__") counts too, after NFKC normalization, as Python reads a fullwidth
+// letter in a name as the plain one. A name built while the program runs still gets past it: it stops
+// copy-paste cheats and accidents, not a determined kid, who can always fake their own progress on their own
+// device. No reference, alternative or wrong answer in tests/fixtures, and no starter code, uses any of them.
 const INSIDES = [
-  /\b(__globals__|__code__|__subclasses__|__import__|_getframe|f_globals|f_locals|f_back|f_builtins|tb_frame|gi_frame|cr_frame|_codequest|ctypes|importlib)\b/,
+  /\b(__globals__|__code__|__subclasses__|__import__|__dict__|__closure__|__getattribute__|__builtins__|__self__|_getframe|f_globals|f_locals|f_back|f_builtins|tb_frame|gi_frame|cr_frame|_codequest|ctypes|importlib|getmembers)\b/,
+  /\b(getattr|setattr|delattr|vars|compile|exec)\s*\(/,   // called, not a word in a story
+  /\.\s*modules\b/,   // sys.modules
   /pyodide/,     // anywhere in a name: pyodide, pyodide_js, and the _pyodide modules already in sys.modules
-  ...["js", "gc"].flatMap(m => [
+  ...["js", "gc", "inspect", "builtins"].flatMap(m => [
     new RegExp(`\\bimport\\s+([\\w.]+(\\s+as\\s+\\w+)?\\s*,\\s*)*${m}\\b`),   // import js, import random, js
     new RegExp(`\\bfrom\\s+${m}(\\.[\\w.]+)?\\s+import\\b`),   // from js import self, not "from js land"
   ]),
 ];
-export const reachesIntoPython = code => INSIDES.some(re => re.test(code));
+export const reachesIntoPython = code => (norm => INSIDES.some(re => re.test(norm)))(code.normalize("NFKC"));
 const INSIDES_FEEDBACK = "Your program reaches into Python's insides, so I can't check it. Take that part out and press Run again.";
 
 // A "stuck" Run: the kid's own code ran cleanly (no crash, not stopped) but didn't pass, so the grader may

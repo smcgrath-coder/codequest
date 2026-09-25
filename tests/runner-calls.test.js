@@ -373,6 +373,22 @@ test("Stop while Python is still loading ends that call at once, and loading car
   assert.deepEqual(w.sent.map(m => m.code), ["print later"], "the stopped calls never reached it");
 });
 
+test("restartPython leaves a worker that is still loading alone: it has run no kid code, and the download carries on", async () => {
+  // Code that reaches into Python's insides, stopped during "Waking up Python…": flow.js still asks for a restart.
+  const w = await slowLoad(), spawned = workers.length;
+  const restarted = track(restartPython());
+  await advance(50);
+  assert.equal(restarted.done, true);
+  assert.equal(w.dead, false, "the download wasn't thrown away");
+  assert.equal(workers.length, spawned, "no new worker, so the load time limit didn't start again");
+  assert.equal(pythonStatus(), "loading");
+  w.stalled = false;
+  const next = track(runCode("print later"));
+  await advance(200);
+  assert.equal(next.value.stdout, "later\n");
+  assert.equal(workers.length, spawned);
+});
+
 test("a call gives up on Python still loading after LOAD_TIME_LIMIT_MS, so its room falls back, but a later call uses Python once it's ready", async () => {
   const w = await slowLoad(), spawned = workers.length;
   const run = track(runCode("print hi"));

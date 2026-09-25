@@ -154,13 +154,15 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
 export const stopCode = () => newest?.stop("stop");
 // Replaces the worker with a fresh one, for after kid code that may have changed what grading uses or taken
 // over the worker's message handler (see flow.js's reachesIntoPython). It waits its turn without stopping
-// the call in progress, and the next call waits for the new worker to load.
+// the call in progress, and the next call waits for the new worker to load. A worker still loading has run
+// no kid code, so it is left to finish: the download isn't thrown away, nor its load time limit started again
+// (Stop during "Waking up Python…"), and a worker a failed call has just replaced isn't replaced twice.
 export async function restartPython() {
   const turn = queue;
   let free;
   queue = new Promise(resolve => { free = resolve; });
   await turn;
-  try { if (worker) restartQuietly(); } finally { free(); }
+  try { if (worker && status === "ready") restartQuietly(); } finally { free(); }
 }
 // Answers the input() the running program is waiting at. Does nothing if none is waiting.
 export const answerInput = text => active?.answer?.(text);
