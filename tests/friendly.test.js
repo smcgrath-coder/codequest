@@ -156,6 +156,10 @@ test("an error inside Python itself says so and that Python was restarted, and k
   assert.equal(f.line, null);
   assert.equal(f.code, "");
   assert.equal(f.python, "TypeError: 'NoneType' object is not callable", "no traceback of the harness's own code");
+  // Pyodide's fatal-error handler prints a stack of the harness's own frames to stderr before the result
+  // arrives, so the panel hides what the run printed.
+  assert.equal(f.hideOutput, true);
+  assert.equal(friendlyError({ ok: false, kind: "ZeroDivisionError", line: 1, text: "ZeroDivisionError: division by zero" }, "1/0").hideOutput, undefined);
 });
 
 test("Python broken by runaway recursion, after the kid raised the recursion limit, points at the recursion", () => {

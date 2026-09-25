@@ -47,7 +47,7 @@ export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking
   const inputRef = useRef(null);
   // A fresh prompt starts empty: text typed but never sent (the kid pressed Stop) doesn't carry over.
   useEffect(() => { if (waitingForInput) { setAnswer(""); inputRef.current?.focus(); } }, [waitingForInput]);
-  const printed = parts.length > 0;
+  const printed = parts.length > 0 && !error?.hideOutput;   // see friendly.js's internalMessage()
   return <div>
     {status === "loading" && !printed && <div className="text-sm" style={{ color: ACCENT }}>⟳ Waking up Python…</div>}
     {(printed || waitingForInput) && <pre className="p-3 rounded text-sm whitespace-pre-wrap mb-2"

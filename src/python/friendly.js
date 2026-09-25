@@ -6,8 +6,8 @@ import { RUN_TIME_LIMIT_MS } from "./runner.js";
 const SURPRISING = new Set(["help", "id", "iter", "hex", "oct", "ord", "chr", "dir", "vars", "hash", "exit", "quit",
   "open", "copyright", "credits", "license", "all", "any", "abs"]);
 
-// Returns null for a clean run, else { headline, line, code, python }: the kid's message, the line
-// Python pointed at and its code, and Python's own words.
+// Returns null for a clean run, else { headline, line, code, python, hideOutput? }: the kid's message, the line
+// Python pointed at and its code, Python's own words, and whether to hide what the run printed.
 export function friendlyError(r, code = "") {
   if (!r || r.ok) return null;
   if (r.kind === "Stopped") return { headline: stoppedMessage(r), line: null, code: "", python: "" };
@@ -29,12 +29,14 @@ function stoppedMessage(r) {
 }
 
 // The harness itself broke (see worker-core.js), and runner.js has restarted Python. The traceback is of the
-// harness's own code, so only its last line is kept for "What Python said". A raised recursion limit and a
-// function that calls itself forever break Python this way, before its RecursionError can happen.
+// harness's own code, so only its last line is kept for "What Python said". hideOutput, because when Pyodide
+// breaks for good its own handler prints a stack of those frames too, as output. A raised recursion limit and
+// a function that calls itself forever break Python this way, before its RecursionError can happen.
 function internalMessage(text) {
   const last = text.trim().split("\n").pop();
   const hint = /Maximum call stack size exceeded/.test(text) ? " If it happens again, look for a function that keeps calling itself." : "";
-  return { headline: `Something went wrong inside Python itself, so I've restarted it. Press Run to try again.${hint}`, line: null, code: "", python: last };
+  return { headline: `Something went wrong inside Python itself, so I've restarted it. Press Run to try again.${hint}`,
+    line: null, code: "", python: last, hideOutput: true };
 }
 
 // Modules the course uses: its challenges import random and math, and time.sleep works. Python adds

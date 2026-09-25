@@ -111,7 +111,7 @@ These come from measurement, not memory: npm, Node 24, Chrome 153 and Firefox 15
   - RecursionError
   - timeout ("still running after 10 seconds — is a loop missing a way to stop?")
   - output cap
-  - Python itself breaking (kind `Internal`, e.g. runaway recursion after `sys.setrecursionlimit(100000)`): the worker is restarted, as after an internal grading error, and the kid is told so, with only Python's last line under "What Python said"
+  - Python itself breaking (kind `Internal`, e.g. runaway recursion after `sys.setrecursionlimit(100000)`): the worker is restarted, as after an internal grading error, and the kid is told so, with only Python's last line under "What Python said". What the run printed is hidden, because Pyodide's own fatal-error handler prints a stack of the harness's frames there.
 - **Editor.** Add a line-number gutter; this is the only editor change.
 - **Practice Arena.** It gets the same output panel, input box and Stop button.
 - **Order of a Run:**
