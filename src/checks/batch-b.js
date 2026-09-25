@@ -359,8 +359,6 @@ export const BATCH_B = {
       { expr: py`rerun(${EVERY}('books', "['Zed', 'Dragon']"))[1].ns.get('books') == ['Alpha', 'Beta', 'Zed']`, hint: "Do each step with a list method on books, so the steps would still work if the shelf started with different books." },
     ],
   },
-  // content bug: the room's second hint puts if score >= 70: print(...) else: print(...) on one line, which
-  // is a SyntaxError if a kid copies it.
   // Changed from exactly 6 lines: the score lines are a block of lines in a row, so a title line (fixture
   // adv_header) and a summary (fixture adv_summary_line) are fine: see GRADED. The re-run's first score is a
   // Fail and the next two are Passes, so a typed Pass/Fail list fails (wrong/adv_typed_results_zip), and 70
@@ -1091,8 +1089,6 @@ export const BATCH_B = {
       { expr: py`${IN_A_ROW}(re.findall(r'\b(Zed|Yan|Xia)\b', '\n'.join(rerun(${EVERY}('heroes', "[{'name': 'Zed', 'power': 1, 'speed': 1}, {'name': 'Yan', 'power': 2, 'speed': 3}, {'name': 'Xia', 'power': 3, 'speed': 2}]"))[0])), ['Xia', 'Yan', 'Zed', 'Zed', 'Xia', 'Yan', 'Xia', 'Yan', 'Zed'])`, hint: "Sort heroes three times with sorted(), each with its own key: power (highest first), speed (lowest first), then name." },
     ],
   },
-  // content bug: the room's first hint puts def check_guess(g, s): if ... elif ... else ... on one line, which
-  // is a SyntaxError if a kid copies it.
   // The secret is never seeded by the kid, so the probes patch random.randint to pick it. Grading seeds
   // random with 0, which makes the main run's secret 13: all 4 guesses get used.
   // The task says to loop through the guesses, and never says to stop at the correct one, so a loop that
