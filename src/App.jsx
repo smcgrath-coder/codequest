@@ -2756,8 +2756,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {hintLevel<challenge.hints.length&&<button onClick={()=>{setHintLevel(h=>h+1);setUsedHints(true)}}
             className="text-xs px-3 py-1 rounded cursor-pointer" style={{color:GOLD,background:`${GOLD}11`,border:`1px solid ${GOLD}33`}}>
             💡 Hint ({challenge.hints.length-hintLevel} left)</button>}
-          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs whitespace-pre-wrap"
-            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>💡 {h}</div>)}
+          {/* The bulb sits in its own column, so every line of a code hint starts at the same edge, and copying the hint leaves it out */}
+          {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs flex gap-2"
+            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>
+            <span aria-hidden="true" className="select-none">💡</span><div className="whitespace-pre-wrap min-w-0">{h}</div></div>)}
         </div>
 
         {/* Help buttons */}
