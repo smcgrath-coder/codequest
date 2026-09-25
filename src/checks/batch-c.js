@@ -36,48 +36,15 @@ const CH12_S3_COLOURS = py`(lambda t, want: (lambda R: any((lambda P: all({c for
 // f5_only_left_on_pick).
 const G23_SKIP = py`(lambda l: polarity(l) == -1 or bool(re.search(r"(?i)\b(cannot|\w+n[’']t|(?:ca|wo|does|is|did|would|could|should|was|do)nt|skip\w*|exceed\w*|(?<!left )(?<!left-)(?:(?<!points )(?<!pts )over|over(?!\s*\d))|left out|drop\w*)\b|too long|too much|out of time|\bpast (?:the |your )?(?:\w+ )?(?:limit|time)\b|\b(?:go|goes|going|went) past\b|\bpast \d|❌|✗|✘|✖|🚫|⛔", l)) or bool(re.search(r'(?i)\bneed\w*\b.*\bonly\b.*\bleft\b', l) and not re.search(r'(?i)\b(fits?|picked|added|chosen|taken)\b', l)))`;
 
-// grind_23: the shape of line l, or of a piece of one: l with its run names and numbers blanked, its spaces merged
-// and the separators at its end (, ; | -> →) taken off, so the steps of a running total have the same shape
-// ('Run3: total 280' and 'Run4: total 375'; 'Run3(280) ' and 'Run4(375) ').
-const G23_SHAPE = py`(lambda l: re.sub(r'(?:[\s,;|]|->|→)+$', '', re.sub(r'\s+', ' ', re.sub(r'\d+(?:\.\d+)?', '#', re.sub(r'\bRun[1-4]\b', 'Run', l)))).strip())`;
-
-// grind_23: whether lines t show tot, the total points of the runs picked, P, other than as a step of a running
-// total that goes on past the limit. X is the next run in the ranking and nxt the total with X added. Each line is
-// read in pieces, each from a run name up to the next one, the first from the line's start. A piece showing tot is
-// such a step when its line names P's last run and no other and a later line of the same shape (G23_SHAPE) shows nxt
-// and names X and no other ('Run3: total 280' then 'Run4: total 375', f5_leak_cumulative_no_limit,
-// f5_so_far_no_limit), or when it names P's last run and the next piece on its line has its shape, names X and shows
-// nxt ('Plan: Run1(120) Run3(280) Run4(375) Run2(455)', f5_leak_one_line). That is how a program ignoring MATCH_TIME
-// prints its running total, unless the line with X says what would happen (if, would, could), or it or a line after
-// it is a skip line (S, from G23_SKIP): a program may print the total each run would make, then its verdict ('Run4:
-// 375 pts in 101s' then '  -> skipped', f5_decision_next_line; 'Checking Run4: 101s, 375 pts' then '  Too long,
-// skipped', f5_checking_then_verdict; 'Run4: 375 points, 101s' then 'Run4 doesn't fit',
-// f5_candidate_then_named_skip), which a program ignoring MATCH_TIME never says, though it may say each run was
-// added ('Run4: 375 pts in 101s' then '  -> added', f5_leak_added_below). After a line naming X alone, the lines
-// read (K) go up to the next line naming runs but not X. K stops at the first skip line it reads and keeps its
-// answer for each line, as many lines can ask it about the same one (a loop printing 'Run4: total 375' and '  ->
-// skipped' until the output runs out, f5_loop_forgot_advance). After a line of pieces the lines read also go up to
-// the next line naming runs but not X, so a leak's line for each run after it doesn't hide it ('Run1: 28s, not over
-// 75s', f5_one_line_each_run_status; 'Run1 - 28s - didn't skip', f5_one_line_each_run_didnt_skip), but of those
-// only the lines naming X are read ('Run1(120) Run3(280) Run4(375) Run2(360)' then 'Skipped: Run4, Run2',
-// f5_one_line_then_skipped_list): a closing line naming no run isn't about X ('No runs skipped',
-// f5_leak_one_line_none_skipped; an empty 'Skipped: ', f5_one_line_each_run_skipped_list; "Don't forget to charge
-// the robot!", f5_leak_one_line_closing_note). tot counts when any piece shows it other than as such a step, so the
-// running total of every run may come before the right total ('Best in 75s: 280 points', f5_table_then_best). A
-// line naming no run is no step, whatever follows it ('Total: 280' then 'Run4 next: 375 pts in 101s - too slow',
-// f5_after_total_too_slow, f5_after_total_more_than, f5_after_total_gt,
-// f5_skip_shows_total_no_word; in the 110 s rerun, where nxt is also the points of all 4 runs, 'Best: 375 points'
-// then 'All runs (Run1, Run2, Run3, Run4): 455 points', f5_all_runs_named_total, f5_grand_total_after), and neither
-// is one followed only by lines of other shapes ('Run3: total 280' then 'Run4 would make it 375 but takes 31s',
-// f5_would_make_running).
-const G23_TOTAL = py`(lambda t, P, X, tot, nxt, S: (lambda R, N, W: (lambda K: any(has(tot, L=[u]) and not ((R(l) == {P[-1]} and any(N(t[j]) and R(t[j]) == {X} and ${G23_SHAPE}(t[j]) == ${G23_SHAPE}(l) and not K(j) and not W(t[j]) for j in range(i + 1, len(t)))) or (k + 1 < len(U) and R(u) == {P[-1]} and R(U[k + 1]) == {X} and N(U[k + 1]) and ${G23_SHAPE}(u) == ${G23_SHAPE}(U[k + 1]) and not (S(l) or next((X in R(t[q]) for q in range(i + 1, len(t)) if R(t[q]) and (X not in R(t[q]) or S(t[q]))), False)) and not W(l))) for i, l in enumerate(t) for U in [re.split(r'(?=\bRun[1-4]\b)', l)] for k, u in enumerate(U)))(lambda j, c={}: c[j] if j in c else c.setdefault(j, next((not (q > j and R(t[q]) and X not in R(t[q])) for q in range(j, len(t)) if (q > j and R(t[q]) and X not in R(t[q])) or S(t[q])), False))))(lambda l: set(re.findall(r'\bRun[1-4]\b', l)), lambda l: re.search(r'(?<![\d.])%s(?!\d)' % nxt, l), lambda l: re.search(r'(?i)\b(?:if|would|could)\b', l)))`;
-
-// grind_23: whether lines t show the runs picked in a rerun: the total points tot (G23_TOTAL), or the names P in a
-// row, in that order, with X not straight after them. X is the next run in the ranking, which fits only if the limit
-// is ignored, and nxt the total with it. Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on
-// skip lines (G23_SKIP) don't count, so a program may still list all 4 runs, ranked, before or after the ones it
-// picks.
-const G23_PICKS = py`(lambda t, P, X, tot, nxt: (lambda S: ${G23_TOTAL}(t, P, X, tot, nxt, S) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not S(l) for x in re.findall(r'\bRun[1-4]\b', l)]))(${G23_SKIP}))`;
+// grind_23: whether lines t show the runs picked in a rerun: the total points tot, or the names P in a row, in that
+// order, with X not straight after them. X is the next run in the ranking, which fits only if the limit is ignored.
+// Repeats of a name in a row are merged ("Run1 ... Run1 fits!"), and names on skip lines (G23_SKIP) don't count, so
+// a program may still list all 4 runs, ranked, before or after the ones it picks.
+// Known gap, kept on purpose: tot counts on any line, so a program that ignores MATCH_TIME but prints a running
+// total ('Run3: total 280', 'Run4: total 375') passes. Telling that apart from the many correct ways to print each
+// run's candidate total and then a verdict took a rule that kept rejecting correct programs, and this is a practice
+// challenge with no XP.
+const G23_PICKS = py`(lambda t, P, X, tot: (lambda S: has(tot, L=t) or (lambda N: (lambda n: any(n[i:i + len(P)] == P and n[i + len(P):i + len(P) + 1] != [X] for i in range(len(n))))([x for i, x in enumerate(N) if i == 0 or N[i - 1] != x]))([x for l in t if not S(l) for x in re.findall(r'\bRun[1-4]\b', l)]))(${G23_SKIP}))`;
 
 // ch11_r5, ch11_boss: what is wrong with each turn of T, a turn by b degrees after the drive of a mm given as
 // (a, b, left): 'direction' if it names the other side, 'sign' if it names none and its angle's sign is the other
@@ -1270,13 +1237,13 @@ export const BATCH_C = {
         hint: "Sort the runs by points per second (points / time), best first, and print them in that order." },
     ],
     probes: [
-      // In the 75 s rerun the runs picked are Run1 then Run3 (280 points), and Run4 mustn't follow them, nor the
-      // total go on to 375 with it: it only fits if the limit is ignored (no_time_check). See G23_PICKS.
-      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '75'})[0], ['Run1', 'Run3'], 'Run4', '280', '375')`,
+      // In the 75 s rerun the runs picked are Run1 then Run3, and Run4 mustn't follow them: it only fits if the
+      // limit is ignored (no_time_check). See G23_PICKS.
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '75'})[0], ['Run1', 'Run3'], 'Run4', '280')`,
         hint: "Only add a run if it still fits in MATCH_TIME, so a shorter match picks fewer runs." },
       // In a 110 s match Run1, Run3 and Run4 fit (101 s, 375 points; 455 with Run2), so a program that always picks
       // the top two fails (top_two_always): the 75 s rerun picks the top two, and without a total to check it passed.
-      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '110'})[0], ['Run1', 'Run3', 'Run4'], 'Run2', '375', '455')`,
+      { expr: py`${G23_PICKS}(rerun({'MATCH_TIME': '110'})[0], ['Run1', 'Run3', 'Run4'], 'Run2', '375')`,
         hint: "Decide each run by the time left in MATCH_TIME, not by a set number of runs, so every run that still fits gets picked." },
       // Runs whose points per second give another order (Run2, Run4, Run3, Run1), so an order typed in by hand
       // fails (r1_hard_order). All 4 still fit in 150 s.
