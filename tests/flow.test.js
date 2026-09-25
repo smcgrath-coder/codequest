@@ -1,6 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { runAndGrade, countsAsStuck } from "../src/python/flow.js";
+import fs from "node:fs";
+import { runAndGrade, countsAsStuck, reachesIntoPython } from "../src/python/flow.js";
+import { CHAPTERS, GRIND_CHALLENGES } from "../src/content.js";
 
 const challenge = { id: "ch1_r1", starterCode: "# Type your code below\n" };
 const rule = { output: [{ expr: "lines(['Hello, World!'])" }] };
@@ -161,5 +163,89 @@ describe("stuck attempts (they unlock the Mark it done button)", () => {
   test("the kid's own code on top of the starter is stuck", () => {
     assert.equal(countsAsStuck(rejected, { code: starter + "print(f\"Hi {name}\")\n", starter }), true);
     assert.equal(countsAsStuck({ mode: "fallback", passes: false, keywordError: null }, { code: "print('hi')", starter }), true);
+  });
+});
+
+// Kid code shares its interpreter with grading, so code that reaches into Python's insides could make any
+// room pass, or break grading for the rest of the tab. The page won't grade it and restarts Python.
+describe("code that reaches into Python's insides", () => {
+  const ways = [
+    'import time\ntime.sleep.__globals__["EVAL_EXPR"] = lambda *a, **k: True',   // passes any room
+    'import time\ntime.sleep.__globals__["evaluate"] = lambda *a, **k: []',       // poisons every later grade
+    'import time\ng = getattr(time.sleep, "__globals__")',
+    "import sys\nsys._getframe(1).f_globals['EVAL_EXPR'] = None",
+    "import inspect\nframe = inspect.currentframe().f_back",
+    "def f():\n    pass\nf.__code__ = (lambda: True).__code__",
+    "for c in object.__subclasses__():\n    print(c)",
+    "try:\n    1 / 0\nexcept Exception as e:\n    print(e.__traceback__.tb_frame.f_locals)",
+    "g = (x for x in [1])\nprint(g.gi_frame.f_builtins)",
+    "async def f():\n    pass\nprint(f().cr_frame)",
+    // The worker's own message handler, replaced to fake a grade that carries the right id.
+    "import js\nfrom pyodide.ffi import create_proxy\njs.self.onmessage = create_proxy(lambda e: None)",
+    "import random, js", "import math as m, js", "from js import self", "import pyodide_js", "import pyodide.code", 'import sys\nsys.modules["_pyodide_core"]',
+    "import _codequest", "import gc\ngc.get_referrers(print)", "from gc import get_objects", "from js.console import log", "import ctypes",
+    '__import__("js")', "import importlib",
+  ];
+  test("each way in is spotted", () => {
+    for (const code of ways) assert.equal(reachesIntoPython(code), true, code);
+  });
+
+  test("ordinary programs that look a little like them are not", () => {
+    for (const code of ["import json", "import random, math", "jsx = 1\nprint(jsx)", "gc_count = 3", "from math import gcd",
+      'print("Greetings from js land")', "frame = 1\nf_score = 2", "code = 'abc'\nglobals_left = 3", "print(__name__)"])
+      assert.equal(reachesIntoPython(code), false, code);
+  });
+
+  test("no reference, alternative or wrong answer, and no starter code, trips it", () => {
+    for (const dir of ["solutions", "alternatives", "wrong"]) {
+      const files = fs.readdirSync(new URL(`./fixtures/${dir}/`, import.meta.url)).filter(f => f.endsWith(".py"));
+      assert.ok(files.length > 100, dir);
+      for (const f of files) assert.equal(reachesIntoPython(fs.readFileSync(new URL(`./fixtures/${dir}/${f}`, import.meta.url), "utf8")), false, `${dir}/${f}`);
+    }
+    for (const c of [...CHAPTERS.flatMap(ch => [...ch.rooms, ch.boss]), ...GRIND_CHALLENGES])
+      assert.equal(reachesIntoPython(c.starterCode || ""), false, c.id || c.name);
+  });
+
+  const cheat = ways[0];
+  const watched = (run, graded = { passed: true, feedback: "Great work!" }) => {
+    const calls = [];
+    return { calls, runner: { available: () => true,
+      run: async (code, { onOutput }) => { calls.push("run"); onOutput?.("hi\n", "stdout"); return run; },
+      grade: async () => { calls.push("grade"); return graded; },
+      restart: async () => { calls.push("restart"); } } };
+  };
+
+  test("it still runs, so the kid sees the output, but it isn't graded, and Python is restarted", async () => {
+    const { calls, runner } = watched({ ok: true, stdout: "hi\n", inputs: [] });
+    const seen = [];
+    let grading = 0;
+    const r = await runAndGrade({ code: cheat, challenge, rule, attempt: 1, fallbackGrade, runner,
+      onOutput: t => seen.push(t), onGrading: () => grading++ });
+    assert.deepEqual(calls, ["run", "restart"]);
+    assert.deepEqual(seen, ["hi\n"]);
+    assert.equal(grading, 0, "never says it's checking");
+    assert.equal(r.mode, "python"); assert.equal(r.passes, false); assert.equal(r.graded, undefined);
+    assert.match(r.feedback, /reaches into Python's insides, so I can't check it/);
+    assert.equal(countsAsStuck(r, { code: cheat, starter: challenge.starterCode }), false, "it can't unlock Mark it done");
+  });
+
+  test("a crash or Stop in it is explained as usual, and Python is still restarted", async () => {
+    for (const run of [{ ok: false, kind: "ZeroDivisionError", line: 2, text: "ZeroDivisionError: division by zero" }, { ok: false, kind: "Stopped", stopped: true }]) {
+      const { calls, runner } = watched(run);
+      const r = await runAndGrade({ code: cheat, challenge, rule, attempt: 1, fallbackGrade, runner });
+      assert.deepEqual(calls, ["run", "restart"], run.kind);
+      assert.equal(r.passes, false); assert.ok(r.error.headline, run.kind);
+    }
+  });
+
+  test("without a rule it isn't keyword-graded either", async () => {
+    const { calls, runner } = watched({ ok: true, inputs: [] });
+    const r = await runAndGrade({ code: cheat, challenge, rule: undefined, attempt: 1, fallbackGrade, runner });
+    assert.deepEqual(calls, ["run", "restart"]); assert.equal(r.passes, false);
+  });
+
+  test("when Python can't run, the keyword grader grades it as usual: nothing in the page can be reached", async () => {
+    const r = await runAndGrade({ code: cheat, challenge, rule, attempt: 1, fallbackGrade, runner: { available: () => false } });
+    assert.equal(r.mode, "fallback"); assert.equal(r.feedback, "keyword ok");
   });
 });

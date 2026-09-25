@@ -84,7 +84,8 @@ These come from measurement, not memory: npm, Node 24, Chrome 153 and Firefox 15
   - a fresh namespace with `__name__ = "__main__"`
   - the kid's modules cleared from `sys.modules`
   - `random` re-seeded or reset
-  - a per-run id, so kid code (`import js`) can't fake a result message
+  - a per-run id, so a late result from a stopped or earlier run is never taken for this run's
+- **Tampering.** Kid code shares one interpreter with grading, so it can reach grading's globals (for example through `time.sleep.__globals__` or `sys._getframe`) and, through `import js`, replace the worker's message handler to fake a grade that carries the right id. The per-run id doesn't stop that. What does stop the easy, copy-paste kind is a guard on the page, where kid code can't reach: code that names a way into Python's insides (`reachesIntoPython` in `flow.js`: `__globals__`, frame attributes, `import js`, `pyodide`, `gc`, `ctypes` and the like) still runs, but isn't graded, and the worker is restarted after it. A determined kid can always fake their own progress on their own device, and that's acceptable.
 
 ## 2. Running, input and output
 

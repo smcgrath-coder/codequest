@@ -8,7 +8,9 @@ import { PYODIDE_PATH } from "./config.js";
 
 const nap = new Int32Array(new SharedArrayBuffer(4));   // Atomics.wait target for time.sleep
 // Taken now, before any kid code runs: kid code can reach self through `import js` and swap
-// postMessage for its own, to read run ids or rewrite results. See worker-core.js.
+// postMessage for its own, to read run ids or rewrite results. See worker-core.js. It could replace
+// self.onmessage too, and answer the page itself, so the page doesn't grade code that imports js and
+// restarts this worker after running it (flow.js's reachesIntoPython).
 const post = self.postMessage.bind(self);
 let core;
 

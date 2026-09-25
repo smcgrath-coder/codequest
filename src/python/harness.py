@@ -142,7 +142,8 @@ def run_as_main(code, main):
     reach them: through the __globals__ of any function of theirs that it can get at, such as time.sleep
     (interruptible_sleep) or, while grading, input(); through sys._getframe; or through kid code that runs
     later (a __del__ run by a later garbage collection, or a replaced stdout.flush when the next run swaps
-    in new streams). From there it can change anything the harness and grading do."""
+    in new streams). From there it can change anything the harness and grading do, so the page doesn't
+    grade code that names these ways in, and restarts Python after running it (flow.js's reachesIntoPython)."""
     _modules["__main__"] = main
     try:
         RUN_CODE(code, main.__dict__)

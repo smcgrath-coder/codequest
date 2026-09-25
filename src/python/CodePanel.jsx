@@ -3,12 +3,13 @@
 import React, { useRef, useState, useEffect } from "react";
 import { DARK, ACCENT, GOLD, TEXT, DIM, VDIM, ERR, MONO } from "../theme.js";
 import { handleCodeKeyDown, CODE_TEXTAREA_PROPS } from "../editor.js";
-import { pythonSupported, pythonStatus, runCode, gradeCode } from "./runner.js";
+import { pythonSupported, pythonStatus, runCode, gradeCode, restartPython } from "./runner.js";
 
 export const PYTHON_RUNNER = {
   available: () => pythonSupported() && pythonStatus() !== "unavailable",
   run: runCode,
   grade: gradeCode,
+  restart: restartPython,
 };
 
 // Output parts: [{ kind: "stdout" | "input", text }]; consecutive parts of one kind are merged.

@@ -2,7 +2,7 @@
 // on a fake clock. The real worker is checked in the browser (Task 15).
 import { test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { runCode, gradeCode, stopCode, answerInput, pythonStatus, LOAD_TIME_LIMIT_MS } from "../src/python/runner.js";
+import { runCode, gradeCode, stopCode, answerInput, pythonStatus, restartPython, LOAD_TIME_LIMIT_MS } from "../src/python/runner.js";
 
 // Stands in for py.worker.js. Each line of the code is one step:
 //   ask      waits at input() until the page answers or cancels
@@ -286,6 +286,29 @@ test("a grading pass that fails inside grading still answers if the worker can't
   const again = track(runCode("print again"));
   await advance(200);
   assert.equal(again.value.stdout, "again\n");
+});
+
+test("restartPython waits for the call in progress, doesn't stop it, and gives the next call a fresh worker", async () => {
+  // flow.js asks for it after running code that reaches into Python's insides.
+  const spawned = workers.length, old = workers.at(-1);
+  const run = track(runCode("ask\nprint hi"));
+  await advance(100);
+  const restarted = track(restartPython());
+  await advance(3_000);
+  assert.equal(restarted.done, false, "waits for the run, which is at an input() prompt");
+  assert.equal(old.dead, false);
+  answerInput("Sam");
+  await advance(200);
+  assert.equal(run.value.ok, true, "not stopped");
+  assert.equal(run.value.stdout, "Sam\nhi\n");
+  assert.equal(restarted.done, true);
+  assert.equal(old.dead, true, "the old worker is gone");
+  assert.equal(workers.length, spawned + 1);
+  const next = track(runCode("print fresh"));
+  await advance(200);
+  assert.equal(next.value.stdout, "fresh\n");
+  assert.equal(workers.at(-1).sent.at(-1).code, "print fresh", "the next call went to the new worker");
+  assert.equal(pythonStatus(), "ready");
 });
 
 // A first visit on a slow school network: Python is still downloading. A grading pass that fails inside

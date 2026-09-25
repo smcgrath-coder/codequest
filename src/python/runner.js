@@ -147,6 +147,16 @@ export async function runCode(code, { onOutput = () => {}, onInputRequest = () =
   } finally { release(); }
 }
 export const stopCode = () => newest?.stop("stop");
+// Replaces the worker with a fresh one, for after kid code that may have changed what grading uses or taken
+// over the worker's message handler (see flow.js's reachesIntoPython). It waits its turn without stopping
+// the call in progress, and the next call waits for the new worker to load.
+export async function restartPython() {
+  const turn = queue;
+  let free;
+  queue = new Promise(resolve => { free = resolve; });
+  await turn;
+  try { if (worker) restartQuietly(); } finally { free(); }
+}
 // Answers the input() the running program is waiting at. Does nothing if none is waiting.
 export const answerInput = text => active?.answer?.(text);
 
