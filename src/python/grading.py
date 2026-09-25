@@ -1,7 +1,7 @@
 # Grades a kid's program by what it does, using the challenge's rule from src/checks.js.
-# Ported from docs/plans/pyodide-prototype/checklib.py. harness.py has already run in these globals,
-# so its helpers (clean_slate, fresh_main, run_as_main, put_back, leave_main, compile_kid, KID_FILE,
-# StopRun) are used directly.
+# Ported from the research prototype's checklib.py (docs/plans/pyodide-prototype/, removed after 4bb8e83).
+# harness.py has already run in these globals, so its helpers (clean_slate, fresh_main, run_as_main,
+# put_back, leave_main, compile_kid, KID_FILE, StopRun) are used directly.
 #
 # A rule has three groups of checks, each a Python expression evaluated after one run of the kid's code:
 #   output    looks at stdout (L = normalised lines, out = text)

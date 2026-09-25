@@ -16,7 +16,7 @@
 
 **Design:** `docs/plans/2026-09-23-pyodide-runner-design.md` (approved). Read it first.
 
-**Prototypes:** working research code lives in `docs/plans/pyodide-prototype/`:
+**Prototypes:** working research code lived in `docs/plans/pyodide-prototype/` (removed in Task 16; it is in git history up to 4bb8e83):
 - `checklib.py` and `rules_*.py`: the grading library and 133 draft rules
 - `harness.py`, `py.worker.js`, `runner.js`, `friendly.mjs`, `vite.config.js`, `runner.test.js`
 - `cases/` and `wrong/`: alternative and wrong answers
