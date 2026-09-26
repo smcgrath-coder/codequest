@@ -52,6 +52,15 @@ export function getTrackForContext({ screen, chapterId, isBoss }) {
   }
 }
 
+// The music on/off choice on this device. "1" is muted; anything else, or blocked storage, is not.
+export const MUTED_KEY = "cq:music-muted";
+export function loadMusicMuted(storage = globalThis.localStorage) {
+  try { return storage?.getItem(MUTED_KEY) === "1"; } catch { return false; }
+}
+export function saveMusicMuted(muted, storage = globalThis.localStorage) {
+  try { storage?.setItem(MUTED_KEY, muted ? "1" : "0"); } catch {}
+}
+
 // Singleton music player
 class MusicPlayer {
   constructor() {
@@ -147,12 +156,17 @@ class MusicPlayer {
     }
   }
 
-  toggleMute() {
-    this._muted = !this._muted;
+  // Mutes or unmutes, including the track playing now; tracks started later read _muted. Returns the new state.
+  setMuted(muted) {
+    this._muted = !!muted;
     if (this._current) {
       this._current.volume = this._muted ? 0 : this._volume;
     }
     return this._muted;
+  }
+
+  toggleMute() {
+    return this.setMuted(!this._muted);
   }
 
   get muted() { return this._muted; }
