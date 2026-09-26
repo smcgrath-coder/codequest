@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_ACCENT, CODE_EXAMPLE, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM } from "./theme.js";
+import { DARK, ACCENT, DIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM, BOSS_PURPLE, POP_SCRIM, POP_SCRIM_DEEP, POP_CLEAR, POP_TROPHY, POP_TROPHY_END } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -2683,6 +2683,7 @@ function GrindingZone({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ERR,OK,LINE,theme}=useTheme();
   const [code,setCode]=useState(challenge.starterCode||"");
   const [parts,setParts]=useState([]);
   const [waiting,setWaiting]=useState(false);
@@ -2734,15 +2735,19 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const markDone=()=>{if(!canMarkDone)return;setMarkedDone(true);win()};
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
+  // CONTINUE on the victory screen. Once only: the overlay closes so a second Enter/Space can't award XP again
+  const finish=()=>{if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
+    try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})};
   const concepts=getConceptsForChallenge(challenge);
 
   // Dialogue phases
   if(dialoguePhase==="chapter-intro")return <NPCDialogue key="chapter-intro" npc={chapterIntroNpc} lines={chapterIntroDialogue} onComplete={()=>setDialoguePhase(challenge.npcDialogue?"room-intro":"play")}/>;
   if(dialoguePhase==="room-intro")return <NPCDialogue key="room-intro" npc={challenge.npc||"byte"} lines={challenge.npcDialogue} onComplete={()=>setDialoguePhase("play")}/>;
 
-  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,#1a0d2a 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
+  // A boss room glows purple in dark mode; in light mode the purple would be a dark blot, so it glows faintly gold.
+  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,${theme==="light"?`${GOLD}11`:BOSS_PURPLE} 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
-    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
+    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:LINE}}>
       <Btn onClick={onBack} color={DIM} style={{padding:"4px 12px",fontSize:"12px"}}>← Back</Btn>
       <div className="flex items-center gap-2">
         {isBoss&&<span className="text-xs px-2 py-1 rounded" style={{background:`${GOLD}22`,color:GOLD}}>⚔️ BOSS</span>}
@@ -2755,7 +2760,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
 
     <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
       {/* Left: narrative + task + help */}
-      <div className="lg:w-2/5 p-4 overflow-y-auto border-b lg:border-b-0 lg:border-r" style={{borderColor:"#ffffff11"}}>
+      <div className="lg:w-2/5 p-4 overflow-y-auto border-b lg:border-b-0 lg:border-r" style={{borderColor:LINE}}>
         <div className="text-sm mb-3 leading-relaxed whitespace-pre-wrap" style={{color:DIM,fontStyle:"italic"}}>{challenge.narrative}</div>
         <div className="p-3 rounded-lg mb-3" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
           <div className="text-xs font-bold mb-2 tracking-wider" style={{color:ACCENT}}>YOUR TASK</div>
@@ -2769,7 +2774,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             💡 Hint ({challenge.hints.length-hintLevel} left)</button>}
           {/* The bulb sits in its own column, so every line of a code hint starts at the same edge, and copying the hint leaves it out */}
           {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs flex gap-2"
-            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>
+            style={{background:`${GOLD}11`,color:GOLD,border:`1px solid ${GOLD}22`}}>
             <span aria-hidden="true" className="select-none">💡</span><div className="whitespace-pre-wrap min-w-0">{h}</div></div>)}
         </div>
 
@@ -2783,15 +2788,15 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {attempts.length>0&&<span className="text-xs py-1.5" style={{color:VDIM}}>Attempt #{attempts.length}</span>}
         </div>
 
-        {/* Concept guide */}
+        {/* Concept guide: a dark code panel in both modes, like the editor (CODE_* never switch) */}
         {showGuideHelp&&(
-          <div className="mt-3 rounded-lg overflow-hidden" style={{background:DARK,border:`1px solid ${GOLD}33`}}>
-            <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${GOLD}11`,color:GOLD}}>📖 CONCEPT GUIDE</div>
+          <div className="mt-3 rounded-lg overflow-hidden" style={{background:CODE_BG,border:`1px solid ${CODE_GOLD}33`}}>
+            <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${CODE_GOLD}11`,color:CODE_GOLD}}>📖 CONCEPT GUIDE</div>
             <div className="p-3 max-h-64 overflow-y-auto">
               {concepts.map(c=>{const help=CONCEPT_HELP[c];if(!help)return null;
                 return <div key={c} className="mb-4">
-                  <div className="text-xs font-bold mb-1 uppercase tracking-wider" style={{color:GOLD}}>{c.replace("-"," ")}</div>
-                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
+                  <div className="text-xs font-bold mb-1 uppercase tracking-wider" style={{color:CODE_GOLD}}>{c.replace("-"," ")}</div>
+                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-wrap" style={{color:CODE_TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
                 </div>})}
             </div>
           </div>
@@ -2806,10 +2811,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
-          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
             {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
         </div>
-        <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
+        <div className="p-4 border-t" style={{borderColor:LINE,minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
           <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
             <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
@@ -2821,32 +2826,36 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       </div>
     </div>
 
-    {/* Victory */}
-    {showVictory&&<div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.85)"}}>
-      <Particles active={showVictory} type={isBoss?"boss":"victory"} count={isBoss?36:24}/>
-      <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?"linear-gradient(135deg,#1a0d2a,#0d1b2a)":`linear-gradient(135deg,${PANEL},#0a1a14)`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
-        <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
-        <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
-        {replaying
-          ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
-          :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
-          :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
-        {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
-        <Btn onClick={()=>{
-          // Once only: the overlay closes so a second Enter/Space can't award XP again
-          if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
-          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})}} color={isBoss?GOLD:ACCENT}
-          autoFocus={markedDone}>CONTINUE →</Btn>
-      </div>
-    </div>}
+    {/* Victory: stays dark in both modes, like the other celebration pop-ups */}
+    {showVictory&&<ThemeScope name="dark"><Victory isBoss={isBoss} replaying={replaying} markedDone={markedDone} usedHints={usedHints} earnedXp={earnedXp} onContinue={finish}/></ThemeScope>}
+  </div>;
+}
+
+// Room cleared. ChallengeRoom shows it inside ThemeScope name="dark", so it keeps the dark palette in light mode.
+function Victory({isBoss,replaying,markedDone,usedHints,earnedXp,onContinue}){
+  const {PANEL,GOLD,ACCENT,DIM}=useTheme();
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM}}>
+    <Particles active={true} type={isBoss?"boss":"victory"} count={isBoss?36:24}/>
+    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`:`linear-gradient(135deg,${PANEL},${POP_CLEAR})`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
+      <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
+      <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
+      {replaying
+        ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
+        :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
+        :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
+      {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
+      <Btn onClick={onContinue} color={isBoss?GOLD:ACCENT}
+        autoFocus={markedDone}>CONTINUE →</Btn>
+    </div>
   </div>;
 }
 
 function BadgeUnlock({badge,onContinue}){
+  const {PANEL,GOLD}=useTheme();
   useEffect(()=>{try{SFX.badgeUnlock()}catch(e){}},[]);
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.9)"}}>
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM_DEEP}}>
     <Particles active={true} type="badge" count={28}/>
-    <div className="text-center p-10 rounded-xl max-w-sm mx-4" style={{background:"linear-gradient(135deg,#1a0d2a,#0d1b2a)",border:`2px solid ${GOLD}`,boxShadow:`0 0 60px ${GOLD}33`,animation:"cq-scale-in 0.5s ease-out"}}>
+    <div className="text-center p-10 rounded-xl max-w-sm mx-4" style={{background:`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`,border:`2px solid ${GOLD}`,boxShadow:`0 0 60px ${GOLD}33`,animation:"cq-scale-in 0.5s ease-out"}}>
       <div className="text-6xl mb-4" style={{animation:"cq-pulse 2s ease-in-out infinite"}}>{badge.icon}</div>
       <div className="text-xs tracking-widest mb-2" style={{color:GOLD}}>NEW ABILITY UNLOCKED</div>
       <h3 className="text-2xl font-bold mb-6" style={{color:GOLD,fontFamily:MONO}}>{badge.name}</h3>
@@ -2856,15 +2865,16 @@ function BadgeUnlock({badge,onContinue}){
 }
 
 function TrophyUnlock({trophy,onContinue}){
+  const {DIM,ORANGE}=useTheme();
   useEffect(()=>{try{SFX.trophyUnlock()}catch(e){}},[]);
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.9)"}}>
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM_DEEP}}>
     <Particles active={true} type="boss" count={30}/>
-    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:"linear-gradient(135deg,#2a1a0a,#1a0d0a)",border:"2px solid #e67e22",boxShadow:"0 0 40px #e67e2233",animation:"cq-scale-in 0.5s ease-out"}}>
+    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:`linear-gradient(135deg,${POP_TROPHY},${POP_TROPHY_END})`,border:`2px solid ${ORANGE}`,boxShadow:`0 0 40px ${ORANGE}33`,animation:"cq-scale-in 0.5s ease-out"}}>
       <div className="text-5xl mb-3" style={{animation:"cq-pulse 2s ease-in-out infinite"}}>{trophy.icon}</div>
-      <div className="text-xs tracking-widest mb-2" style={{color:"#e67e22"}}>TROPHY EARNED</div>
-      <h3 className="text-xl font-bold mb-2" style={{color:"#e67e22",fontFamily:MONO}}>{trophy.name}</h3>
+      <div className="text-xs tracking-widest mb-2" style={{color:ORANGE}}>TROPHY EARNED</div>
+      <h3 className="text-xl font-bold mb-2" style={{color:ORANGE,fontFamily:MONO}}>{trophy.name}</h3>
       <p className="text-sm mb-4" style={{color:DIM}}>{trophy.desc}</p>
-      <Btn onClick={onContinue} color="#e67e22">CONTINUE</Btn>
+      <Btn onClick={onContinue} color={ORANGE}>CONTINUE</Btn>
     </div>
   </div>;
 }

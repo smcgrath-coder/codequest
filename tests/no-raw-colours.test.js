@@ -15,9 +15,7 @@ const COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(/;
 const SWITCHING = ["DARK", "PANEL", "PANEL2", "TEXT", "DIM", "VDIM", "ACCENT", "GOLD", "ERR", "ORANGE", "OK", "LINE_FAINT", "LINE", "LINE_STRONG"];
 const USES_SWITCHING = new RegExp(`\\b(${SWITCHING.join("|")})\\b`);
 // Components not converted yet. Each conversion task takes its own off this list; it is empty at the end.
-const STILL_TO_CONVERT = new Set([
-  "ChallengeRoom", "BadgeUnlock", "TrophyUnlock", "CodeEditor", "OutputPanel",
-]);
+const STILL_TO_CONVERT = new Set();
 // Components that don't read the theme on purpose: App provides it (PALETTES[theme]), and the crash screen
 // stays dark.
 const NO_HOOK = new Set(["App", "ErrorBoundary"]);

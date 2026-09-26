@@ -1,7 +1,7 @@
 // src/python/CodePanel.jsx
 // The code editor (with line numbers) and the OUTPUT panel (real output, input box, errors, feedback).
 import React, { useRef, useState, useEffect } from "react";
-import { DARK, ACCENT, GOLD, TEXT, DIM, VDIM, ERR, MONO } from "../theme.js";
+import { useTheme, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_DIM, CODE_LINE, MONO } from "../theme.js";
 import { handleCodeKeyDown, CODE_TEXTAREA_PROPS } from "../editor.js";
 import { pythonSupported, pythonStatus, runCode, gradeCode, restartPython } from "./runner.js";
 
@@ -26,16 +26,17 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
   // contain: size keeps the numbers from setting the editor's height, so a long program scrolls inside the
   // editor instead of growing it and pushing Run and OUTPUT off screen. Its width is then set by hand:
   // the digits of the last line number, plus pl-3 and pr-2.
-  return <div className="flex-1 flex rounded-lg overflow-hidden" style={{ background: DARK, border: "1px solid #ffffff11", minHeight }}>
+  // The editor stays dark in both modes, like a terminal (CODE_* never switch); colorScheme keeps its scrollbars dark too.
+  return <div className="flex-1 flex rounded-lg overflow-hidden" style={{ background: CODE_BG, border: `1px solid ${CODE_LINE}`, minHeight, colorScheme: "dark" }}>
     <div ref={gutter} aria-hidden="true" className="shrink-0 select-none text-right pt-4 pb-12 pl-3 pr-2 overflow-hidden"
-      style={{ contain: "size", width: `calc(${String(count).length}ch + 1.25rem)`, color: `${VDIM}88`, fontFamily: MONO, fontSize: "13px", lineHeight: "1.6" }}>
+      style={{ contain: "size", width: `calc(${String(count).length}ch + 1.25rem)`, color: `${CODE_DIM}88`, fontFamily: MONO, fontSize: "13px", lineHeight: "1.6" }}>
       {Array.from({ length: count }, (_, i) => <div key={i}>{i + 1}</div>)}
     </div>
     <textarea value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => handleCodeKeyDown(e, onRun)}
       onScroll={e => { if (gutter.current) gutter.current.scrollTop = e.currentTarget.scrollTop; }}
       {...CODE_TEXTAREA_PROPS} wrap="off" aria-label="Python code"
       className="flex-1 w-full py-4 pr-4 resize-none focus:outline-none"
-      style={{ background: DARK, color: "#e6e6e6", fontFamily: MONO, fontSize: "13px", lineHeight: "1.6", caretColor: ACCENT }}
+      style={{ background: CODE_BG, color: CODE_TEXT, fontFamily: MONO, fontSize: "13px", lineHeight: "1.6", caretColor: CODE_ACCENT }}
       placeholder="# Write your Python code here..." />
   </div>;
 }
@@ -43,6 +44,7 @@ export function CodeEditor({ code, setCode, onRun, minHeight = 140 }) {
 // onMarkDone, when given, shows the "mark it done" button. ChallengeRoom passes it after 3 clean runs that didn't pass.
 // fallbackNote, for a result from the keyword grader: "late" if Python was still loading, else any truthy value.
 export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking, error, feedback, passed, fallbackNote, onMarkDone }) {
+  const { ACCENT, GOLD, TEXT, DIM, ERR } = useTheme();
   const [answer, setAnswer] = useState("");
   const inputRef = useRef(null);
   // A fresh prompt starts empty: text typed but never sent (the kid pressed Stop) doesn't carry over.
@@ -50,17 +52,18 @@ export function OutputPanel({ status, parts, waitingForInput, onAnswer, checking
   const printed = parts.length > 0 && !error?.hideOutput;   // see friendly.js's internalMessage()
   return <div>
     {status === "loading" && !printed && <div className="text-sm" style={{ color: ACCENT }}>⟳ Waking up Python…</div>}
+    {/* The printed output stays dark in both modes, like the editor, so the echoed answer and the input box use CODE_ACCENT */}
     {(printed || waitingForInput) && <pre className="p-3 rounded text-sm whitespace-pre-wrap mb-2"
-      style={{ background: DARK, color: "#e6e6e6", border: "1px solid #ffffff11", fontFamily: MONO, maxHeight: 260, overflow: "auto" }}>
-      {parts.map((p, i) => <span key={i} style={{ color: p.kind === "input" ? ACCENT : undefined }}>{p.text}</span>)}
+      style={{ background: CODE_BG, color: CODE_TEXT, border: `1px solid ${CODE_LINE}`, fontFamily: MONO, maxHeight: 260, overflow: "auto", colorScheme: "dark" }}>
+      {parts.map((p, i) => <span key={i} style={{ color: p.kind === "input" ? CODE_ACCENT : undefined }}>{p.text}</span>)}
       {waitingForInput && <form className="inline" onSubmit={e => { e.preventDefault(); onAnswer(answer); setAnswer(""); }}>
         <input ref={inputRef} value={answer} onChange={e => setAnswer(e.target.value)} aria-label="Type your answer, then press Enter"
           {...CODE_TEXTAREA_PROPS}
-          className="bg-transparent outline-none" style={{ color: ACCENT, fontFamily: MONO, borderBottom: `1px solid ${ACCENT}66`, minWidth: "8ch" }} />
+          className="bg-transparent outline-none" style={{ color: CODE_ACCENT, fontFamily: MONO, borderBottom: `1px solid ${CODE_ACCENT}66`, minWidth: "8ch" }} />
       </form>}
     </pre>}
     {checking && <div className="text-sm mb-2" style={{ color: ACCENT }}>⟳ Checking your code…</div>}
-    {error && <div className="p-3 rounded text-sm mb-2" style={{ background: "#ff6b6b11", color: ERR, border: "1px solid #ff6b6b33" }}>
+    {error && <div className="p-3 rounded text-sm mb-2" style={{ background: `${ERR}11`, color: ERR, border: `1px solid ${ERR}33` }}>
       <div>❌ {error.headline}</div>
       {error.code && <pre className="mt-2 text-xs whitespace-pre-wrap" style={{ fontFamily: MONO, color: TEXT }}>{error.line ? `${error.line} | ` : ""}{error.code}</pre>}
       {error.python && <details className="mt-2 text-xs"><summary className="cursor-pointer" style={{ color: DIM }}>What Python said</summary>

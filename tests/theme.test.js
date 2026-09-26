@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { PALETTES, LIGHT_INK, inkFor, loadTheme, saveTheme, THEME_KEY, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE } from "../src/theme.js";
+import { PALETTES, LIGHT_INK, inkFor, loadTheme, saveTheme, THEME_KEY, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD } from "../src/theme.js";
 import { CODEX, NPCS } from "../src/content.js";
 
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
@@ -38,7 +38,7 @@ for (const [name, p] of Object.entries(PALETTES)) test(`${name}: every text colo
 });
 
 test("code panels stay readable: their text colours on the code background", () => {
-  for (const c of [CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE]) assert.ok(ratio(rgb(c), rgb(CODE_BG)) >= 4.5, c);
+  for (const c of [CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD]) assert.ok(ratio(rgb(c), rgb(CODE_BG)) >= 4.5, c);
 });
 
 test("every NPC and Codex colour has a light-mode ink that is readable on the light surfaces", () => {
