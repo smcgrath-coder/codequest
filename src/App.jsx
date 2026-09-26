@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
-import { Music, getTrackForContext } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
+import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, loadTheme, saveTheme } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -2868,7 +2868,12 @@ export default function App(){
   const [pendingBadge,setPendingBadge]=useState(null);
   const [pendingTrophies,setPendingTrophies]=useState([]);
   const [queuedBadge,setQueuedBadge]=useState(null);
-  const [musicMuted,setMusicMuted]=useState(false);
+  const [musicMuted,setMusicMuted]=useState(()=>Music.setMuted(loadMusicMuted()));
+  // Light or dark: index.html has already set <html data-theme> from the saved choice, so the first paint matches.
+  const [theme,setTheme]=useState(()=>document.documentElement.dataset.theme==="light"?"light":loadTheme());
+  useEffect(()=>{document.documentElement.dataset.theme=theme;saveTheme(theme)},[theme]);
+  // App provides the theme, so it reads its own colours from the palette rather than useTheme().
+  const {DARK,PANEL2,ACCENT,DIM,TEXT,LINE_STRONG}=PALETTES[theme];
 
   // Music: play the right track when screen/context changes
   useEffect(()=>{
@@ -2947,7 +2952,7 @@ export default function App(){
 
   if(screen==="loading")return <div className="min-h-screen flex items-center justify-center" style={{background:DARK}}><div style={{color:ACCENT,fontFamily:MONO}}>Loading...</div></div>;
 
-  return <ErrorBoundary><div style={{fontFamily:MONO,minHeight:"100vh"}}>
+  return <ErrorBoundary><ThemeScope name={theme}><div style={{fontFamily:MONO,minHeight:"100vh"}}>
     <GlobalStyles/>
     <ScreenWrap screenKey={screen}>
     {screen==="title"&&<TitleScreen onStart={()=>setScreen("create")}/>}
@@ -2963,16 +2968,25 @@ export default function App(){
       onComplete={completeChallenge} onBack={()=>setScreen("chapter")} xpMultiplier={xpMultiplier}
       chapterIntroNpc={chapterIntroNpc} chapterIntroDialogue={chapterIntroDialogue}/>}
     </ScreenWrap>
+    {/* The celebration pop-ups stay dark in both modes: their sparkles need a dark backdrop */}
+    <ThemeScope name="dark">
     {pendingTrophies.length>0&&<TrophyUnlock key={pendingTrophies[0].id} trophy={pendingTrophies[0]} onContinue={dismissTrophy}/>}
     {pendingBadge&&<BadgeUnlock badge={pendingBadge} onContinue={()=>{setPendingBadge(null);setScreen("chapter")}}/>}
-    {/* Music controls */}
+    </ThemeScope>
+    {/* Corner controls: light/dark and music, each remembered on this device */}
     <div className="fixed bottom-4 right-4 flex gap-2" style={{zIndex:100}}>
-      <button onClick={()=>{const m=Music.toggleMute();setMusicMuted(m)}}
+      <button onClick={()=>setTheme(t=>t==="light"?"dark":"light")}
         className="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all"
-        style={{background:PANEL2,border:`1px solid ${musicMuted?"#ffffff22":ACCENT+"44"}`,color:musicMuted?DIM:ACCENT,opacity:0.8}}
-        title={musicMuted?"Unmute music":"Mute music"}>
+        style={{background:PANEL2,border:`1px solid ${LINE_STRONG}`,color:TEXT,opacity:0.8}}
+        title={theme==="light"?"Switch to dark mode":"Switch to light mode"} aria-label={theme==="light"?"Switch to dark mode":"Switch to light mode"}>
+        {theme==="light"?"🌙":"☀️"}
+      </button>
+      <button onClick={()=>{const m=Music.toggleMute();setMusicMuted(m);saveMusicMuted(m)}}
+        className="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all"
+        style={{background:PANEL2,border:`1px solid ${musicMuted?LINE_STRONG:ACCENT+"44"}`,color:musicMuted?DIM:ACCENT,opacity:0.8}}
+        title={musicMuted?"Unmute music":"Mute music"} aria-label={musicMuted?"Unmute music":"Mute music"}>
         {musicMuted?"🔇":"🎵"}
       </button>
     </div>
-  </div></ErrorBoundary>;
+  </div></ThemeScope></ErrorBoundary>;
 }
