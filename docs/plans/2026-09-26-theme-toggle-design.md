@@ -125,7 +125,7 @@ The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on the
 - `aria-label`/`title` of "Switch to light mode" or "Switch to dark mode";
 - keyboard-focusable.
 
-**Music mute is saved** as `localStorage["cq:music-muted"]`. `Music.setMuted(m)` sets `_muted`, pauses or resumes, and returns the new value. App starts `musicMuted` from storage and applies it once on load.
+**Music mute is saved** as `localStorage["cq:music-muted"]`. `Music.setMuted(m)` sets `_muted`, turns the playing track's volume to 0 or back (as the 🎵 button always has), and returns the new value. App starts `musicMuted` from storage and applies it once on load.
 
 **Browser support.** Nothing needs a newer browser than the app already needs: no `color-mix()`, no container queries. So devices on the keyword fallback get light mode too.
 

@@ -16,6 +16,8 @@
 
 **Rehearsed:** every task below was run in order on a scratch copy of 7b6b3af. Each red step failed as written, each green step passed, every task built, and a Babel scope check found no undefined names and no misplaced hooks after any task. `npm test` goes from 2,849 to 2,864 passing.
 
+**Amended after Task 2's review (2026-09-26):** as written, the storage helpers in Tasks 1 and 2 (`loadTheme`, `saveTheme`, `loadMusicMuted`, `saveMusicMuted`) read `storage = globalThis.localStorage` as a default parameter, and a default parameter is evaluated outside the `try`. A browser that blocks storage throws a SecurityError from that lookup, so Task 4's first render would have crashed to a blank screen. A fix commit after Task 2, "Look up localStorage inside the storage helpers' try", moves the lookup inside the `try` in all four helpers (`(storage ?? globalThis.localStorage)?.…`) and adds `tests/blocked-storage.test.js`, which has one test. The helpers are called the same way as before and the Task 1 and 2 tests are unchanged. No later edit table moves: `src/theme.js` gained one comment line below line 41, and no later task edits `src/theme.js` below line 32. The new test makes every `npm test` count from Task 3 on one higher than rehearsed: 2,862 after Tasks 3 and 4, and 2,865 from Task 5 on. The branch ends with 12 commits. The counts below are already updated.
+
 **Conventions:**
 - Branch `theme-toggle`, already checked out in `/Users/smcgrath/Downloads/codequest` at 7b6b3af (main 9f10ece plus the design doc). Commit after every task, never on `main`. Push only when Task 13 says so.
 - Every commit message ends with a blank line and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The commit steps do this with a second `-m`.
@@ -445,7 +447,7 @@ Expected: PASS, `ℹ tests 9`, `ℹ pass 9`.
 **Step 6: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2861` and `ℹ fail 0`.
+Expected: `ℹ pass 2862` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -544,7 +546,7 @@ What the edits do:
 **Step 2: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2861` and `ℹ fail 0`.
+Expected: `ℹ pass 2862` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -793,7 +795,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 5: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -892,7 +894,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 6: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -1040,7 +1042,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 6: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -1241,7 +1243,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 6: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -1400,7 +1402,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 5: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -1728,7 +1730,7 @@ Expected: PASS, `ℹ tests 3`, `ℹ pass 3`.
 **Step 10: Run the whole suite and build**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 Run: `npm run build`
 Expected: it builds. The only warnings are the ones main already has: pyodide's `node:` modules being externalized for the browser, and a chunk over 500 kB.
@@ -1792,7 +1794,7 @@ In the same file, add this section just before `## 4. Testing`:
 **Step 5: Check nothing else moved**
 
 Run: `npm test`
-Expected: `ℹ pass 2864` and `ℹ fail 0`.
+Expected: `ℹ pass 2865` and `ℹ fail 0`.
 
 **Step 6: Commit**
 
@@ -1843,7 +1845,7 @@ For each failure, use superpowers:systematic-debugging, add a test first where a
 **Step 1: Check the branch**
 
 Run: `npm test`, then `npm run build`, then `git log --oneline 7b6b3af..HEAD`.
-Expected: `ℹ pass 2864` and `ℹ fail 0`; the build succeeds with only the pre-existing warnings; 11 commits (Tasks 1-11), plus any fixes from Task 12. `git status` is clean.
+Expected: `ℹ pass 2865` and `ℹ fail 0`; the build succeeds with only the pre-existing warnings; 12 commits (Tasks 1-11 and the fix after Task 2), plus any fixes from Task 12. `git status` is clean.
 
 **Step 2: Whole-branch review**
 
@@ -1851,7 +1853,7 @@ Use superpowers:requesting-code-review on `7b6b3af..HEAD`, against the design do
 
 **Step 3: Ask Scott before pushing**
 
-Stop and ask, with the facts: the commit count, 2,864 of 2,864 tests passing, the build result, and what the browser check covered. Pushing makes Vercel build a preview; the public site at codequest-pi.vercel.app is unchanged until the merge. Only after a clear yes, run `git push -u origin theme-toggle`.
+Stop and ask, with the facts: the commit count, 2,865 of 2,865 tests passing, the build result, and what the browser check covered. Pushing makes Vercel build a preview; the public site at codequest-pi.vercel.app is unchanged until the merge. Only after a clear yes, run `git push -u origin theme-toggle`.
 
 **Step 4: Ask Scott before opening the PR**
 
@@ -1865,7 +1867,7 @@ gh pr create --base main --head theme-toggle --title "Add a dark/light mode togg
 - `tests/theme.test.js` checks both palettes' contrast; `tests/no-raw-colours.test.js` keeps hand-written colours out of the screens.
 
 ## Test plan
-- [x] `npm test`: 2,864 of 2,864 pass
+- [x] `npm test`: 2,865 of 2,865 pass
 - [x] `npm run build`
 - [x] Browser check in both modes (Task 12 of the plan)
 

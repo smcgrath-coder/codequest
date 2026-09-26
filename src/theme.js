@@ -39,12 +39,13 @@ export const inkFor = (theme, c) => (theme === "light" && LIGHT_INK[String(c).to
 export const { DARK, PANEL, PANEL2, TEXT, DIM, VDIM, ACCENT, GOLD, ERR, ORANGE, OK, LINE_FAINT, LINE, LINE_STRONG } = PALETTES.dark;
 
 // The player's choice on this device. Anything but "light" (nothing saved, or storage blocked) is dark.
+// localStorage is looked up inside the try, not as a default parameter: blocked storage throws on the lookup itself.
 export const THEME_KEY = "cq:theme";
-export function loadTheme(storage = globalThis.localStorage) {
-  try { return storage?.getItem(THEME_KEY) === "light" ? "light" : "dark"; } catch { return "dark"; }
+export function loadTheme(storage) {
+  try { return (storage ?? globalThis.localStorage)?.getItem(THEME_KEY) === "light" ? "light" : "dark"; } catch { return "dark"; }
 }
-export function saveTheme(theme, storage = globalThis.localStorage) {
-  try { storage?.setItem(THEME_KEY, theme === "light" ? "light" : "dark"); } catch {}
+export function saveTheme(theme, storage) {
+  try { (storage ?? globalThis.localStorage)?.setItem(THEME_KEY, theme === "light" ? "light" : "dark"); } catch {}
 }
 
 const ThemeContext = createContext("dark");

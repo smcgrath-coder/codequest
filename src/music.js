@@ -53,12 +53,13 @@ export function getTrackForContext({ screen, chapterId, isBoss }) {
 }
 
 // The music on/off choice on this device. "1" is muted; anything else, or blocked storage, is not.
+// localStorage is looked up inside the try, not as a default parameter: blocked storage throws on the lookup itself.
 export const MUTED_KEY = "cq:music-muted";
-export function loadMusicMuted(storage = globalThis.localStorage) {
-  try { return storage?.getItem(MUTED_KEY) === "1"; } catch { return false; }
+export function loadMusicMuted(storage) {
+  try { return (storage ?? globalThis.localStorage)?.getItem(MUTED_KEY) === "1"; } catch { return false; }
 }
-export function saveMusicMuted(muted, storage = globalThis.localStorage) {
-  try { storage?.setItem(MUTED_KEY, muted ? "1" : "0"); } catch {}
+export function saveMusicMuted(muted, storage) {
+  try { (storage ?? globalThis.localStorage)?.setItem(MUTED_KEY, muted ? "1" : "0"); } catch {}
 }
 
 // Singleton music player
