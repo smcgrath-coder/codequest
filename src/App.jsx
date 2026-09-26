@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM } from "./theme.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_ACCENT, CODE_EXAMPLE, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -2473,6 +2473,7 @@ function CharacterSheet({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function Codex({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,LINE_FAINT,LINE,ink}=useTheme();
   const [selectedChapter,setSelectedChapter]=useState(null);
   const [expandedConcept,setExpandedConcept]=useState(null);
   const cr=new Set(profile.completedRooms||[]);
@@ -2503,10 +2504,10 @@ function Codex({profile,onBack}){
           disabled={!unlocked}
           className="p-3 rounded-lg text-left cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
           style={{background:selectedChapter===ch.chapter?`${ch.color}22`:unlocked?PANEL2:`${DARK}88`,
-            border:`1px solid ${selectedChapter===ch.chapter?ch.color:unlocked?"#ffffff11":"#ffffff05"}`,
+            border:`1px solid ${selectedChapter===ch.chapter?ch.color:unlocked?LINE:LINE_FAINT}`,
             opacity:unlocked?1:0.35}}>
           <div className="text-lg mb-1">{unlocked?ch.icon:"🔒"}</div>
-          <div className="text-xs font-bold" style={{color:unlocked?ch.color:DIM}}>{ch.title}</div>
+          <div className="text-xs font-bold" style={{color:unlocked?ink(ch.color):DIM}}>{ch.title}</div>
           <div className="text-xs" style={{color:VDIM}}>{unlocked?`${ch.concepts.length} concepts`:"Locked"}</div>
         </button>})}
       </div>
@@ -2521,29 +2522,29 @@ function Codex({profile,onBack}){
         </div>:<div>
           <div className="mb-4 p-3 rounded-lg" style={{background:`${active.color}11`,border:`1px solid ${active.color}33`}}>
             <span className="text-lg mr-2">{active.icon}</span>
-            <span className="font-bold" style={{color:active.color}}>{active.title}</span>
+            <span className="font-bold" style={{color:ink(active.color)}}>{active.title}</span>
             <span className="text-xs ml-3" style={{color:DIM}}>{active.concepts.length} concepts</span>
           </div>
           <div className="flex flex-col gap-2">
             {active.concepts.map((concept,i)=>{
               const isOpen=expandedConcept===i;
               return <div key={i} className="rounded-lg overflow-hidden transition-all duration-200"
-                style={{background:isOpen?`${active.color}11`:PANEL2,border:`1px solid ${isOpen?active.color+"66":"#ffffff0a"}`}}>
+                style={{background:isOpen?`${active.color}11`:PANEL2,border:`1px solid ${isOpen?active.color+"66":LINE}`}}>
                 <button onClick={()=>setExpandedConcept(isOpen?null:i)} className="w-full p-3 text-left flex items-center gap-3 cursor-pointer">
                   <span className="text-sm">{catIcons[concept.cat]||"📌"}</span>
-                  <span className="text-sm font-bold flex-1" style={{color:isOpen?active.color:TEXT}}>{concept.name}</span>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{background:"#ffffff08",color:DIM}}>{concept.cat}</span>
+                  <span className="text-sm font-bold flex-1" style={{color:isOpen?ink(active.color):TEXT}}>{concept.name}</span>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{background:LINE_FAINT,color:DIM}}>{concept.cat}</span>
                   <span style={{color:DIM,fontSize:"10px"}}>{isOpen?"▼":"▶"}</span>
                 </button>
-                {isOpen&&<div className="px-3 pb-3 border-t" style={{borderColor:"#ffffff08"}}>
+                {isOpen&&<div className="px-3 pb-3 border-t" style={{borderColor:LINE_FAINT}}>
                   <p className="text-sm mt-2 mb-3" style={{color:TEXT}}>{concept.desc}</p>
                   <div className="mb-2">
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>SYNTAX</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:DARK,color:ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.syntax}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.syntax}</pre>
                   </div>
                   <div>
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>EXAMPLE</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:DARK,color:"#a8d8a8",fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.ex}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_EXAMPLE,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.ex}</pre>
                   </div>
                 </div>}
               </div>;
@@ -2560,6 +2561,7 @@ function Codex({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function GrindingZone({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,ERR,ORANGE,LINE_FAINT,LINE}=useTheme();
   const [challenge,setChallenge]=useState(null);
   const [code,setCode]=useState("");
   const [parts,setParts]=useState([]);
@@ -2611,14 +2613,14 @@ function GrindingZone({profile,onBack}){
     <div className="flex items-center gap-4 mb-6">
       <Btn onClick={onBack} color={DIM}>← Map</Btn>
       <div>
-        <h2 className="text-xl font-bold" style={{fontFamily:MONO,color:"#e67e22"}}>⚔️ Practice Arena</h2>
+        <h2 className="text-xl font-bold" style={{fontFamily:MONO,color:ORANGE}}>⚔️ Practice Arena</h2>
         <p className="text-xs" style={{color:DIM}}>Sharpen your skills with random challenges — no XP, just practice</p>
       </div>
     </div>
     <div className="max-w-lg mx-auto">
-      <div className="mb-6 p-4 rounded-xl text-center" style={{background:PANEL2,border:`1px solid #e67e2233`}}>
+      <div className="mb-6 p-4 rounded-xl text-center" style={{background:PANEL2,border:`1px solid ${ORANGE}33`}}>
         <div className="text-3xl mb-2">🎲</div>
-        <Btn onClick={()=>pickRandom(null)} color="#e67e22" disabled={available.length===0}>Random Challenge</Btn>
+        <Btn onClick={()=>pickRandom(null)} color={ORANGE} disabled={available.length===0}>Random Challenge</Btn>
         <div className="text-xs mt-2" style={{color:DIM}}>{available.length>0?`${available.length} challenges available`:"Clear your first room to unlock practice challenges"}</div>
       </div>
       {categories.length>0&&<h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:DIM}}>BY CATEGORY</h3>}
@@ -2626,9 +2628,9 @@ function GrindingZone({profile,onBack}){
         {categories.map(cat=>{const count=available.filter(g=>g.cat===cat).length;return <button key={cat}
           onClick={()=>pickRandom(cat)}
           className="p-4 rounded-lg text-left cursor-pointer transition-all duration-200"
-          style={{background:PANEL2,border:"1px solid #ffffff0a"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#e67e2266"}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#ffffff0a"}}>
+          style={{background:PANEL2,border:`1px solid ${LINE}`}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=`${ORANGE}66`}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=LINE}}>
           <div className="text-lg mb-1">{catIcons[cat]||"📌"}</div>
           <div className="text-sm font-bold" style={{color:TEXT}}>{cat}</div>
           <div className="text-xs" style={{color:DIM}}>{count} challenge{count!==1?"s":""}</div>
@@ -2639,22 +2641,22 @@ function GrindingZone({profile,onBack}){
 
   return <div className="min-h-screen flex flex-col" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
-    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
+    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:LINE}}>
       <div className="flex items-center gap-3">
         <Btn onClick={()=>{dropRun();setChallenge(null)}} color={DIM}>← Back</Btn>
         <div>
-          <span className="text-sm font-bold" style={{color:"#e67e22"}}>{challenge.name}</span>
-          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#e67e2218",color:"#e67e22"}}>{challenge.cat}</span>
-          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#ffffff08",color:DIM}}>Practice — No XP</span>
+          <span className="text-sm font-bold" style={{color:ORANGE}}>{challenge.name}</span>
+          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:`${ORANGE}18`,color:ORANGE}}>{challenge.cat}</span>
+          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:LINE_FAINT,color:DIM}}>Practice — No XP</span>
         </div>
       </div>
-      <Btn onClick={()=>pickRandom(challenge.cat)} color="#e67e22">🎲 New Challenge</Btn>
+      <Btn onClick={()=>pickRandom(challenge.cat)} color={ORANGE}>🎲 New Challenge</Btn>
     </div>
     <div className="flex-1 flex flex-col lg:flex-row">
       {/* Task panel */}
-      <div className="lg:w-2/5 p-4 border-b lg:border-b-0 lg:border-r overflow-y-auto" style={{borderColor:"#ffffff11",maxHeight:"calc(100vh - 56px)"}}>
-        <div className="p-3 rounded-lg mb-4" style={{background:`#e67e2210`,border:`1px solid #e67e2233`}}>
-          <h3 className="text-sm font-bold mb-2" style={{color:"#e67e22"}}>📋 Challenge</h3>
+      <div className="lg:w-2/5 p-4 border-b lg:border-b-0 lg:border-r overflow-y-auto" style={{borderColor:LINE,maxHeight:"calc(100vh - 56px)"}}>
+        <div className="p-3 rounded-lg mb-4" style={{background:`${ORANGE}10`,border:`1px solid ${ORANGE}33`}}>
+          <h3 className="text-sm font-bold mb-2" style={{color:ORANGE}}>📋 Challenge</h3>
           <pre className="text-sm whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO}}>{challenge.task}</pre>
         </div>
       </div>
