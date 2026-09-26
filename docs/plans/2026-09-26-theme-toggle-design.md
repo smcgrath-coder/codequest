@@ -67,12 +67,12 @@ Every palette value is 6-digit hex, so glued alpha (`${TOKEN}33`) keeps working.
 | VDIM | #7a8699 (was #4a5568) | #5b6780 |
 | ACCENT | #64ffda | #00695c |
 | GOLD | #ffd700 | #7c5400 |
-| ERR | #ff6b6b | #b71c1c |
+| ERR | #ff6b6b | #b01a1a |
 | ORANGE (new, from `#e67e22`) | #e67e22 | #9a3d00 |
 | OK (new, from `#00bfa5`) | #00bfa5 | #00664f |
 | LINE_FAINT / LINE / LINE_STRONG (new) | #ffffff08 / #ffffff11 / #ffffff22 | #1b243614 / #1b24361f / #1b243633 |
 
-The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on their own tint (11, 18 or 22 alpha) over those surfaces. The synthesis computed TEXT 13.2–15.5, DIM 6.3–7.4, ACCENT 5.6–6.6, GOLD 5.7–6.7, ERR 5.6–6.6 and ORANGE 5.9–6.9.
+The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on their own tint (11, 18 or 22 alpha) over those surfaces. The synthesis computed TEXT 13.2–15.5, DIM 6.3–7.4, ACCENT 5.6–6.6, GOLD 5.7–6.7, ERR 5.9–7.0 and ORANGE 5.9–6.9. Light ERR was first #b71c1c, which scores 4.47:1 on its own 22 tint over DARK, under the 4.5 the test asks for, so it became #b01a1a (4.75:1 there).
 
 **Fixed sets (never switch):**
 - **ART:** `ART_ACCENT #64ffda`, `ART_GOLD #ffd700`, `ART_WELL #1a1a2e`.
@@ -128,6 +128,15 @@ The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on the
 **Music mute is saved** as `localStorage["cq:music-muted"]`. `Music.setMuted(m)` sets `_muted`, turns the playing track's volume to 0 or back (as the 🎵 button always has), and returns the new value. App starts `musicMuted` from storage and applies it once on load.
 
 **Browser support.** Nothing needs a newer browser than the app already needs: no `color-mix()`, no container queries. So devices on the keyword fallback get light mode too.
+
+## Changes made while planning (2026-09-26)
+
+- Light ERR is #b01a1a (see section 2).
+- More fixed colours sit next to ART and CODE in `theme.js`: `CODE_GOLD`, `CODE_DIM` and `CODE_LINE` (the Concept Guide, the editor's line numbers, the code panels' borders); the `MAP_` colours and `MAP_GLOW` (the map's nodes, dots, label shadows and in-progress glow); `DIALOGUE_SCRIM`; and the pop-ups' `POP_` colours and `BOSS_PURPLE`.
+- App provides the theme, so it reads its own colours from `PALETTES[theme]` rather than calling `useTheme()`. CodeEditor uses only `CODE_` colours and needs no hook.
+- The room-cleared overlay became its own component, `Victory`, so it can sit inside `ThemeScope name="dark"`.
+- The NPCS table moved from `App.jsx` to `content.js`, so the tests can import it.
+- In light mode a boss room glows faintly gold instead of purple.
 
 ## 4. Testing
 
