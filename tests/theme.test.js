@@ -2,6 +2,7 @@
 // The two palettes: the same names, hex that takes a glued alpha, and text colours readable on every surface.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { PALETTES, LIGHT_INK, inkFor, loadTheme, saveTheme, THEME_KEY, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE } from "../src/theme.js";
 import { CODEX, NPCS } from "../src/content.js";
 
@@ -63,4 +64,11 @@ test("the saved choice: light only when 'light' is saved; anything else, or bloc
   const blocked = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
   assert.equal(loadTheme(blocked), "dark"); assert.doesNotThrow(() => saveTheme("light", blocked));
   assert.equal(loadTheme(undefined), "dark");
+});
+
+test("index.html sets the saved theme before the app loads, with the same key", () => {
+  const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const script = html.indexOf(THEME_KEY), app = html.indexOf('src="/src/main.jsx"');
+  assert.ok(script !== -1 && script < app, "the inline theme script comes before the app's module script");
+  assert.match(html, /dataset\.theme\s*=\s*"light"/);
 });

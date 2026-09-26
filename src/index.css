@@ -14,3 +14,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Light mode (html data-theme="light", set by index.html and App): the page behind every screen, and the
+   browser's own controls and scrollbars. */
+html { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="light"] body { background: #e8edf4; }
