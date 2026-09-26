@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, MAP_GLOW, DIALOGUE_SCRIM } from "./theme.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -2284,6 +2284,7 @@ function MapBackground() {
 // ═══════════════════════════════════════════════════════════════════
 
 function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,timeRemaining,sessionActive}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,ORANGE,LINE_FAINT}=useTheme();
   useEffect(()=>{warmUp().catch(()=>{})},[]);   // load Python in the background; a failure means the keyword grader
   const xp=profile.xp,cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const status=ch=>{
@@ -2292,18 +2293,20 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
     if(ch.rooms?.some(r=>cr.has(r.id)))return "in-progress";return "available";
   };
   const nextLock=chapters.find(ch=>!ch.comingSoon&&xp<ch.requiredXp);
+  // The map is a night scene that stays dark in light mode, so its nodes, paths and labels take the dark palette (M).
+  const M=PALETTES.dark;
   const cls={
-    locked:{bg:`${PANEL2}cc`,bd:"#333",tx:"#555",glow:"none"},
-    available:{bg:`${PANEL2}ee`,bd:`${ACCENT}66`,tx:TEXT,glow:`0 0 12px ${ACCENT}22`},
-    "in-progress":{bg:"#1a2a1add",bd:ACCENT,tx:ACCENT,glow:`0 0 20px ${ACCENT}44`},
-    completed:{bg:"#0d2818dd",bd:"#00bfa5",tx:ACCENT,glow:`0 0 12px #00bfa522`}
+    locked:{bg:`${M.PANEL2}cc`,bd:MAP_EDGE_LOCKED,tx:MAP_LOCKED,glow:"none"},
+    available:{bg:`${M.PANEL2}ee`,bd:`${M.ACCENT}66`,tx:M.TEXT,glow:`0 0 12px ${M.ACCENT}22`},
+    "in-progress":{bg:`${MAP_ACTIVE}dd`,bd:M.ACCENT,tx:M.ACCENT,glow:`0 0 20px ${M.ACCENT}44`},
+    completed:{bg:`${MAP_DONE}dd`,bd:M.OK,tx:M.ACCENT,glow:`0 0 12px ${M.OK}22`}
   };
 
   return <div className="min-h-screen flex flex-col" style={{background:DARK}}>
     {/* HUD bar */}
-    <div className="flex justify-between items-center p-4 border-b" style={{borderColor:"#ffffff08",background:`${PANEL}ee`,backdropFilter:"blur(8px)"}}>
+    <div className="flex justify-between items-center p-4 border-b" style={{borderColor:LINE_FAINT,background:`${PANEL}ee`,backdropFilter:"blur(8px)"}}>
       <div className="flex items-center gap-3">
-        <button onClick={onCharSheet} className="cursor-pointer rounded-lg p-1 transition-all duration-300" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}
+        <button onClick={onCharSheet} className="cursor-pointer rounded-lg p-1 transition-all duration-300" style={{background:ART_WELL,border:`1px solid ${ACCENT}33`}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT}} onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`}}>
           <PixelAvatar {...profile.avatar} size={40}/></button>
         <div>
@@ -2318,22 +2321,22 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT;e.currentTarget.style.boxShadow=`0 0 12px ${ACCENT}22`}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`;e.currentTarget.style.boxShadow="none"}}>📖 Codex</button>
         <button onClick={onGrind} className="px-2 py-1.5 rounded-lg cursor-pointer text-xs font-bold transition-all duration-200"
-          style={{background:PANEL2,border:`1px solid #e67e2233`,color:"#e67e22",fontFamily:MONO}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#e67e22";e.currentTarget.style.boxShadow=`0 0 12px #e67e2222`}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#e67e2233";e.currentTarget.style.boxShadow="none"}}>⚔️ Practice</button>
+          style={{background:PANEL2,border:`1px solid ${ORANGE}33`,color:ORANGE,fontFamily:MONO}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=ORANGE;e.currentTarget.style.boxShadow=`0 0 12px ${ORANGE}22`}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ORANGE}33`;e.currentTarget.style.boxShadow="none"}}>⚔️ Practice</button>
         <div className="flex gap-1">{(profile.badges||[]).map((b,i)=><span key={i} title={b.name} className="text-lg">{b.icon}</span>)}</div>
       </div>
     </div>
     <div className="px-4 pt-2 max-w-sm"><XpBar current={xp} next={nextLock?.requiredXp||xp} label={nextLock?`Next: ${nextLock.name}`:"All unlocked!"}/></div>
     {/* Map area */}
     <div className="flex-1 flex items-center justify-center p-4">
-      <div className="relative w-full max-w-3xl rounded-xl overflow-hidden" style={{minHeight:"380px",border:"1px solid #ffffff08"}}>
+      <div className="relative w-full max-w-3xl rounded-xl overflow-hidden" style={{minHeight:"380px",border:`1px solid ${LINE_FAINT}`}}>
         <MapBackground/>
         {/* Path lines overlay */}
         <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none" style={{zIndex:1}}>
           {chapters.slice(0,-1).map((ch,i)=>{const n=chapters[i+1],st=status(n);return <line key={i}
             x1={ch.mapPosition.x} y1={ch.mapPosition.y} x2={n.mapPosition.x} y2={n.mapPosition.y}
-            stroke={st!=="locked"?ACCENT:"#555"} strokeWidth={st!=="locked"?"0.6":"0.3"}
+            stroke={st!=="locked"?M.ACCENT:MAP_LOCKED} strokeWidth={st!=="locked"?"0.6":"0.3"}
             strokeDasharray={st==="locked"?"2,2":"none"} opacity={st!=="locked"?0.5:0.3}/>})}
         </svg>
         {/* Chapter nodes */}
@@ -2345,12 +2348,12 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
             onMouseEnter={e=>{if(s!=="locked"){e.currentTarget.style.transform="scale(1.08)";e.currentTarget.style.boxShadow=`0 0 30px ${c.bd}44`}}}
             onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";e.currentTarget.style.boxShadow=c.glow}}>
             <span className="text-xl">{s==="locked"?"🔒":s==="completed"?"✅":ch.icon}</span>
-            <span className="text-xs font-bold tracking-wide text-center leading-tight" style={{color:c.tx,textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>{ch.name}</span>
-            <span className="text-center leading-tight" style={{color:DIM,fontSize:"8px",textShadow:"0 1px 2px rgba(0,0,0,0.9)"}}>{s==="locked"?`${ch.requiredXp} XP`:s==="completed"?"Complete!":ch.comingSoon?"Coming Soon":ch.subtitle}</span>
+            <span className="text-xs font-bold tracking-wide text-center leading-tight" style={{color:c.tx,textShadow:`0 1px 3px ${MAP_SHADOW}cc`}}>{ch.name}</span>
+            <span className="text-center leading-tight" style={{color:M.DIM,fontSize:"8px",textShadow:`0 1px 2px ${MAP_SHADOW}e6`}}>{s==="locked"?`${ch.requiredXp} XP`:s==="completed"?"Complete!":ch.comingSoon?"Coming Soon":ch.subtitle}</span>
             {s==="in-progress"&&<div className="flex gap-1 mt-1">
-              {ch.rooms.filter(r=>!r.optional).map(r=><div key={r.id} className="w-2 h-2 rounded-full" style={{background:cr.has(r.id)?ACCENT:"#444",border:`1px solid ${cr.has(r.id)?ACCENT:"#555"}`,boxShadow:cr.has(r.id)?`0 0 4px ${ACCENT}66`:"none"}}/>)}
-              {ch.rooms.filter(r=>r.optional).map(r=><div key={r.id} className="w-2 h-2" style={{background:cr.has(r.id)?"#e67e22":"#444",border:`1px solid ${cr.has(r.id)?"#e67e22":"#555"}`,transform:"rotate(45deg)",boxShadow:cr.has(r.id)?`0 0 4px #e67e2266`:"none"}}/>)}
-              {ch.boss&&<div className="w-2 h-2 rounded-full" style={{background:cb.has(ch.boss.id)?GOLD:"#444",border:`1px solid ${cb.has(ch.boss.id)?GOLD:`${GOLD}44`}`}}/>}
+              {ch.rooms.filter(r=>!r.optional).map(r=><div key={r.id} className="w-2 h-2 rounded-full" style={{background:cr.has(r.id)?M.ACCENT:MAP_DOT,border:`1px solid ${cr.has(r.id)?M.ACCENT:MAP_LOCKED}`,boxShadow:cr.has(r.id)?`0 0 4px ${M.ACCENT}66`:"none"}}/>)}
+              {ch.rooms.filter(r=>r.optional).map(r=><div key={r.id} className="w-2 h-2" style={{background:cr.has(r.id)?M.ORANGE:MAP_DOT,border:`1px solid ${cr.has(r.id)?M.ORANGE:MAP_LOCKED}`,transform:"rotate(45deg)",boxShadow:cr.has(r.id)?`0 0 4px ${M.ORANGE}66`:"none"}}/>)}
+              {ch.boss&&<div className="w-2 h-2 rounded-full" style={{background:cb.has(ch.boss.id)?M.GOLD:MAP_DOT,border:`1px solid ${cb.has(ch.boss.id)?M.GOLD:`${M.GOLD}44`}`}}/>}
             </div>}
           </button>
         </div>})}
@@ -2360,19 +2363,20 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
 }
 
 function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ORANGE,LINE_FAINT,LINE,LINE_STRONG}=useTheme();
   const cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const mainRooms=chapter.rooms.filter(r=>!r.optional);
   const sideQuests=chapter.rooms.filter(r=>r.optional);
-  const SIDE_COLOR="#e67e22";
+  const SIDE_COLOR=ORANGE;
 
   const RoomBtn=({room,i,avail,isSide})=>{
     const done=cr.has(room.id);
     const accent=isSide?SIDE_COLOR:ACCENT;
     return <button key={room.id} onClick={()=>avail&&onSelectRoom(room,!isSide&&i===0)} disabled={!avail}
       className="flex items-center gap-4 p-4 rounded-lg text-left transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
-      style={{background:done?`${accent}08`:avail?PANEL2:DARK,border:`1px solid ${done?`${accent}44`:avail?"#ffffff22":"#ffffff08"}`,opacity:avail?1:0.4}}>
+      style={{background:done?`${accent}08`:avail?PANEL2:DARK,border:`1px solid ${done?`${accent}44`:avail?LINE_STRONG:LINE_FAINT}`,opacity:avail?1:0.4}}>
       <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-        style={{background:done?`${accent}22`:PANEL2,color:done?accent:DIM,border:`1px solid ${done?`${accent}44`:"#ffffff11"}`}}>
+        style={{background:done?`${accent}22`:PANEL2,color:done?accent:DIM,border:`1px solid ${done?`${accent}44`:LINE}`}}>
         {done?"✓":isSide?"⭐":i+1}</div>
       <div className="flex-1"><div className="font-bold text-sm" style={{color:done?accent:TEXT}}>{room.name}</div>
         <div className="text-xs" style={{color:DIM}}>{done?"Complete":isSide?"Side Quest":"Main Track"} • {room.xpReward} XP</div></div>
@@ -2413,7 +2417,7 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
       {chapter.boss&&(()=>{const allMainDone=mainRooms.every(r=>cr.has(r.id)),bDone=cb.has(chapter.boss.id);
         return <div className="mt-6"><button onClick={()=>allMainDone&&onSelectBoss(chapter.boss)} disabled={!allMainDone}
           className="flex items-center gap-4 p-4 rounded-lg text-left w-full cursor-pointer disabled:cursor-not-allowed"
-          style={{background:bDone?"#2a1a0022":allMainDone?PANEL2:DARK,border:`2px solid ${bDone?`${GOLD}44`:allMainDone?`${GOLD}66`:"#ffffff08"}`,opacity:allMainDone?1:0.4}}>
+          style={{background:bDone?`${GOLD}08`:allMainDone?PANEL2:DARK,border:`2px solid ${bDone?`${GOLD}44`:allMainDone?`${GOLD}66`:LINE_FAINT}`,opacity:allMainDone?1:0.4}}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg flex-shrink-0"
             style={{background:bDone?`${GOLD}22`:PANEL2,border:`1px solid ${GOLD}66`}}>{bDone?"👑":"⚔️"}</div>
           <div className="flex-1"><div className="font-bold text-sm" style={{color:GOLD}}>BOSS: {chapter.boss.name}</div>
@@ -2424,12 +2428,13 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
 }
 
 function CharacterSheet({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ORANGE,LINE_FAINT,LINE}=useTheme();
   const markedDone=markedDoneChallenges(profile);
   return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <Btn onClick={onBack} color={DIM} className="mb-6">← Map</Btn>
     <div className="max-w-lg mx-auto">
       <div className="flex flex-col items-center mb-6 p-6 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
-        <PixelAvatar {...profile.avatar} size={128}/>
+        <div className="rounded-lg p-2" style={{background:ART_WELL}}><PixelAvatar {...profile.avatar} size={128}/></div>
         <h2 className="text-xl font-bold mt-3" style={{color:TEXT,fontFamily:MONO}}>{profile.name}</h2>
         <div className="text-sm" style={{color:DIM}}>Level {Math.floor(profile.xp/100)+1}</div>
         <div className="w-full mt-3"><XpBar current={profile.xp%100} next={100} label="Next Level"/></div>
@@ -2445,18 +2450,18 @@ function CharacterSheet({profile,onBack}){
         {(profile.badges||[]).length===0&&<span className="text-xs" style={{color:VDIM}}>Defeat bosses to earn badges!</span>}
         {(profile.badges||[]).map((b,i)=><span key={i} className="px-3 py-2 rounded-lg text-sm" style={{background:`${GOLD}15`,border:`1px solid ${GOLD}44`,color:GOLD}}>{b.icon} {b.name}</span>)}
       </div>
-      <h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:"#e67e22"}}>🏆 TROPHIES</h3>
+      <h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:ORANGE}}>🏆 TROPHIES</h3>
       <div className="grid grid-cols-2 gap-2">
         {TROPHIES.map(t=>{const e=(profile.trophies||[]).includes(t.id);return <div key={t.id} className="p-2 rounded-lg flex items-center gap-2"
-          style={{background:e?"#e67e2215":`${DARK}88`,border:`1px solid ${e?"#e67e2244":"#ffffff08"}`,opacity:e?1:0.4}}>
-          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?"#e67e22":DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
+          style={{background:e?`${ORANGE}15`:`${DARK}88`,border:`1px solid ${e?`${ORANGE}44`:LINE_FAINT}`,opacity:e?1:0.4}}>
+          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?ORANGE:DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
         </div>})}
       </div>
       {markedDone.length>0&&<div className="mt-6">
         <h3 className="text-sm font-bold mb-2 tracking-wider uppercase" style={{color:DIM}}>✋ Marked done</h3>
         <p className="text-xs mb-3" style={{color:DIM}}>You marked these done yourself. Try them again sometime!</p>
         <div className="flex flex-wrap gap-2">
-          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:"1px solid #ffffff11",color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
+          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:`1px solid ${LINE}`,color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
         </div>
       </div>}
     </div>

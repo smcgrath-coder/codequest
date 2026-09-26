@@ -23,8 +23,10 @@ export const PALETTES = {
 // Colours that never switch: the pixel art keeps its own, and code panels stay dark like a terminal.
 export const ART_ACCENT = "#64ffda", ART_GOLD = "#ffd700", ART_WELL = "#1a1a2e";
 export const CODE_BG = "#0a0a14", CODE_TEXT = "#e6e6e6", CODE_ACCENT = "#64ffda", CODE_EXAMPLE = "#a8d8a8";
-// The world map stays a night scene in light mode, so the glow of the chapter in progress keeps the dark-mode teal.
-export const MAP_GLOW = "#64ffda";
+// The world map stays a night scene in light mode: its locked nodes, room dots, node fills, label shadows and the
+// glow of the chapter in progress.
+export const MAP_EDGE_LOCKED = "#333333", MAP_LOCKED = "#555555", MAP_DOT = "#444444";
+export const MAP_ACTIVE = "#1a2a1a", MAP_DONE = "#0d2818", MAP_SHADOW = "#000000", MAP_GLOW = "#64ffda";
 // The dim layer behind an NPC's dialogue box, the same in both modes.
 export const DIALOGUE_SCRIM = "#000000bf";
 export const MONO = "'Courier New', monospace";

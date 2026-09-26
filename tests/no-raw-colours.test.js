@@ -16,7 +16,6 @@ const SWITCHING = ["DARK", "PANEL", "PANEL2", "TEXT", "DIM", "VDIM", "ACCENT", "
 const USES_SWITCHING = new RegExp(`\\b(${SWITCHING.join("|")})\\b`);
 // Components not converted yet. Each conversion task takes its own off this list; it is empty at the end.
 const STILL_TO_CONVERT = new Set([
-  "WorldMap", "ChapterOverview", "CharacterSheet",
   "Codex", "GrindingZone",
   "ChallengeRoom", "BadgeUnlock", "TrophyUnlock", "CodeEditor", "OutputPanel",
 ]);
