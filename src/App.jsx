@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, MAP_GLOW } from "./theme.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, MAP_GLOW, DIALOGUE_SCRIM } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -1954,6 +1954,7 @@ function SceneBanner({ scene }) {
 // ═══════════════════════════════════════════════════════════════════
 
 function NPCDialogue({ npc, lines, onComplete }) {
+  const { PANEL, PANEL2, TEXT, VDIM, LINE_FAINT, ink } = useTheme();
   const [li, setLi] = useState(0);
   const [ci, setCi] = useState(0);
   const [txt, setTxt] = useState("");
@@ -1977,20 +1978,20 @@ function NPCDialogue({ npc, lines, onComplete }) {
   const isLast = !typing && li===lines.length-1;
 
   return (
-    <div className="fixed inset-0 flex items-end justify-center z-40 p-4" style={{background:"rgba(0,0,0,0.75)"}} onClick={click}>
+    <div className="fixed inset-0 flex items-end justify-center z-40 p-4" style={{background:DIALOGUE_SCRIM}} onClick={click}>
       <div className="w-full max-w-2xl rounded-xl p-5 mb-4 cursor-pointer select-none"
-        style={{background:`linear-gradient(135deg,${PANEL},${PANEL2})`,border:`2px solid ${n.color}44`,boxShadow:`0 0 40px ${n.color}22, inset 0 1px 0 #ffffff08`}}>
+        style={{background:`linear-gradient(135deg,${PANEL},${PANEL2})`,border:`2px solid ${n.color}44`,boxShadow:`0 0 40px ${n.color}22, inset 0 1px 0 ${LINE_FAINT}`}}>
         <div className="flex items-start gap-5">
           <div className="flex-shrink-0 flex flex-col items-center">
-            <div className="rounded-xl p-2" style={{background:`${n.color}11`,border:`2px solid ${n.color}33`,boxShadow:`0 0 20px ${n.color}15`}}>
+            <div className="rounded-xl p-2" style={{background:ART_WELL,border:`2px solid ${n.color}33`,boxShadow:`0 0 20px ${n.color}15`}}>
               <NPCAvatar type={n.type} size={80}/>
             </div>
-            <span className="text-xs font-bold mt-2 tracking-wide" style={{color:n.color}}>{n.name}</span>
+            <span className="text-xs font-bold mt-2 tracking-wide" style={{color:ink(n.color)}}>{n.name}</span>
             <span style={{color:VDIM,fontSize:"9px"}}>{n.title}</span>
           </div>
           <div className="flex-1 min-h-[80px] flex items-center">
             <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.7"}}>
-              {txt}{typing && <span style={{color:n.color,animation:"blink 0.8s infinite"}}>▊</span>}
+              {txt}{typing && <span style={{color:ink(n.color),animation:"blink 0.8s infinite"}}>▊</span>}
             </div>
           </div>
         </div>
@@ -2017,7 +2018,8 @@ async function saveProfileList(l){try{localStorage.setItem("cq:profiles",JSON.st
 // SHARED UI COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
-function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",style={}}){
+function Btn({children,onClick,color,disabled,autoFocus,className="",style={}}){
+  const {ACCENT}=useTheme();color??=ACCENT;   // here, not as a default parameter, which would read the dark ACCENT before the hook
   const handleClick=()=>{try{SFX.init().then(()=>SFX.click())}catch(e){}if(onClick)onClick();};
   return <button onClick={handleClick} disabled={disabled} autoFocus={autoFocus}
     className={`px-5 py-2 rounded font-bold text-sm tracking-wider transition-all duration-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
@@ -2027,20 +2029,22 @@ function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",styl
 }
 
 function XpBar({current,next,label}){
+  const {PANEL2,DIM,ACCENT,OK}=useTheme();
   const pct=next>0?Math.min((current/next)*100,100):100;
   return <div className="w-full">
     {label&&<div className="flex justify-between text-xs mb-1" style={{color:DIM}}><span>{label}</span><span>{current}/{next} XP</span></div>}
     <div className="w-full h-2 rounded-full overflow-hidden" style={{background:PANEL2}}>
-      <div className="h-full rounded-full transition-all duration-1000" style={{width:`${pct}%`,background:`linear-gradient(90deg,${ACCENT},#00bfa5)`,boxShadow:`0 0 8px ${ACCENT}55`}}/>
+      <div className="h-full rounded-full transition-all duration-1000" style={{width:`${pct}%`,background:`linear-gradient(90deg,${ACCENT},${OK})`,boxShadow:`0 0 8px ${ACCENT}55`}}/>
     </div>
   </div>;
 }
 
 function SessionTimer({time,active}){
+  const {ACCENT,ERR}=useTheme();
   if(!active||time===null)return null;
   const m=Math.floor(time/60),s=time%60,low=time<120;
   return <div className="flex items-center gap-2 px-3 py-1 rounded-full text-sm font-mono"
-    style={{background:low?"#ff6b6b22":`${ACCENT}11`,color:low?ERR:ACCENT,border:`1px solid ${low?"#ff6b6b44":`${ACCENT}33`}`}}>
+    style={{background:low?`${ERR}22`:`${ACCENT}11`,color:low?ERR:ACCENT,border:`1px solid ${low?`${ERR}44`:`${ACCENT}33`}`}}>
     ⏱ {m}:{s.toString().padStart(2,"0")}
   </div>;
 }
@@ -2050,6 +2054,7 @@ function SessionTimer({time,active}){
 // ═══════════════════════════════════════════════════════════════════
 
 function TitleScreen({onStart}){
+  const {DARK,PANEL,DIM,VDIM,ACCENT}=useTheme();
   const [fade,setFade]=useState(false);
   useEffect(()=>{setTimeout(()=>setFade(true),100)},[]);
   return <div className="min-h-screen flex flex-col items-center justify-center p-8" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
@@ -2064,6 +2069,7 @@ function TitleScreen({onStart}){
 }
 
 function CharacterCreate({onComplete,existingProfiles}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,LINE_STRONG,theme}=useTheme();
   const [name,setName]=useState("");
   const [hair,setHair]=useState(0);
   const [skin,setSkin]=useState(0);
@@ -2081,7 +2087,7 @@ function CharacterCreate({onComplete,existingProfiles}){
       <div className="text-xs mb-2 tracking-wider" style={{color:DIM}}>{label}</div>
       <div className="flex gap-2 flex-wrap">
         {options.map((c,i)=><button key={i} onClick={()=>onChange(i)} className="w-8 h-8 rounded cursor-pointer"
-          style={{background:typeof c==="string"&&c!=="none"?c:PANEL2,border:`2px solid ${i===value?ACCENT:"transparent"}`,fontSize:"11px",color:TEXT}}>
+          style={{background:typeof c==="string"&&c!=="none"?c:PANEL2,border:`2px solid ${i===value?ACCENT:theme==="light"?LINE_STRONG:"transparent"}`,fontSize:"11px",color:TEXT}}>
           {typeof c==="string"&&c!=="none"?"":COLORS.accessory[i]?.[0]?.toUpperCase()||"∅"}</button>)}
       </div>
     </div>
@@ -2093,13 +2099,13 @@ function CharacterCreate({onComplete,existingProfiles}){
       {step==="name"?<div className="text-center">
         <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="Enter hero name..."
           maxLength={16} className="w-full p-3 rounded-lg text-center text-lg focus:outline-none"
-          style={{background:PANEL2,color:TEXT,border:`1px solid ${ACCENT}33`,fontFamily:MONO,caretColor:ACCENT}}
+          style={{background:PANEL2,color:TEXT,border:`1px solid ${theme==="light"?DIM:`${ACCENT}33`}`,fontFamily:MONO,caretColor:ACCENT}}
           onKeyDown={e=>e.key==="Enter"&&name.trim()&&setStep("avatar")}/>
         <div className="mt-4"><Btn onClick={()=>name.trim()&&setStep("avatar")} disabled={!name.trim()}>NEXT →</Btn></div>
       </div>:<div>
         <div className="flex justify-center mb-6">
           <div className="p-4 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
-            <PixelAvatar hair={hair} skin={skin} shirt={shirt} accessory={accessory} size={128}/>
+            <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar hair={hair} skin={skin} shirt={shirt} accessory={accessory} size={128}/></div>
             <div className="text-center mt-2 text-sm font-bold" style={{color:ACCENT}}>{name}</div>
           </div>
         </div>
@@ -2117,6 +2123,7 @@ function CharacterCreate({onComplete,existingProfiles}){
 }
 
 function ProfileSelect({profiles,onSelect,onCreate}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,GOLD}=useTheme();
   return <div className="min-h-screen flex items-center justify-center p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="max-w-md w-full">
       <div className="text-center mb-8"><div className="text-4xl mb-2">⚔️</div><h2 className="text-2xl font-bold" style={{fontFamily:MONO,color:TEXT}}>Choose Your Hero</h2></div>
@@ -2125,7 +2132,7 @@ function ProfileSelect({profiles,onSelect,onCreate}){
           className="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-300 text-left"
           style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT}} onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`}}>
-          <PixelAvatar {...p.avatar} size={56}/>
+          <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar {...p.avatar} size={56}/></div>
           <div className="flex-1">
             <div className="font-bold" style={{color:TEXT}}>{p.name}</div>
             <div className="text-xs" style={{color:DIM}}>
@@ -2141,11 +2148,12 @@ function ProfileSelect({profiles,onSelect,onCreate}){
 }
 
 function SessionSetup({onSelect,profile}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,GOLD}=useTheme();
   const times=[10,15,20,30];
   return <div className="min-h-screen flex flex-col items-center justify-center p-8" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="text-center max-w-md w-full">
       <div className="flex items-center justify-center gap-4 mb-8 p-4 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}22`}}>
-        <PixelAvatar {...profile.avatar} size={64}/>
+        <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar {...profile.avatar} size={64}/></div>
         <div className="text-left">
           <div className="font-bold" style={{color:TEXT}}>{profile.name}</div>
           <div className="text-xs" style={{color:DIM}}>{profile.xp} XP</div>

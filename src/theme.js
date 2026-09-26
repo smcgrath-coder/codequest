@@ -25,6 +25,8 @@ export const ART_ACCENT = "#64ffda", ART_GOLD = "#ffd700", ART_WELL = "#1a1a2e";
 export const CODE_BG = "#0a0a14", CODE_TEXT = "#e6e6e6", CODE_ACCENT = "#64ffda", CODE_EXAMPLE = "#a8d8a8";
 // The world map stays a night scene in light mode, so the glow of the chapter in progress keeps the dark-mode teal.
 export const MAP_GLOW = "#64ffda";
+// The dim layer behind an NPC's dialogue box, the same in both modes.
+export const DIALOGUE_SCRIM = "#000000bf";
 export const MONO = "'Courier New', monospace";
 
 // Darker versions of the NPC and chapter colours, for names and headings drawn as text in light mode.
