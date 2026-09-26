@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, loadTheme, saveTheme } from "./theme.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, loadTheme, saveTheme, ART_ACCENT, ART_GOLD } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -123,11 +123,13 @@ function Particles({ active, type="victory", count=24 }) {
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => {
     if (!active) { setParticles([]); return; }
+    // art:begin — the sparkle colours; the pop-ups that show them stay dark in both modes
     const colors = type === "boss"
       ? ["#ffd700","#ffeb3b","#ff9800","#fff","#ffc107"]
       : type === "badge"
       ? ["#ffd700","#ffeb3b","#fff"]
       : ["#64ffda","#00bfa5","#80f0ff","#fff","#a8d8a8"];
+    // art:end
     const p = Array.from({length: count}, (_, i) => ({
       id: i,
       x: 50 + (Math.random() - 0.5) * 30,
@@ -193,6 +195,7 @@ function ScreenWrap({ children, screenKey }) {
 // PIXEL ART SYSTEM
 // ═══════════════════════════════════════════════════════════════════
 
+// art:begin — the characters keep their own colours in both modes (ACCENT and GOLD pinned as ART_ACCENT and ART_GOLD)
 const COLORS = {
   hair: ["#2d1b00","#8b4513","#daa520","#ff4500","#1a1a2e","#4a90d9","#9b59b6","#2ecc71"],
   skin: ["#fdbcb4","#f1c27d","#e0ac69","#c68642","#8d5524","#5c3d2e"],
@@ -430,7 +433,7 @@ function PixelAvatar({ hair=0, skin=0, shirt=0, accessory=0, size=64 }) {
       </g>}
       {acc==="antenna"&&<g>
         <rect x="22" y="0" width="2" height="2" fill="#888"/>
-        <rect x="21" y="0" width="4" height="1" fill={ACCENT}/>
+        <rect x="21" y="0" width="4" height="1" fill={ART_ACCENT}/>
         <rect x="22" y="0" width="2" height="1" fill="#aaffee"/>
         <rect x="23" y="1" width="1" height="1" fill="#888"/>
       </g>}
@@ -453,7 +456,7 @@ function NPCAvatar({ type, size=64 }) {
       {type==="byte"?<g>
         {/* ══ BYTE — Friendly Robot ══ */}
         {/* Antenna */}
-        <rect x="22" y="0" width="4" height="2" fill={ACCENT}/>
+        <rect x="22" y="0" width="4" height="2" fill={ART_ACCENT}/>
         <rect x="23" y="0" width="2" height="1" fill="#aaffee"/>
         <rect x="23" y="2" width="2" height="3" fill="#8899aa"/>
         <rect x="22" y="2" width="1" height="2" fill={OL}/>
@@ -471,16 +474,16 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="7" width="20" height="8" fill="#0a1a2a"/>
         <rect x="14" y="7" width="20" height="1" fill="#0d2038"/>
         {/* Eyes — LED */}
-        <rect x="17" y="9" width="4" height="4" fill={ACCENT}/>
-        <rect x="27" y="9" width="4" height="4" fill={ACCENT}/>
+        <rect x="17" y="9" width="4" height="4" fill={ART_ACCENT}/>
+        <rect x="27" y="9" width="4" height="4" fill={ART_ACCENT}/>
         <rect x="18" y="9" width="2" height="2" fill="#aaffee"/>
         <rect x="28" y="9" width="2" height="2" fill="#aaffee"/>
         <rect x="19" y="10" width="1" height="1" fill="#fff"/>
         <rect x="29" y="10" width="1" height="1" fill="#fff"/>
         {/* Smile */}
-        <rect x="20" y="13" width="8" height="1" fill={ACCENT} opacity="0.6"/>
-        <rect x="19" y="12" width="1" height="1" fill={ACCENT} opacity="0.4"/>
-        <rect x="28" y="12" width="1" height="1" fill={ACCENT} opacity="0.4"/>
+        <rect x="20" y="13" width="8" height="1" fill={ART_ACCENT} opacity="0.6"/>
+        <rect x="19" y="12" width="1" height="1" fill={ART_ACCENT} opacity="0.4"/>
+        <rect x="28" y="12" width="1" height="1" fill={ART_ACCENT} opacity="0.4"/>
         {/* Neck */}
         <rect x="21" y="18" width="6" height="3" fill="#78909c"/>
         <rect x="20" y="18" width="1" height="2" fill={OL}/>
@@ -495,9 +498,9 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="31" width="20" height="3" fill="#90a4ae"/>
         {/* Chest panel */}
         <rect x="18" y="24" width="12" height="6" fill="#0a1a2a"/>
-        <rect x="20" y="25" width="3" height="2" fill={ACCENT} opacity="0.3"/>
-        <rect x="25" y="25" width="3" height="2" fill={ACCENT} opacity="0.2"/>
-        <rect x="22" y="28" width="4" height="1" fill={ACCENT} opacity="0.15"/>
+        <rect x="20" y="25" width="3" height="2" fill={ART_ACCENT} opacity="0.3"/>
+        <rect x="25" y="25" width="3" height="2" fill={ART_ACCENT} opacity="0.2"/>
+        <rect x="22" y="28" width="4" height="1" fill={ART_ACCENT} opacity="0.15"/>
         {/* Arms */}
         <rect x="10" y="22" width="1" height="10" fill={OL}/>
         <rect x="37" y="22" width="1" height="10" fill={OL}/>
@@ -644,8 +647,8 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="9" width="20" height="7" fill="#1a1a2e"/>
         <rect x="14" y="9" width="20" height="1" fill="#c0a030"/>
         {/* Eyes behind visor */}
-        <rect x="17" y="11" width="4" height="3" fill={GOLD}/>
-        <rect x="27" y="11" width="4" height="3" fill={GOLD}/>
+        <rect x="17" y="11" width="4" height="3" fill={ART_GOLD}/>
+        <rect x="27" y="11" width="4" height="3" fill={ART_GOLD}/>
         <rect x="18" y="12" width="2" height="1" fill="#fff8c0"/>
         <rect x="28" y="12" width="2" height="1" fill="#fff8c0"/>
         <rect x="19" y="11" width="1" height="1" fill="#fff"/>
@@ -1388,10 +1391,12 @@ function NPCAvatar({ type, size=64 }) {
     </svg>
   );
 }
+// art:end
 
+// art:begin — SceneBanner paints its own night sky, so it keeps its colours in both modes
 function SceneBanner({ scene }) {
   const themes = {
-    terminal:{bg:"#0d1117",ac:ACCENT,ground:"#0a1a2a",wall:"#121d2e"},
+    terminal:{bg:"#0d1117",ac:ART_ACCENT,ground:"#0a1a2a",wall:"#121d2e"},
     vault:{bg:"#1a0d2a",ac:"#9b59b6",ground:"#12081e",wall:"#231040"},
     crossroads:{bg:"#0d1b0d",ac:"#2ecc71",ground:"#0a150a",wall:"#1a2e1a"},
     boss:{bg:"#2a0d0d",ac:"#ff4500",ground:"#1a0808",wall:"#301515"},
@@ -1633,7 +1638,7 @@ function SceneBanner({ scene }) {
         {/* Chandelier */}
         <rect x="155" y="5" width="10" height="3" fill="#2a3a3a"/>
         <rect x="158" y="8" width="4" height="10" fill="#1a2a2a"/>
-        {[150,155,160,165,170].map((x,i)=> <rect key={`cl${i}`} x={x} y="18" width="2" height="4" fill={GOLD} opacity={0.3+i*0.05}/>)}
+        {[150,155,160,165,170].map((x,i)=> <rect key={`cl${i}`} x={x} y="18" width="2" height="4" fill={ART_GOLD} opacity={0.3+i*0.05}/>)}
         {/* Floor */}
         <rect x="0" y="105" width="320" height="35" fill={t.ground}/>
         {/* Floor pattern — herringbone */}
@@ -1939,6 +1944,7 @@ function SceneBanner({ scene }) {
     </svg>
   );
 }
+// art:end
 
 // ═══════════════════════════════════════════════════════════════════
 // NPC DIALOGUE
@@ -2159,6 +2165,7 @@ function SessionSetup({onSelect,profile}){
   </div>;
 }
 
+// art:begin — MapBackground: the night scene behind the world map keeps its own colours in both modes
 function MapBackground() {
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" style={{imageRendering:"pixelated"}}>
@@ -2172,15 +2179,15 @@ function MapBackground() {
       {/* Sky */}
       <rect width="400" height="300" fill="url(#mapSky)"/>
       {/* Stars */}
-      {[...Array(40)].map((_,i)=> <rect key={`ms${i}`} x={5+i*10+(i%7)*3} y={3+(i*13)%80} width={i%5===0?"2":"1"} height={i%5===0?"2":"1"} fill={i%3===0?ACCENT:i%3===1?"#9b59b6":"#fff"} opacity={0.08+((i%5)*0.06)}/>)}
+      {[...Array(40)].map((_,i)=> <rect key={`ms${i}`} x={5+i*10+(i%7)*3} y={3+(i*13)%80} width={i%5===0?"2":"1"} height={i%5===0?"2":"1"} fill={i%3===0?ART_ACCENT:i%3===1?"#9b59b6":"#fff"} opacity={0.08+((i%5)*0.06)}/>)}
       {/* Distant mountains */}
       <polygon points="0,180 40,120 80,150 120,100 160,140 200,90 240,130 280,105 320,145 360,110 400,160 400,200 0,200" fill="#0a0f1a"/>
       <polygon points="0,190 50,140 100,170 150,130 200,160 250,120 300,150 350,130 400,170 400,210 0,210" fill="#0d1520"/>
       {/* Midground terrain */}
       <polygon points="0,210 30,190 70,200 120,185 170,195 220,180 270,195 320,185 370,200 400,190 400,300 0,300" fill="#0d1b0d"/>
       {/* Water/river */}
-      <path d="M0,260 Q50,255 100,262 Q150,268 200,258 Q250,250 300,260 Q350,270 400,258" fill="none" stroke={ACCENT} strokeWidth="3" opacity="0.15"/>
-      <path d="M0,264 Q50,259 100,266 Q150,272 200,262 Q250,254 300,264 Q350,274 400,262" fill="none" stroke={ACCENT} strokeWidth="1.5" opacity="0.08"/>
+      <path d="M0,260 Q50,255 100,262 Q150,268 200,258 Q250,250 300,260 Q350,270 400,258" fill="none" stroke={ART_ACCENT} strokeWidth="3" opacity="0.15"/>
+      <path d="M0,264 Q50,259 100,266 Q150,272 200,262 Q250,254 300,264 Q350,274 400,262" fill="none" stroke={ART_ACCENT} strokeWidth="1.5" opacity="0.08"/>
       {/* Trees scattered */}
       {[[30,195],[60,205],[90,198],[310,190],[340,200],[370,195],[150,188],[190,192],[260,188]].map(([x,y],i)=> <g key={`mt${i}`}>
         <rect x={x-3} y={y-12} width="8" height="14" fill="#1a3a1a" rx="2"/>
@@ -2201,8 +2208,8 @@ function MapBackground() {
       <path d="M168,264 Q220,256 272,246 Q316,230 360,216" fill="none" stroke="#2a3a2a" strokeWidth="2.5" opacity="0.18" strokeDasharray="5,3"/>
       {/* Terminal building */}
       <rect x="38" y="114" width="20" height="14" fill="#0d1117" rx="1"/>
-      <rect x="40" y="116" width="7" height="5" fill={ACCENT} opacity="0.2"/>
-      <rect x="49" y="116" width="7" height="5" fill={ACCENT} opacity="0.15"/>
+      <rect x="40" y="116" width="7" height="5" fill={ART_ACCENT} opacity="0.2"/>
+      <rect x="49" y="116" width="7" height="5" fill={ART_ACCENT} opacity="0.15"/>
       {/* Vault entrance */}
       <rect x="120" y="58" width="16" height="18" fill="#1a0d2a" rx="2"/>
       <rect x="124" y="60" width="8" height="10" fill="#231040"/>
@@ -2259,6 +2266,7 @@ function MapBackground() {
     </svg>
   );
 }
+// art:end
 
 // ═══════════════════════════════════════════════════════════════════
 // SETTINGS MODAL (API key management)
