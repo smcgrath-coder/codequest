@@ -23,6 +23,8 @@ export const PALETTES = {
 // Colours that never switch: the pixel art keeps its own, and code panels stay dark like a terminal.
 export const ART_ACCENT = "#64ffda", ART_GOLD = "#ffd700", ART_WELL = "#1a1a2e";
 export const CODE_BG = "#0a0a14", CODE_TEXT = "#e6e6e6", CODE_ACCENT = "#64ffda", CODE_EXAMPLE = "#a8d8a8";
+// The world map stays a night scene in light mode, so the glow of the chapter in progress keeps the dark-mode teal.
+export const MAP_GLOW = "#64ffda";
 export const MONO = "'Courier New', monospace";
 
 // Darker versions of the NPC and chapter colours, for names and headings drawn as text in light mode.

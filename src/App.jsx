@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, loadTheme, saveTheme, ART_ACCENT, ART_GOLD } from "./theme.js";
+import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, MAP_GLOW } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -76,19 +76,20 @@ const SFX = {
   roomEnter()    { this._playMelody(["E4","G4","C5"], ["16n","16n","8n"], [0,0.1,0.2]); },
 };
 
-// Error boundary — catches runtime crashes and shows message instead of white screen
+// Error boundary — catches runtime crashes and shows message instead of white screen. It stays dark in both
+// modes: it reads the plain theme.js imports (the dark palette), not useTheme().
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   render() {
     if (this.state.hasError) {
-      return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0d1117",padding:"2rem"}}>
+      return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:DARK,padding:"2rem"}}>
         <div style={{maxWidth:"500px",textAlign:"center",fontFamily:"'Courier New',monospace"}}>
           <div style={{fontSize:"48px",marginBottom:"16px"}}>💥</div>
-          <h2 style={{color:"#ff6b6b",marginBottom:"12px"}}>Something crashed!</h2>
-          <p style={{color:"#8b949e",fontSize:"14px",marginBottom:"16px"}}>{this.state.error?.message || "Unknown error"}</p>
+          <h2 style={{color:ERR,marginBottom:"12px"}}>Something crashed!</h2>
+          <p style={{color:DIM,fontSize:"14px",marginBottom:"16px"}}>{this.state.error?.message || "Unknown error"}</p>
           <button onClick={()=>{this.setState({hasError:false,error:null})}}
-            style={{background:"#64ffda18",border:"1px solid #64ffda66",color:"#64ffda",padding:"8px 24px",borderRadius:"6px",cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
+            style={{background:`${ACCENT}18`,border:`1px solid ${ACCENT}66`,color:ACCENT,padding:"8px 24px",borderRadius:"6px",cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
             Try Again</button>
         </div>
       </div>;
@@ -97,13 +98,14 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Global CSS keyframes — always rendered
+// Global CSS keyframes — always rendered. cq-glow-pulse lights the map's in-progress node, and the map stays dark
+// in both modes, so its glow is the fixed MAP_GLOW.
 function GlobalStyles() {
   return <style>{`
     @keyframes cq-float-up { 0%{opacity:1;transform:translateY(0)} 100%{opacity:0;transform:translateY(-60px)} }
     @keyframes cq-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
     @keyframes cq-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 40%{transform:translateX(4px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(2px)} }
-    @keyframes cq-glow-pulse { 0%,100%{box-shadow:0 0 20px rgba(100,255,218,0.1)} 50%{box-shadow:0 0 40px rgba(100,255,218,0.3)} }
+    @keyframes cq-glow-pulse { 0%,100%{box-shadow:0 0 20px ${MAP_GLOW}1a} 50%{box-shadow:0 0 40px ${MAP_GLOW}4d} }
     @keyframes cq-slide-in { 0%{opacity:0;transform:translateX(-20px)} 100%{opacity:1;transform:translateX(0)} }
     @keyframes cq-fade-in { 0%{opacity:0} 100%{opacity:1} }
     @keyframes cq-scale-in { 0%{opacity:0;transform:scale(0.8)} 100%{opacity:1;transform:scale(1)} }
@@ -164,6 +166,7 @@ function Particles({ active, type="victory", count=24 }) {
 
 // Floating XP indicator
 function FloatingXP({ amount, visible }) {
+  const {ACCENT}=useTheme();
   if (!visible) return null;
   return <div style={{
     position: "fixed", top: "40%", left: "50%", transform: "translateX(-50%)",
