@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
 import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
-import { DARK, ACCENT, DIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM, BOSS_PURPLE, POP_SCRIM, POP_SCRIM_DEEP, POP_CLEAR, POP_TROPHY, POP_TROPHY_END } from "./theme.js";
+import { DARK, ACCENT, DIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM, BOSS_PURPLE, bossGlow, POP_SCRIM, POP_SCRIM_DEEP, POP_CLEAR, POP_TROPHY, POP_TROPHY_END } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
@@ -2745,7 +2745,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   if(dialoguePhase==="room-intro")return <NPCDialogue key="room-intro" npc={challenge.npc||"byte"} lines={challenge.npcDialogue} onComplete={()=>setDialoguePhase("play")}/>;
 
   // A boss room glows purple in dark mode; in light mode the purple would be a dark blot, so it glows faintly gold.
-  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,${theme==="light"?`${GOLD}11`:BOSS_PURPLE} 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
+  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,${bossGlow(theme)} 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
     <div className="flex items-center justify-between p-3 border-b" style={{borderColor:LINE}}>
       <Btn onClick={onBack} color={DIM} style={{padding:"4px 12px",fontSize:"12px"}}>← Back</Btn>

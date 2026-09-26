@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { PALETTES, LIGHT_INK, inkFor, loadTheme, saveTheme, THEME_KEY, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD } from "../src/theme.js";
+import { PALETTES, LIGHT_INK, inkFor, loadTheme, saveTheme, THEME_KEY, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD, BOSS_PURPLE, bossGlow } from "../src/theme.js";
 import { CODEX, NPCS } from "../src/content.js";
 
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
@@ -71,4 +71,19 @@ test("index.html sets the saved theme before the app loads, with the same key", 
   const script = html.indexOf(THEME_KEY), app = html.indexOf('src="/src/main.jsx"');
   assert.ok(script !== -1 && script < app, "the inline theme script comes before the app's module script");
   assert.match(html, /dataset\.theme\s*=\s*"light"/);
+});
+
+test("a boss room's glow: purple in dark mode, and in light mode one that keeps every text colour readable at its centre", () => {
+  assert.equal(bossGlow("dark"), BOSS_PURPLE);
+  const glow = bossGlow("light"), p = PALETTES.light;
+  assert.match(glow, /^#[0-9a-f]{6}([0-9a-f]{2})?$/);
+  const centre = over(glow.slice(0, 7), glow.length > 7 ? parseInt(glow.slice(7), 16) / 255 : 1, rgb(p.DARK));
+  const low = [];
+  for (const t of TEXT_TOKENS) {
+    const r = ratio(rgb(p[t]), centre); if (r < 4.5) low.push(`${t}: ${r.toFixed(2)}`);
+    if (t !== "VDIM") for (const a of TINTS) {   // the boss room's pills and buttons, on their own tint over the glow
+      const r2 = ratio(rgb(p[t]), over(p[t], a / 255, centre)); if (r2 < 4.5) low.push(`${t} on its ${a.toString(16)} tint: ${r2.toFixed(2)}`);
+    }
+  }
+  assert.deepEqual(low, []);
 });

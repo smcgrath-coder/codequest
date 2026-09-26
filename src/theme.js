@@ -34,6 +34,10 @@ export const DIALOGUE_SCRIM = "#000000bf";
 // BOSS_PURPLE is also the glow of a boss room in dark mode.
 export const POP_SCRIM = "rgba(0,0,0,0.85)", POP_SCRIM_DEEP = "rgba(0,0,0,0.9)";
 export const BOSS_PURPLE = "#1a0d2a", POP_CLEAR = "#0a1a14", POP_TROPHY = "#2a1a0a", POP_TROPHY_END = "#1a0d0a";
+// The glow at the centre of a boss room: purple in dark mode, and in light mode a pale amber, lighter than the
+// page, so it warms the room without dimming any text over it. (A gold tint of the page, the first try, took
+// VDIM, the BOSS pill and ACCENT's tints under 4.5:1.)
+export const bossGlow = theme => theme === "light" ? "#fff2cc" : BOSS_PURPLE;
 export const MONO = "'Courier New', monospace";
 
 // Darker versions of the NPC and chapter colours, for names and headings drawn as text in light mode.
