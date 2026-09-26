@@ -87,3 +87,18 @@ test("a boss room's glow: purple in dark mode, and in light mode one that keeps 
   }
   assert.deepEqual(low, []);
 });
+
+// An earned trophy's card is tinted ${ORANGE}15; its description is DIM (the faintest grey, VDIM, is kept for
+// the faded locked cards).
+for (const [name, p] of Object.entries(PALETTES)) test(`${name}: an earned trophy's description (DIM) is readable on the card's orange tint`, () => {
+  for (const s of SURFACES) { const r = ratio(rgb(p.DIM), over(p.ORANGE, 0x15 / 255, rgb(p[s]))); assert.ok(r >= 4.5, `over ${s}: ${r.toFixed(2)}`); }
+});
+
+test("light: a selected Codex chapter keeps its ink title and its count readable on its tint (11) over a white card", () => {
+  const p = PALETTES.light, low = [];
+  for (const [raw, ink] of Object.entries(LIGHT_INK)) {
+    const bg = over(raw, 0x11 / 255, rgb(p.PANEL2));
+    for (const [what, c] of [["title", ink], ["count", p.VDIM]]) { const r = ratio(rgb(c), bg); if (r < 4.5) low.push(`${raw} ${what}: ${r.toFixed(2)}`); }
+  }
+  assert.deepEqual(low, []);
+});

@@ -2454,7 +2454,7 @@ function CharacterSheet({profile,onBack}){
       <div className="grid grid-cols-2 gap-2">
         {TROPHIES.map(t=>{const e=(profile.trophies||[]).includes(t.id);return <div key={t.id} className="p-2 rounded-lg flex items-center gap-2"
           style={{background:e?`${ORANGE}15`:`${DARK}88`,border:`1px solid ${e?`${ORANGE}44`:LINE_FAINT}`,opacity:e?1:0.4}}>
-          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?ORANGE:DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
+          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?ORANGE:DIM}}>{t.name}</div><div className="text-xs" style={{color:e?DIM:VDIM}}>{t.desc}</div></div>
         </div>})}
       </div>
       {markedDone.length>0&&<div className="mt-6">
@@ -2473,7 +2473,7 @@ function CharacterSheet({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function Codex({profile,onBack}){
-  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,LINE_FAINT,LINE,ink}=useTheme();
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,LINE_FAINT,LINE,ink,theme}=useTheme();
   const [selectedChapter,setSelectedChapter]=useState(null);
   const [expandedConcept,setExpandedConcept]=useState(null);
   const cr=new Set(profile.completedRooms||[]);
@@ -2503,7 +2503,7 @@ function Codex({profile,onBack}){
           onClick={()=>{if(unlocked){setSelectedChapter(ch.chapter);setExpandedConcept(null)}}}
           disabled={!unlocked}
           className="p-3 rounded-lg text-left cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
-          style={{background:selectedChapter===ch.chapter?`${ch.color}22`:unlocked?PANEL2:`${DARK}88`,
+          style={{background:selectedChapter===ch.chapter?(theme==="light"?`linear-gradient(${ch.color}11,${ch.color}11),${PANEL2}`:`${ch.color}22`):unlocked?PANEL2:`${DARK}88`,
             border:`1px solid ${selectedChapter===ch.chapter?ch.color:unlocked?LINE:LINE_FAINT}`,
             opacity:unlocked?1:0.35}}>
           <div className="text-lg mb-1">{unlocked?ch.icon:"🔒"}</div>
