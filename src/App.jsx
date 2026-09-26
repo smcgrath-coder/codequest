@@ -3,7 +3,7 @@ import * as Tone from "tone";
 import { Music, getTrackForContext } from "./music.js";
 import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
-import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
+import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
 import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
 import { runStopGuard } from "./editor.js";
@@ -1941,23 +1941,8 @@ function SceneBanner({ scene }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// NPC DATA & DIALOGUE
+// NPC DIALOGUE
 // ═══════════════════════════════════════════════════════════════════
-
-const NPCS = {
-  byte:{name:"Byte",type:"byte",title:"Robot Companion",color:ACCENT},
-  professor:{name:"Professor Loop",type:"professor",title:"The Eccentric Scientist",color:"#9b59b6"},
-  guardian:{name:"The Guardian",type:"guardian",title:"Keeper of the Gates",color:GOLD},
-  cipher:{name:"Cipher",type:"cipher",title:"The Mysterious One",color:"#e74c3c"},
-  iterator:{name:"Iterator",type:"iterator",title:"The Clockwork Keeper",color:"#3498db"},
-  index:{name:"Index",type:"index",title:"The Archivist Owl",color:"#1abc9c"},
-  forge:{name:"Forge",type:"forge",title:"The Fire Smith",color:"#e74c3c"},
-  cartographer:{name:"Cartographer",type:"cartographer",title:"The Map Keeper",color:"#f39c12"},
-  pixel:{name:"Pixel",type:"pixel",title:"The Game Sprite",color:"#e91e63"},
-  champion:{name:"The Champion",type:"champion",title:"Arena Master",color:"#ff5722"},
-  wrench:{name:"Wrench",type:"wrench",title:"The Dockmaster",color:"#ff9800"},
-  navigator:{name:"Navigator",type:"navigator",title:"Mission Control",color:"#00e676"},
-};
 
 function NPCDialogue({ npc, lines, onComplete }) {
   const [li, setLi] = useState(0);
