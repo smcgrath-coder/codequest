@@ -2909,8 +2909,9 @@ export default function App(){
   const [queuedBadge,setQueuedBadge]=useState(null);
   const [musicMuted,setMusicMuted]=useState(()=>Music.setMuted(loadMusicMuted()));
   // Light or dark: index.html has already set <html data-theme> from the saved choice, so the first paint matches.
+  // Only the toggle saves, so a player who never chose has nothing saved (like the music button).
   const [theme,setTheme]=useState(()=>document.documentElement.dataset.theme==="light"?"light":loadTheme());
-  useEffect(()=>{document.documentElement.dataset.theme=theme;saveTheme(theme)},[theme]);
+  useEffect(()=>{document.documentElement.dataset.theme=theme},[theme]);
   // App provides the theme, so it reads its own colours from the palette rather than useTheme().
   const {DARK,PANEL2,ACCENT,DIM,TEXT,LINE_STRONG}=PALETTES[theme];
 
@@ -3014,7 +3015,7 @@ export default function App(){
     </ThemeScope>
     {/* Corner controls: light/dark and music, each remembered on this device */}
     <div className="fixed bottom-4 right-4 flex gap-2" style={{zIndex:100}}>
-      <button onClick={()=>setTheme(t=>t==="light"?"dark":"light")}
+      <button onClick={()=>{const t=theme==="light"?"dark":"light";setTheme(t);saveTheme(t)}}
         className="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all"
         style={{background:PANEL2,border:`1px solid ${LINE_STRONG}`,color:TEXT,opacity:0.8}}
         title={theme==="light"?"Switch to dark mode":"Switch to light mode"} aria-label={theme==="light"?"Switch to dark mode":"Switch to light mode"}>
