@@ -35,7 +35,7 @@ test("over HTTP: GET is ready, 'dev' streams the pretend reply with the question
   const post = body => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const ask = { tutorCode: "dev", mode: "hint", task: "Print Hello, World!", program: 'prnt("hi")', question: "why?" };
   try {
-    assert.deepEqual(await (await fetch(url)).json(), { state: "ready" });
+    assert.deepEqual(await (await fetch(url)).json(), { state: "ready", dailyCap: true });
     assert.deepEqual(await (await post({ tutorCode: "dev", check: true })).json(), { state: "ready" });
     const res = await post(ask);
     assert.equal(res.status, 200); assert.equal(res.headers.get("x-tutor-remaining"), "1");

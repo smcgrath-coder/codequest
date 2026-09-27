@@ -24,8 +24,9 @@ function world(script = "Look at line 1. What does Python call it?", { env = ENV
   return { fetch, logs, counter, call };
 }
 
-test("GET says whether Byte is set up here: a key and at least one code", async () => {
-  assert.deepEqual(await json(await world().call(new Request("http://localhost/api/tutor"))), { status: 200, state: "ready" });
+test("GET says whether Byte is set up here (a key and at least one code), and if so whether there's a daily cap", async () => {
+  assert.deepEqual(await json(await world().call(new Request("http://localhost/api/tutor"))), { status: 200, state: "ready", dailyCap: true });
+  assert.deepEqual(await json(await world(undefined, { counter: null }).call(new Request("http://localhost/api/tutor"))), { status: 200, state: "ready", dailyCap: false }, "no Upstash, no cap");
   for (const env of [{ TUTOR_CODES: "a" }, { OPENROUTER_API_KEY: KEY }, { OPENROUTER_API_KEY: KEY, TUTOR_CODES: " , " }])
     assert.deepEqual(await json(await world(undefined, { env }).call(new Request("http://localhost/api/tutor"))), { status: 200, state: "not-configured" });
 });

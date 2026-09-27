@@ -131,7 +131,7 @@ test("checking a code sends it with check: true; probing asks with GET whether B
   assert.equal(await checkTutorCode(" maple-42 ", { fetch }), "ready"); assert.equal(await checkTutorCode("nope", { fetch }), "locked");
   assert.deepEqual(JSON.parse(fetch.calls[0].init.body), { tutorCode: "maple-42", check: true });
   assert.equal(await checkTutorCode("x", { fetch: fakeFetch(() => { throw new TypeError("offline"); }) }), "offline");
-  for (const [make, want] of [[() => Response.json({ state: "ready" }), "ready"], [() => Response.json({ state: "not-configured" }), "not-configured"],
+  for (const [make, want] of [[() => Response.json({ state: "ready" }), "ready"], [() => Response.json({ state: "ready", dailyCap: false }), "ready"], [() => Response.json({ state: "not-configured" }), "not-configured"],
     [() => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }), "not-configured"], [() => new Response("", { status: 404 }), "not-configured"],
     [() => new Response("oops", { status: 500 }), "offline"], [() => { throw new TypeError("offline"); }, "offline"]]) {
     const f = fakeFetch(make); assert.equal(await probeTutor({ fetch: f }), want); assert.equal(f.calls[0].init.method, "GET");
