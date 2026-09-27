@@ -62,8 +62,11 @@ export function historyFor(chat) {
 // Everything Byte gets, clipped to what the server accepts: the task, the code, what the last run printed, its
 // error and the checker's words, the hints shown, the chat and the question. No hero name, no profile.
 // lastRunCode: the code of the last run (undefined before any), so Byte knows when the output is older than the code.
+// The keyword checker's words are the error only with no Python, as OUTPUT shows them: after a clean run the grader
+// rejected, flow.js fills keywordError too.
 export function tutorPayload({ tutorCode, mode, challenge, program, lastRunCode, result, parts = [], hintLevel = 0, chat = [], question }) {
-  const error = result?.error ? [result.error.headline, result.error.python].filter(Boolean).join("\n") : result?.keywordError || "";
+  const error = result?.error ? [result.error.headline, result.error.python].filter(Boolean).join("\n")
+    : (result?.mode === "fallback" && result.keywordError) || "";
   return {
     tutorCode: clip(String(tutorCode ?? "").trim(), LIMITS.tutorCode), mode,
     task: clip(challenge.task, LIMITS.task),
@@ -120,9 +123,10 @@ export async function askTutor(payload, { fetch, onText = () => {}, signal } = {
   if (!res) return { state: signal?.aborted ? "stopped" : "offline" };
   if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("text/plain")) return { state: await stateOf(res) };
   const left = res.headers.get("x-tutor-remaining"), remaining = /^\d+$/.test(left ?? "") ? Number(left) : null;
-  const reader = res.body.getReader(), decoder = new TextDecoder();
+  const decoder = new TextDecoder();
   let text = "";
   try {
+    const reader = res.body.getReader();   // in here: a reply with no body, or one already read, is busy too
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;

@@ -77,7 +77,10 @@ test("the payload: the room, the code and its last run, the hints shown and the 
   const fresh = tutorPayload({ tutorCode: "c", mode: "open", challenge: room, program: "print(1)", question: "how?" });
   assert.equal(fresh.edited, false); assert.deepEqual(fresh.hints, []); assert.equal(fresh.output, ""); assert.equal(fresh.error, ""); assert.equal(fresh.feedback, "");
   assert.ok(validateRequest(fresh));
-  assert.equal(tutorPayload({ tutorCode: "c", mode: "hint", challenge: room, program: "x", result: { keywordError: "Use print()" }, question: "q" }).error, "Use print()");
+  // The keyword checker's words are the error only where OUTPUT shows them: when there was no Python to run the code.
+  const kw = mode => tutorPayload({ tutorCode: "c", mode: "hint", challenge: room, program: "x", result: { mode, keywordError: "Use print()" }, question: "q" }).error;
+  assert.equal(kw("fallback"), "Use print()");
+  assert.equal(kw("python"), "", "a clean run the grader rejected has no error");
 });
 
 test("askTutor posts JSON to /api/tutor and streams the reply as it comes, with the questions left", async () => {
@@ -101,6 +104,14 @@ test("askTutor maps every other answer to a state", async () => {
     assert.equal((await askTutor({}, { fetch: fakeFetch(make) })).state, want);
   const ac = new AbortController(); ac.abort();
   assert.equal((await askTutor({}, { fetch: fakeFetch(() => { throw new DOMException("aborted", "AbortError"); }), signal: ac.signal })).state, "stopped");
+});
+
+test("askTutor never throws: a reply with no body, or one that can't be read, is busy (or stopped)", async () => {
+  const locked = () => { const r = reply(["hi"]); r.body.getReader(); return r; };   // a second reader throws
+  for (const make of [() => new Response(null, { headers: { "content-type": "text/plain" } }), locked])
+    assert.deepEqual(await askTutor({}, { fetch: fakeFetch(make) }), { state: "busy" });
+  const ac = new AbortController(); ac.abort();
+  assert.deepEqual(await askTutor({}, { fetch: fakeFetch(locked), signal: ac.signal }), { state: "stopped" });
 });
 
 test("checking a code sends it with check: true; probing asks with GET whether Byte is set up here", async () => {
