@@ -258,7 +258,8 @@ export const UNCHECKED_LINE = "(I can't check code on this device, so I'll expla
 export const HINT_BLOCK_LINES = 2;
 // A reply with more pieces of code than this isn't graded at all (every piece is hidden): it bounds the work.
 export const MAX_PIECES = 8;
-// At most this many ways of indenting code shown without its indents are graded per reply.
+// At most this many ways of indenting code shown without its indents are graded per reply, not counting those that
+// stop in their first run at a SyntaxError or an error (they cost next to nothing).
 const REINDENTS = 12;
 // Every piece of code in a reply, as the guard grades it: blocks and `inline` code.
 export const codeIn = text => piecesOf(text).map(p => p.code);
@@ -325,7 +326,7 @@ const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 // "too many": more than MAX_PIECES pieces, so nothing was graded. grades: how many grades it took.
 export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const cache = new Map();
-  let blind = false, grades = 0, slow = false;
+  let blind = false, grades = 0, slow = false, budget = REINDENTS;
   // One grade per code string and time limit; null when the grader can't answer. After that nothing more is graded.
   const graded = async (code, full = false) => {
     const key = `${+full}${code}`;
@@ -348,11 +349,14 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   };
   // Only a real pass counts. A grade that was stopped (the kid pressed Run) or broke is no answer, like none at all.
   // A guess at indents that never finishes (grading.py's "never finished") ends the guessing: the rest may loop too.
+  // A guess graded afresh uses up one of the reply's REINDENTS, unless it stopped in its first run at a SyntaxError or
+  // an error: the joins a mention breaks make lots of those, and they mustn't leave none for the join without it.
   const passes = async (code, guess = false) => {
     if (blind || (guess && slow) || !code.trim() || reachesIntoPython(code)) return false;
-    const r = await graded(code);
+    const known = cache.has(`0${code}`), r = await graded(code), loops = /never finished/.test(r?.feedback);
     if (r?.stopped || r?.internal) blind = true;
-    if (guess && /never finished/.test(r?.feedback)) slow = true;
+    if (guess && loops) slow = true;
+    if (guess && !known && !(r?.failures?.[0]?.group === "run" && !loops)) budget--;
     return !!r?.passed;
   };
 
@@ -382,7 +386,6 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   // alone, with no earlier code, was graded on its own already.
   const have = new Set(program.split("\n").map(l => l.trim()));
   const fresh = set => set.filter(x => x.visible.split("\n").some(l => l.trim() && !have.has(l.replace(PROMPT, "").trim())));
-  let budget = REINDENTS;
   const join = async (set, before, guess = false) => {
     const own = !(before === mine && unfinished) && !fresh(set).length;
     if (own && (guess || before === mine)) return false;
@@ -392,7 +395,6 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     if (!own && (bare.slice(0, -1).some(opens) || opens(before.join("\n").trimEnd()))) tries.push(...reindents(before.join("\n"), bare, budget));
     for (const [i, code] of tries.entries()) {
       const indents = i > 1 && !tries.slice(0, 2).includes(code);
-      if (indents) budget--;
       if (await passes(code, indents)) { for (const x of set) x.caught ||= why; return true; }
     }
     return false;

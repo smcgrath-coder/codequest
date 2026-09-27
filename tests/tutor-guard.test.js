@@ -416,6 +416,29 @@ test("code shown without its indents is caught too: the guard tries the indents 
   assert.equal(body, `Inside it, put \`…\`.\n\n${LEAK_LINE}`);
 });
 
+// The joins a mention breaks come first, and their guesses don't parse or stop at an error at once: they mustn't use up
+// the ones the join without it needs. (In ch4_r4 a guess with `x == 5` last never finishes, and then guessing stops.)
+test("one stray mention doesn't use up the indent guesses, so code shown without its indents is still caught", async () => {
+  for (const [id, x5] of [["ch4_r4", false], ["ch4_r2", true], ["ch5_r3", true], ["ch4_r3", true]]) {
+    const ls = codeLinesOf(id).map(l => l.trim()), inline = ls.map(l => "`" + l + "`").join(", then ");
+    for (const text of [`You don't need an \`else:\` here. Type ${inline}.`, `Type ${inline}. You don't need an \`else:\`.`,
+      ...(x5 ? [`Remember \`x == 5\` asks, it doesn't store. Type ${inline}.`] : [])]) {
+      const shown = await guardReply(text, { mode: "hint", grade: graderOf(id) });
+      assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
+    }
+  }
+});
+
+test("at most 12 indent guesses are graded a reply, not counting ones that stop at an error in their first run (they cost next to nothing)", async () => {
+  const text = `Try ${["for i in range(3):", "if i > 0:", "a = i", "b = a", "c = b", "print(c)"].map(p => "`" + p + "`").join(", then ")}.`;
+  const guesses = async failure => {   // only a guess has an indented line here
+    let n = 0; await leakCheck(text, { grade: async code => { if (/^ /m.test(code)) n++; return { passed: false, feedback: "", failures: [failure] }; } });
+    return n;
+  };
+  assert.equal(await guesses({ group: "output" }), 12);
+  assert.ok(await guesses({ group: "run" }) > 12);
+});
+
 test("indent guesses stop once one never finishes, so a loop reply can't keep the kid waiting", async () => {
   const real = graderOf("ch4_r4"); let slow = 0;
   const grade = async code => { const r = await real(code); if (/never finished/.test(r.feedback)) slow++; return r; };
