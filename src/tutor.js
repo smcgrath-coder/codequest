@@ -1,7 +1,9 @@
 // src/tutor.js
 // Byte, the tutor, on the game's side: when Byte is offered, the tutor code remembered on this device, talking to
-// /api/tutor, and how replies are shown. Plain JS, so node can test it; TutorPanel in App.jsx draws it.
+// /api/tutor, how replies are shown, and the leak guard that checks Byte's code before a kid sees it. Plain JS, so
+// node can test it; TutorPanel in App.jsx draws it.
 import { LIMITS, TUTOR_STATES } from "./tutor-limits.js";
+import { reachesIntoPython } from "./python/flow.js";
 export { LIMITS };
 
 export const TUTOR_URL = "/api/tutor";
@@ -150,3 +152,51 @@ export function replyParts(text) {
 // While a hint-mode reply streams in, its code (blocks and `inline`, finished or not) shows as ⌛ until the leak
 // guard has checked it.
 export const hideCode = text => text.replace(FENCE, "\n⌛\n").replace(/`[^`\n]*(?:`|$)/g, "⌛");
+
+// ── The leak guard ───────────────────────────────────────────────────
+export const LEAK_LINE = "I almost gave that away — try changing just the part we talked about!";
+// In hint mode a code example is at most this many lines; a longer block is cut to them, with a "# …" line.
+export const HINT_BLOCK_LINES = 2;
+// A code block (as FENCE) or `inline` code.
+const PIECE = /```(?:[\w+-]*\n)?([\s\S]*?)(?:```|$)|`([^`\n]+)`/g;
+// Every piece of code in a reply: blocks and `inline` code.
+export const codeIn = text => [...text.matchAll(PIECE)].map(m => m[1] ?? m[2]);
+
+// Would this code give the room away? Yes if it passes the room's grader. Also yes when the grader can't say
+// (no Python, stopped, too slow, crashed) and when the code reaches into Python's insides, which isn't safe to
+// grade (kid code and grading share one Python; see reachesIntoPython): the guard fails closed.
+async function wouldLeak(code, grade) {
+  if (!code.trim()) return false;
+  if (reachesIntoPython(code)) return true;
+  try { const g = await grade(code); return !g || !!(g.passed || g.stopped || g.timedOut || g.internal); } catch { return true; }
+}
+
+// Checks a finished hint-mode reply before the kid sees it. A code block that would pass the room becomes
+// LEAK_LINE, and a long block is cut to HINT_BLOCK_LINES (its cut version must not pass either). `Inline` code that
+// would pass becomes `…`, with LEAK_LINE added at the end. Open mode is returned as it is.
+// grade(code) resolves to the room grader's { passed, stopped?, timedOut?, internal? }, and may reject.
+export async function guardReply(text, { mode, grade }) {
+  if (mode !== "hint") return text;
+  const verdicts = new Map(), leaks = code => { if (!verdicts.has(code)) verdicts.set(code, wouldLeak(code, grade)); return verdicts.get(code); };
+  let out = "", at = 0, caught = false;
+  for (const m of text.matchAll(PIECE)) {
+    out += text.slice(at, m.index); at = m.index + m[0].length;
+    if (m[1] === undefined) { if (await leaks(m[2])) { out += "`…`"; caught = true; } else out += m[0]; continue; }
+    const lines = m[1].replace(/\n+$/, "").split("\n"), long = lines.length > HINT_BLOCK_LINES;
+    const shown = long ? [...lines.slice(0, HINT_BLOCK_LINES), "# …"].join("\n") : lines.join("\n");
+    if ((await leaks(lines.join("\n"))) || (long && (await leaks(shown)))) out += LEAK_LINE;
+    else out += "```python\n" + shown + "\n```";
+  }
+  out += text.slice(at);
+  return caught && !out.includes(LEAK_LINE) ? `${out.trimEnd()}\n\n${LEAK_LINE}` : out;
+}
+
+// The guard's grade(code) for one room: the page's Python with the room's rule. It rejects, so the guard fails
+// closed, when there's no Python or no rule, and while the kid's own program runs (busy()), because a grade then
+// would stop that program.
+export function graderFor({ runner, rule, starter = "", busy = () => false }) {
+  return async code => {
+    if (!rule || busy() || !runner.available()) throw new Error("can't grade now");
+    return runner.grade(code, { rule, starter, inputs: [], attempt: 1 });
+  };
+}
