@@ -121,7 +121,9 @@ Only the room's task, the kid's code, what it printed, the error, the checker's 
 
 ### Locally
 
-`npm run dev` serves `/api/tutor` from the same handler, with a **pretend Byte** and no key: the tutor code is `dev`. A question with the word `leak` makes the pretend Byte send your own code back (so you can watch the leak guard replace a passing answer), and `fail` makes it act as if OpenRouter were down. `TUTOR_DAILY_LIMIT=3 npm run dev` shows "I need to recharge". The dev server never reads `.env`.
+`npm run dev` serves `/api/tutor` from the same handler, with a **pretend Byte** and no key: the tutor code is `dev`. A question with the word `leak` makes the pretend Byte send your own code back (so you can watch the leak guard replace a passing answer), and `fail` makes it act as if OpenRouter were down. `TUTOR_DAILY_LIMIT=3 npm run dev` shows "I need to recharge". The dev server never reads `.env`, and it only answers `/api/tutor` for hosts Vite itself allows (localhost, IP addresses, `server.allowedHosts`).
+
+If `OPENROUTER_API_KEY` is exported in your shell, `npm run dev` uses the real OpenRouter instead, with your shell's `TUTOR_CODES` and Upstash settings. Then the code `dev` stops working, and without Upstash settings there's no daily limit.
 
 ### Evals against the real model
 
@@ -131,7 +133,13 @@ Only the room's task, the kid's code, what it printed, the error, the checker's 
 OPENROUTER_API_KEY=sk-or-... npm run tutor:eval            # add -- --show to print the replies
 ```
 
-It checks each reply for code that would pass the room in hint mode (with the room's real grader), length, and staying on topic, and says what the leak guard caught. Run it again after changing `TUTOR_MODEL`.
+It checks each reply for code that would pass the room in hint mode (with the room's real grader), length, and staying on topic, and says what the leak guard caught.
+
+It reads `TUTOR_MODEL` from your own shell, not from Vercel. To try a model before you switch Vercel to it:
+
+```bash
+TUTOR_MODEL=anthropic/claude-haiku-4.5 OPENROUTER_API_KEY=sk-or-... npm run tutor:eval
+```
 
 ## 🏗️ Project Structure
 
