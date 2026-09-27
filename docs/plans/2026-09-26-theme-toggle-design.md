@@ -100,18 +100,18 @@ Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour
 ## 3. How it works
 
 **`src/theme.js`**
-- exports `PALETTES = { dark, light }`, the ART and CODE sets, `LIGHT_INK` and `ink(theme, c)`;
+- exports `PALETTES = { dark, light }`, the ART and CODE sets, `LIGHT_INK` and `inkFor(theme, c)`;
 - exports `loadTheme()`/`saveTheme()` for `localStorage["cq:theme"]`, wrapped in try/catch; anything but `"light"` means dark;
 - keeps the old named exports as the dark values, so tests and any unconverted import keep working.
 
 **`ThemeContext` and `useTheme()`**
 - App holds `theme` in state, starting from `document.documentElement.dataset.theme` (set by the inline script) or `loadTheme()`.
-- App provides `{ ...PALETTES[theme], theme, ink }`.
+- The context carries only the theme name, `"dark"` or `"light"`. `useTheme()` builds the palette from it and returns `{ ...PALETTES[theme], theme, ink }`, where `ink(c)` is `inkFor(theme, c)`.
 - Each colour-using component adds one line at the top: `const { DARK, PANEL, …, ORANGE, OK, LINE } = useTheme();`. It uses the same names as the imports, so the existing references in its body are untouched.
 - The components that need the line: Btn, XpBar, SessionTimer, NPCDialogue, TitleScreen, CharacterCreate, ProfileSelect, SessionSetup, WorldMap, ChapterOverview, CharacterSheet, Codex, GrindingZone, ChallengeRoom, BadgeUnlock, TrophyUnlock, App, and CodeEditor/OutputPanel.
 - Btn's default parameter `color = ACCENT` is evaluated before the hook runs, so it moves after the hook as `color ??= ACCENT`.
 
-**`ThemeScope name="dark"`** re-provides the dark palette. It wraps the celebration pop-ups, the map frame and the avatar tiles.
+**`ThemeScope name="dark"`** re-provides the dark theme. Only the celebration pop-ups use it (Victory, BadgeUnlock, TrophyUnlock). The map frame reads `PALETTES.dark` (as `M`) and the `MAP_` colours itself, and the avatar tiles use the fixed `ART_WELL`. Neither sits in a ThemeScope, so a component that calls `useTheme()` there gets the player's theme.
 
 **Art pinning.** The 19 art token uses become `ART_ACCENT` or `ART_GOLD`. The art sections are fenced with `// art:begin` and `// art:end` comments.
 
@@ -120,7 +120,7 @@ Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour
 **`index.html`**
 - An inline script before the module script sets `<html data-theme>` from `cq:theme`, so there is no flash.
 - `index.css` switches the body background and `color-scheme` on `html[data-theme=light]`.
-- App keeps the attribute in sync when the theme changes.
+- App keeps the attribute in sync when the theme changes, but only the toggle saves the choice. A player who never presses it has nothing saved, as with 🎵, so a later default (following the OS setting, say) can still tell "never chose" from "chose dark".
 
 **The toggle** goes in the existing `fixed bottom-4 right-4` container, beside 🎵, in the same round style:
 - ☀️ in dark mode, 🌙 in light mode;
@@ -128,6 +128,8 @@ Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour
 - keyboard-focusable.
 
 **Music mute is saved** as `localStorage["cq:music-muted"]`. `Music.setMuted(m)` sets `_muted`, turns the playing track's volume to 0 or back (as the 🎵 button always has), and returns the new value. App starts `musicMuted` from storage and applies it once on load.
+
+iPad and iPhone Safari treat an audio element's `volume` as read-only, so volume 0 alone never silenced music there. `setMuted`, `play()` and `playVictory()` also set the track's `muted` flag.
 
 **Browser support.** Nothing needs a newer browser than the app already needs: no `color-mix()`, no container queries. So devices on the keyword fallback get light mode too.
 
@@ -140,6 +142,16 @@ Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour
 - The NPCS table moved from `App.jsx` to `content.js`, so the tests can import it.
 - In light mode a boss room glows faintly gold instead of purple.
 
+## Changes from the final review (2026-09-26)
+
+- Seven light inks are darker, so they stay readable on their own 11 tint laid straight on the page (see section 2).
+- In light mode the selected Codex tile's border is the chapter's ink, not its raw colour.
+- The Concept Guide and the Codex code blocks set `colorScheme: "dark"`, like the editor, so their scrollbars stay dark.
+- Two glued alphas that made invalid hex are fixed: an available map node's hover glow and the white sparkle's glow. Both were already on main.
+- The theme is saved only when the player presses the toggle.
+- Mute also sets `muted`, for iPad and iPhone.
+- The colour scan gained an exact check by Babel scope analysis, and a wider colour pattern.
+
 ## 4. Testing
 
 **`tests/theme.test.js`** checks that:
@@ -147,13 +159,16 @@ Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour
 - the values are 6-digit hex (LINE tokens excepted);
 - each text token scores at least 4.5:1 on every surface, and on its own tints at 11, 18 and 22 over each surface, in both modes;
 - the CODE pairs score at least 4.5:1 on CODE_BG;
-- `LIGHT_INK` covers every CODEX colour, every NPC colour and every chapter colour, and each scores at least 4.5:1 on PANEL in light mode;
+- `LIGHT_INK` covers every CODEX colour, every NPC colour and every chapter colour, and each scores at least 4.5:1 on every light surface, and on its raw colour's 11 tint over each surface (the Codex header and cards);
 - `loadTheme()`/`saveTheme()` treat a missing, broken or unavailable storage as dark.
 
+**`tests/music.test.js`** checks that mute sets and clears both the volume and the `muted` flag, that a track started while muted starts muted, and the saved choice.
+
 **`tests/no-raw-colours.test.js`** reads App.jsx and CodePanel.jsx as text, drops the art-fenced regions, and checks that:
-- no hex literal or `rgba(` remains outside `theme.js`;
+- no colour is written out by hand outside `theme.js`: hex, a CSS colour function in any case (`rgb(`, `hsl(`, `oklch(`, `color-mix(` and the rest) or a Tailwind colour class (`bg-white`, `text-gray-900`);
 - no switchable token name appears inside an art region;
-- each component that uses a token calls `useTheme()` (a simple per-function scan).
+- each component that uses a token calls `useTheme()` (a simple per-function scan);
+- by Babel scope analysis, only ErrorBoundary reads a switching colour imported from `theme.js`. This catches what the text scans can't: nested templates, `const t = useTheme()`, lowercase render helpers and default parameters.
 
 **The existing suite** stays green: 2,849 tests.
 

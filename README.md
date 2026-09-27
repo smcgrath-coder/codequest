@@ -117,7 +117,7 @@ codequest/
 │   ├── music.js         ← Music player system
 │   ├── main.jsx         ← React entry point
 │   └── index.css        ← Tailwind + base styles
-├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor)
+├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor, theme and saved settings, music, colour scan)
 │   └── fixtures/        ← Reference, alternative and wrong answers for every challenge
 ├── index.html
 ├── package.json

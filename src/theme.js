@@ -72,5 +72,7 @@ export function useTheme() {
   return { ...PALETTES[theme], theme, ink: c => inkFor(theme, c) };
 }
 // Gives its children a palette: App provides the player's choice, and ThemeScope name="dark" keeps the
-// celebration pop-ups, the map and the art tiles dark in light mode.
+// celebration pop-ups (room cleared, badge, trophy) dark in light mode. Nothing else sits in one: the map reads
+// PALETTES.dark and the MAP_ colours itself, and the avatar tiles use ART_WELL, so useTheme() there gives the
+// player's theme.
 export const ThemeScope = ({ name, children }) => createElement(ThemeContext.Provider, { value: name === "light" ? "light" : "dark" }, children);
