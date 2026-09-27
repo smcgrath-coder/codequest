@@ -2,8 +2,8 @@
 // The leak guard (guardReply and leakCheck in src/tutor.js) with real grading in Pyodide: in hint mode code that
 // would pass the room is replaced, even split into pieces, dressed up (>>> prompts, indents, its output), typed as
 // plain lines, spread over two answers or added to the kid's program; a one-line syntax example, the kid's own wrong
-// code and the starter aren't. Long blocks are cut, and when the grader can't say it fails closed. Open mode is left
-// alone.
+// code and the starter aren't. Long blocks are cut, and when the grader can't say (at all, or partway) it fails
+// closed. Open mode is left alone.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -81,6 +81,22 @@ test("when the grader can't answer at all (no Python here), code is swapped for 
   const out = await guardReply(`${block(">>> a = 1")}\nthen\n${block("b = 2")}`, { mode: "hint", grade, program: "c = 3", earlier: ["d = 4"] });
   assert.equal(out, `${UNCHECKED_LINE}\nthen\n…`); assert.equal(calls, 1);
   assert.match(UNCHECKED_LINE, /can't check code/); assert.ok(UNCHECKED_LINE.length < 100);
+  // Plain lines that look like code can't be checked either, so they're hidden too.
+  assert.equal(await guardReply("No boxes:\na = 15\nprint(a)\nRun it!", { mode: "hint", grade: none[0] }), `No boxes:\n…\n…\nRun it!\n\n${UNCHECKED_LINE}`);
+});
+
+test("when the grader stops answering partway, code it hasn't finished checking is hidden, not shown", async () => {
+  const ls = codeLinesOf("ch1_r5");
+  for (const text of [ls.map(block).join("\nthen\n"), ls.map(l => "`" + l + "`").join(", then "), `No boxes:\n${ls.join("\n")}\nRun it!`])
+    for (const n of [1, 2, 3, 5]) {
+      let calls = 0; const real = graderOf("ch1_r5"), grade = async code => { if (++calls > n) throw new Error("can't grade now"); return real(code); };
+      const shown = await guardReply(text, { mode: "hint", grade });
+      assert.ok(shown.includes(UNCHECKED_LINE) || shown.includes(LEAK_LINE), `after ${n}: ${shown}`);
+      for (const l of ls) assert.ok(!shown.includes(l), `after ${n} grades, ${l} is still shown: ${shown}`);
+    }
+  // A join the kid's Run stopped is no answer either.
+  let calls = 0; const real = graderOf("ch1_r5"), grade = async code => (++calls > 3 ? { passed: false, stopped: true } : real(code));
+  assert.equal(await guardReply(`${ls.map(block).join("\nthen\n")}`, { mode: "hint", grade }), `${UNCHECKED_LINE}\nthen\n…\nthen\n…`);
 });
 
 test("open mode, and a reply with no code, are left alone (and nothing is graded)", async () => {
@@ -122,10 +138,26 @@ test("graderFor uses the page's Python with the room's rule, and refuses when it
   const calls = [], runner = { available: () => true, grade: async (code, opts) => { calls.push([code, opts]); return { passed: false }; } };
   await graderFor({ runner, rule: { out: 1 }, starter: "# hi" })("print(1)");
   assert.deepEqual(calls, [["print(1)", { rule: { out: 1 }, starter: "# hi", inputs: [], attempt: 1 }]]);
-  await assert.rejects(graderFor({ runner, rule: { out: 1 }, busy: () => true })("x"), "not while the kid's program runs");
+  await assert.rejects(graderFor({ runner, rule: { out: 1 }, busy: () => true, wait: 50 })("x"), "not while the kid's program runs, however long");
   await assert.rejects(graderFor({ runner, rule: undefined })("x"));
   await assert.rejects(graderFor({ runner: { ...runner, available: () => false }, rule: { out: 1 } })("x"));
   assert.equal(calls.length, 1);
+});
+
+test("graderFor waits for the kid's program to finish, and grades again when their Run stopped a grade", async () => {
+  let running = true, calls = 0;
+  const later = ms => setTimeout(() => { running = false; }, ms);
+  const runner = { available: () => true, grade: async () => {
+    if (++calls > 1) return { passed: true };
+    running = true; later(60);   // the kid pressed Run mid-grade, which stops the grade
+    return { passed: false, stopped: true };
+  } };
+  later(60);
+  const t0 = Date.now(), r = await graderFor({ runner, rule: { out: 1 }, busy: () => running })("x");
+  assert.deepEqual(r, { passed: true }); assert.equal(calls, 2); assert.ok(Date.now() - t0 >= 100, "it waited both times");
+  // A grade stopped some other way (not by the kid's Run) is returned as it is, so the guard fails closed.
+  const stopped = { available: () => true, grade: async () => ({ passed: false, stopped: true }) };
+  assert.deepEqual(await graderFor({ runner: stopped, rule: { out: 1 } })("x"), { passed: false, stopped: true });
 });
 
 // The shapes a whole solution can take in a reply, each a trivial edit away from pasting: split into blocks or inline

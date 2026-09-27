@@ -278,7 +278,8 @@ const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 // Each piece fails closed on its own: "passes" (alone, or cut short), "unsure" (its grade didn't finish) or "unsafe"
 // (it reaches into Python, so it isn't safe to grade: kid code and grading share one Python; see reachesIntoPython).
 // Edits and joins count only a real pass, so they add no false alarms: "edited", "joined" (with Byte's other code),
-// "program" (after the kid's program), and "passes" for plain lines. "unchecked": the grader couldn't answer at all.
+// "program" (after the kid's program), and "passes" for plain lines. "unchecked": the grader couldn't answer, at all
+// or partway, so the code wasn't fully checked (a lone name or symbol in `inline` code still shows).
 // "too many": more than MAX_PIECES pieces, so nothing was graded. grades: how many grades it took.
 export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const cache = new Map();
@@ -300,7 +301,13 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     const r = await graded(code);
     return !r ? "unchecked" : r.passed ? "passes" : r.stopped || r.timedOut || r.internal ? "unsure" : "";
   };
-  const passes = async code => !blind && !!code.trim() && !reachesIntoPython(code) && !!(await graded(code))?.passed;
+  // Only a real pass counts. A grade that was stopped (the kid pressed Run) or broke is no answer, like none at all.
+  const passes = async code => {
+    if (blind || !code.trim() || reachesIntoPython(code)) return false;
+    const r = await graded(code);
+    if (r?.stopped || r?.internal) blind = true;
+    return !!r?.passed;
+  };
 
   const pieces = piecesOf(text).filter(p => p.code !== "…").map(p => {   // `…` is the guard's own
     const long = !p.inline && p.code.split("\n").length > HINT_BLOCK_LINES, visible = visibleOf(p);
@@ -356,6 +363,8 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     again = false;
     for (const [set, before] of sets) if (await join(set, before)) { again = true; break; }
   }
+  // The grader stopped answering before every check was done: nothing it didn't finish checking is shown.
+  if (blind) for (const x of items) if (!x.caught && !(x.inline && LONE.test(x.code))) x.caught = "unchecked";
   return result();
 }
 
@@ -390,12 +399,21 @@ export function earlierCode(chat) {
   });
 }
 
-// The guard's grade(code) for one room: the page's Python with the room's rule. It rejects, so the guard fails
-// closed, when there's no Python or no rule, and while the kid's own program runs (busy()), because a grade then
-// would stop that program.
-export function graderFor({ runner, rule, starter = "", busy = () => false }) {
+// How long the guard's grader waits for the kid's own program to finish (it may be waiting at an input()).
+export const GRADER_WAIT_MS = 60_000;
+// The guard's grade(code) for one room: the page's Python with the room's rule. A grade would stop the kid's own
+// program, so while that runs (busy()) it waits, and a grade the kid's Run stopped is tried again once it's done. It
+// rejects, so the guard fails closed, when there's no Python or no rule, or the kid's program runs longer than wait.
+export function graderFor({ runner, rule, starter = "", busy = () => false, wait = GRADER_WAIT_MS }) {
+  const idle = async () => {
+    for (const t0 = Date.now(); busy(); await new Promise(r => setTimeout(r, 100))) if (Date.now() - t0 > wait) throw new Error("can't grade now");
+  };
   return async code => {
-    if (!rule || busy() || !runner.available()) throw new Error("can't grade now");
-    return runner.grade(code, { rule, starter, inputs: [], attempt: 1 });
+    for (let tries = 0; ; tries++) {
+      await idle();
+      if (!rule || !runner.available()) throw new Error("can't grade now");
+      const r = await runner.grade(code, { rule, starter, inputs: [], attempt: 1 });
+      if (!r?.stopped || !busy() || tries >= 2) return r;
+    }
   };
 }
