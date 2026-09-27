@@ -39,6 +39,15 @@ test("failures throw, and the error never holds the key or the token", async () 
   for (const fetch of cases) await assert.rejects(upstashCounter(ENV, { fetch }).incr(KEY), e => !e.message.includes(KEY) && !e.message.includes(TOKEN) && !e.message.includes("abc123"));
 });
 
+test("a request that can't go out (a pasted token that starts with a line break, a bad URL, a timeout) throws with no token, URL or key", async () => {
+  // Builds the Request as the real fetch does, so undici throws its own error, which quotes the bad header or URL
+  const strict = async (url, init) => { new Request(url, init); return new Response("[]"); };
+  const bad = [{ ...ENV, UPSTASH_REDIS_REST_TOKEN: `\n${TOKEN}` }, { ...ENV, UPSTASH_REDIS_REST_URL: "https://db .upstash.io" }];
+  for (const env of bad) await assert.rejects(upstashCounter(env, { fetch: strict }).incr(KEY), e => e.message === "upstash request failed: TypeError" && !("cause" in e));
+  const slow = async () => { throw new DOMException(`${TOKEN} ${KEY} took too long`, "TimeoutError"); };
+  await assert.rejects(upstashCounter(ENV, { fetch: slow }).incr(KEY), e => e.message === "upstash request failed: TimeoutError");
+});
+
 test("a failed EXPIRE still counts, and is logged without the key", async () => {
   const logs = [], fetch = fakeFetch(200, [{ result: 1 }, { error: "ERR something" }]);
   assert.equal(await upstashCounter(ENV, { fetch, log: m => logs.push(m) }).incr(KEY), 1);

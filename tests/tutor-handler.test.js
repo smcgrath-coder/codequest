@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleTutor, OPENROUTER_URL } from "../server/handler.js";
-import { memoryCounter } from "../server/counter.js";
+import { memoryCounter, upstashCounter } from "../server/counter.js";
 import { dailyKey } from "../server/tutor.js";
 import { fakeOpenRouter, sseFor, sseError } from "../server/fake-openrouter.js";
 
@@ -106,6 +106,15 @@ test("no counter (Upstash not set up) means no cap and no header; a failing coun
   const r2 = await broken.call(post(ask()));
   assert.equal(r2.status, 200); assert.equal(r2.headers.get("x-tutor-remaining"), null); await r2.text();
   assert.match(broken.logs.join("\n"), /counter unavailable/);
+});
+
+test("an Upstash request that can't go out (a pasted token that starts with a line break) doesn't stop Byte, and the log holds no token or URL", async () => {
+  const token = "\r\nupstash-token-zq", env = { ...ENV, UPSTASH_REDIS_REST_URL: "https://zq-db.upstash.io", UPSTASH_REDIS_REST_TOKEN: token };
+  const strict = async (url, init) => { new Request(url, init); return new Response("[]"); };   // undici's error quotes the header
+  const w = world(undefined, { env, counter: upstashCounter(env, { fetch: strict }) }), res = await w.call(post(ask()));
+  assert.equal(res.status, 200); await res.text();
+  assert.deepEqual(w.logs, ["tutor: counter unavailable (upstash request failed: TypeError), not capping"]);
+  for (const secret of ["upstash-token-zq", "zq-db", "Bearer"]) assert.ok(!w.logs[0].includes(secret), `the log mentions ${secret}`);
 });
 
 test("OpenRouter failing before streaming is busy; out of credits (402) is recharging; unreachable is busy", async () => {

@@ -13,20 +13,25 @@ export function upstashConfig(env) {
 
 // { incr(key) } resolving to the key's new count, or null when Upstash isn't set up (then nothing is capped).
 // INCR and EXPIRE go in one /pipeline request. It throws on any failure, and its errors never hold the key, the
-// token or the request body.
+// token, the URL or the request body.
 export function upstashCounter(env, { fetch = globalThis.fetch, timeoutMs = 2000, log = console.warn } = {}) {
   const cfg = upstashConfig(env);
   if (!cfg) return null;
   const said = e => (typeof e === "string" ? e.slice(0, 80) : "no message");
   return {
     async incr(key) {
-      const res = await fetch(`${cfg.url}/pipeline`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify([["INCR", key], ["EXPIRE", key, COUNTER_TTL_SECONDS]]),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      const body = await res.json().catch(() => null);
+      // fetch's own errors can quote the whole header (a token with a line break in it) or the URL, so only their
+      // name goes on, and no cause.
+      let res, body;
+      try {
+        res = await fetch(`${cfg.url}/pipeline`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+          body: JSON.stringify([["INCR", key], ["EXPIRE", key, COUNTER_TTL_SECONDS]]),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        body = await res.json().catch(() => null);
+      } catch (e) { throw new Error(`upstash request failed: ${e?.name ?? "error"}`); }
       if (!res.ok) throw new Error(`upstash http ${res.status}: ${said(body?.error)}`);
       // [{"result": <new count>}, {"result": 1}]; either item can be {"error": "ERR …"} instead
       if (!Array.isArray(body) || body.length !== 2) throw new Error("upstash: unexpected reply");
