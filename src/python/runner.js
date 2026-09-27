@@ -169,7 +169,9 @@ export const answerInput = text => active?.answer?.(text);
 
 // Hidden grading pass. Resolves to { passed, feedback, failures, timedOut?, stopped? }.
 // Rejects like runCode when this device can't run Python, or Python fails to load or is late.
-export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1 }) {
+// runSeconds: a shorter time limit for each run in it (the leak guard's grades; see tutor.js). A kid's grading leaves it
+// out and keeps grading.py's own. GRADE_TIME_LIMIT_MS still bounds the whole pass.
+export async function gradeCode(code, { rule, starter = "", inputs = [], attempt = 1, runSeconds }) {
   const id = newId(), ruleJson = jsonStringify(rule), inputsJson = jsonStringify(inputs || []);
   let stopReason = null, interruptGrade = () => {};
   const stop = reason => { if (!stopReason) { stopReason = reason; interruptGrade(); } };
@@ -198,7 +200,7 @@ export async function gradeCode(code, { rule, starter = "", inputs = [], attempt
           finish(stopReason ? stopped() : m);
         },
       };
-      worker.postMessage({ type: "grade", id, code, rule: ruleJson, starter, inputs: inputsJson, attempt });
+      worker.postMessage({ type: "grade", id, code, rule: ruleJson, starter, inputs: inputsJson, attempt, ...(runSeconds && { runSeconds }) });
       limit = setTimeout(() => stop("timeout"), GRADE_TIME_LIMIT_MS);   // only once sent, as in runCode
     });
   } finally { release(); }

@@ -82,7 +82,7 @@ def _settle():
 VS16 = "\ufe0f"                # emoji variation selector: invisible, and kids can't type it
 # Characters kids can't easily type count as the ones they can.
 SAME = str.maketrans({"—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "°": None})
-HIDDEN_RUN_SECONDS = 2
+HIDDEN_RUN_SECONDS = 2             # each run's time limit; the leak guard's grades ask for less (see tutor.js)
 
 
 def norm_lines(text):
@@ -180,7 +180,7 @@ def _swap_unpacked(target, value, name, new):
 class Run:
     """One execution of kid code: stdout, final globals, call trace, error."""
 
-    def __init__(self, code, stdin_lines=None, patches=None, tree=None, seed=0):
+    def __init__(self, code, stdin_lines=None, patches=None, tree=None, seed=0, seconds=HIDDEN_RUN_SECONDS):
         self.out, self.ns, self.trace, self.edges, self.error, self.timed_out = "", {}, [], [], None, False
         clean_slate(seed=seed)
         time.sleep = lambda s: None     # instant while grading
@@ -209,7 +209,7 @@ class Run:
             with _stdout_to(buf):
                 _setprofile(prof)
                 try:
-                    _arm(HIDDEN_RUN_SECONDS)
+                    _arm(seconds)
                     try:
                         # No leave_main() afterwards: the error's __str__ and the probes should see the
                         # kid's own module as __main__. grade_json leaves it once grading is done.
@@ -237,16 +237,16 @@ class Run:
 
 
 class Ctx:
-    def __init__(self, code, starter="", stdin_lines=None, seed=0):
+    def __init__(self, code, starter="", stdin_lines=None, seed=0, seconds=HIDDEN_RUN_SECONDS):
         # The first run's input, kept so hidden re-runs can answer the same input() calls.
-        self.code, self.starter, self.stdin_lines, self.seed = code, starter, stdin_lines, seed
+        self.code, self.starter, self.stdin_lines, self.seed, self.seconds = code, starter, stdin_lines, seed, seconds
         self.hidden_timeout = False     # a hidden run or call made by the current check never finished
         try:
             self.tree = ast.parse(code)
             self.syntax_error = None
         except SyntaxError as e:
             self.tree, self.syntax_error = None, str(e)
-        self.run = Run(code, stdin_lines=stdin_lines, seed=seed) if self.tree is not None else None
+        self.run = Run(code, stdin_lines=stdin_lines, seed=seed, seconds=seconds) if self.tree is not None else None
 
     def env(self):
         r = self.run
@@ -279,7 +279,7 @@ class Ctx:
                 _setprofile(prof)
                 try:
                     builtins.input = _scripted_input(self.stdin_lines, buf)
-                    _arm(HIDDEN_RUN_SECONDS)
+                    _arm(self.seconds)
                     try:
                         v = fn()
                     finally:
@@ -398,7 +398,7 @@ class Ctx:
         ast.fix_missing_locations(tree)
         if stdin_lines is None:
             stdin_lines = self.stdin_lines
-        r = Run(self.code, stdin_lines=stdin_lines, patches=patches, tree=tree, seed=self.seed)
+        r = Run(self.code, stdin_lines=stdin_lines, patches=patches, tree=tree, seed=self.seed, seconds=self.seconds)
         if r.timed_out:
             self.hidden_timeout = True
         return norm_lines(r.out), r
@@ -695,11 +695,12 @@ def _failure(group, index, message):
     return {"group": group, "index": index, "message": message}
 
 
-def evaluate(code, rule, starter="", stdin_lines=None, seed=0):
+def evaluate(code, rule, starter="", stdin_lines=None, seed=0, seconds=HIDDEN_RUN_SECONDS):
     """Grades one program. Returns [{group, index, message}]: the first failed check of each group, in
-    feedback order (output, concepts, probes), or only the first run's own failure. Empty means it passed."""
+    feedback order (output, concepts, probes), or only the first run's own failure. Empty means it passed.
+    Each run of it (the first, and every hidden re-run or call) stops after seconds."""
     _between_runs[0] = _scripted_input(stdin_lines)   # grade_json puts the real one back
-    ctx = Ctx(code, starter=starter, stdin_lines=stdin_lines, seed=seed)
+    ctx = Ctx(code, starter=starter, stdin_lines=stdin_lines, seed=seed, seconds=seconds)
     if ctx.tree is None:
         return [_failure("run", 0, RUN_FAILED.format(error=f"SyntaxError: {ctx.syntax_error}"))]
     if ctx.run.timed_out:
@@ -723,10 +724,10 @@ def evaluate(code, rule, starter="", stdin_lines=None, seed=0):
     return failures
 
 
-def grade_json(code, rule_json, starter, inputs_json, attempt):
+def grade_json(code, rule_json, starter, inputs_json, attempt, seconds=HIDDEN_RUN_SECONDS):
     rule = _loads(rule_json)
     try:
-        failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0))
+        failures = evaluate(code, rule, starter=starter, stdin_lines=rule.get("inputs") or _loads(inputs_json), seed=rule.get("seed", 0), seconds=seconds)
     finally:
         leave_main()                   # run_as_main left the kid's module as __main__ for the probes
         # Only now: letting go of the kid's module can run its __del__ methods.

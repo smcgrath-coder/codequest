@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 import { PYODIDE_PATH, ISOLATION_HEADERS } from './src/python/config.js'
+import { tutorDev } from './server/dev.js'
 
 export default defineConfig({
   plugins: [
@@ -14,6 +15,8 @@ export default defineConfig({
         rename: { stripBase: true },
       }],
     }),
+    // /api/tutor (Byte) on `npm run dev`, from the same handler as the Vercel Function. See server/dev.js.
+    tutorDev(),
   ],
   optimizeDeps: { exclude: ['pyodide'] },
   worker: { format: 'es' },

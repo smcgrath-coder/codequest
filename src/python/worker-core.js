@@ -77,11 +77,13 @@ export async function createPythonCore({ loadPyodide, indexURL, sources, post, r
       current = null;
       post({ ...res, capped, type: "result", id });   // envelope last, so fields from Python can't replace it
     },
-    // rule and inputs are JSON text (see runner.js's gradeCode).
-    grade({ id, code, rule, starter, inputs, attempt }) {
+    // rule and inputs are JSON text (see runner.js's gradeCode). runSeconds, each run's time limit, comes only with the
+    // leak guard's grades, which stop sooner; without it grading.py keeps its own.
+    grade({ id, code, rule, starter, inputs, attempt, runSeconds }) {
       begin(id, true);
       let res;
-      try { res = jsonParse(call(gradeJson, code, rule, starter || "", inputs || "[]", attempt || 1)); }
+      const limit = typeof runSeconds === "number" && runSeconds > 0 ? [runSeconds] : [];
+      try { res = jsonParse(call(gradeJson, code, rule, starter || "", inputs || "[]", attempt || 1, ...limit)); }
       catch (e) { res = { passed: false, feedback: "Something went wrong while checking your code. Try running it again.", internal: String(e) }; }
       current = null;
       post({ ...res, type: "graded", id });

@@ -6,9 +6,10 @@ import { makeCore } from "./helpers/python.js";
 let t;
 before(async () => { t = await makeCore(); });
 // The page sends the rule and inputs as JSON text (see runner.js's gradeCode), so do the same here.
-const gradeWith = (c, code, rule, { starter = "", inputs = [], attempt = 1 } = {}) => {
+// runSeconds: each run's time limit, as the leak guard asks for (see tutor.js's graderFor); the kid's grading leaves it out.
+const gradeWith = (c, code, rule, { starter = "", inputs = [], attempt = 1, runSeconds } = {}) => {
   c.messages.length = 0;
-  c.core.grade({ id: "g1", code, rule: JSON.stringify(rule), starter, inputs: JSON.stringify(inputs), attempt });
+  c.core.grade({ id: "g1", code, rule: JSON.stringify(rule), starter, inputs: JSON.stringify(inputs), attempt, runSeconds });
   return c.messages.find(m => m.type === "graded");
 };
 const grade = (...args) => gradeWith(t, ...args);
@@ -112,6 +113,19 @@ describe("hidden runs are safe", () => {
     const code = "n = 6\nwhile n != 0:\n    n -= 2\nprint('done')";   // rerun with n = 3 never reaches 0
     const g = grade(code, { output: [{ expr: "True" }], probes: [{ expr: "rerun({'n': '3'})[0] == ['done']", hint: "Make sure your loop always stops." }] });
     assert.equal(g.passed, false); assert.match(g.feedback, /never finished|always stops/);
+  });
+  test("a grade can ask for a shorter time limit for each run (the leak guard's); the kid's grading keeps 2 seconds", () => {
+    const timed = (...args) => { const t0 = performance.now(), g = grade(...args); return [g, performance.now() - t0]; };
+    const loops = [["n = 0\nwhile True:\n    n += 1", { output: [{ expr: "True" }] }],   // the first run
+      ["n = 6\nwhile n != 0:\n    n -= 2\nprint('done')", { output: [{ expr: "True" }], probes: [{ expr: "rerun({'n': '3'})[0] == ['done']" }] }],   // a hidden re-run
+      ["def f():\n    while True:\n        pass\nprint('hi')", { output: [{ expr: "True" }], probes: [{ expr: "call('f()')[0] is None" }] }]];   // a call
+    for (const [code, rule] of loops) {
+      const [g, ms] = timed(code, rule, { runSeconds: 0.3 });
+      assert.equal(g.passed, false); assert.match(g.feedback, /never finished/);
+      assert.ok(ms >= 300 && ms < 1000, `${code}: ${ms} ms`);
+    }
+    const [g, ms] = timed(...loops[0]);
+    assert.match(g.feedback, /never finished/); assert.ok(ms >= 2000, `${ms} ms`);
   });
   test("kid code can't catch the time limit with a bare except", () => {
     const code = "try:\n    while True:\n        pass\nexcept:\n    pass\nprint('escaped')";

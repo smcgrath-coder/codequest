@@ -6,10 +6,11 @@ import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader
 import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
 import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
-import { runStopGuard } from "./editor.js";
+import { runStopGuard, CODE_TEXTAREA_PROPS } from "./editor.js";
 import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
+import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, untilStopped, hideCode, replyParts, spoken, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2683,6 +2684,110 @@ function GrindingZone({profile,onBack}){
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// BYTE THE TUTOR — after the last hint, and on the victory screen
+// ═══════════════════════════════════════════════════════════════════
+
+// Whether this site has Byte set up (the server has a key and codes). Until it does, Ask Byte stays hidden.
+function useTutorReady(){
+  const [ready,setReady]=useState(false);
+  useEffect(()=>{let live=true;tutorReady().then(r=>{if(live)setReady(r)});return()=>{live=false}},[]);
+  return ready;
+}
+
+// A reply from Byte: its words, and its code in dark code panels, like the editor in both modes.
+function ByteSays({text}){
+  return replyParts(text).map((p,i)=>p.kind==="code"
+    ?<pre key={i} className="my-1 p-2 rounded overflow-x-auto text-xs" style={{background:CODE_BG,color:CODE_TEXT,border:`1px solid ${CODE_ACCENT}33`,fontFamily:MONO,colorScheme:"dark"}}>{p.text}</pre>
+    :<div key={i} className="whitespace-pre-wrap">{p.text}</div>);
+}
+
+// The chat with Byte. mode: "hint" or "open" (see tutorMode). chat/setChat live in ChallengeRoom, so the room and
+// its victory screen share one chat. context: what Byte sees (see tutorPayload). grade: the leak guard's grader.
+// busy: the kid's program is running, so questions wait. onAsk: runs on each question (in a room, No Peeking goes).
+function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
+  const {PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ERR,theme}=useTheme();
+  const [code,setCode]=useState(loadTutorCode);
+  const [needCode,setNeedCode]=useState(()=>!loadTutorCode());
+  const [draft,setDraft]=useState("");
+  const [checking,setChecking]=useState(false);   // the tutor code is being checked
+  const waiting=replyPending(chat);   // from the shared chat, so the room's panel and the victory screen's agree
+  const [note,setNote]=useState(null);   // {say,tone}: why Byte couldn't answer
+  const [left,setLeft]=useState(null);   // questions left today, when there's a cap
+  const [said,setSaid]=useState("");   // what a screen reader hears instead of the log: see the hidden line below
+  const abortRef=useRef(null),logRef=useRef(null);
+  useEffect(()=>()=>abortRef.current?.abort(),[]);   // leaving stops the request
+  useEffect(()=>{const el=logRef.current;if(el)el.scrollTop=el.scrollHeight},[chat]);
+  const start=()=>{abortRef.current?.abort();const ac=new AbortController();abortRef.current=ac;return ac};
+  // Why Byte couldn't answer. The status line reads it out, so the hidden line goes quiet rather than say it twice.
+  const tell=s=>{setSaid("");setNote(s)};
+
+  const unlock=async()=>{const c=code.trim();if(!c||checking)return;
+    const ac=start();setChecking(true);setNote(null);
+    const state=await checkTutorCode(c,{signal:ac.signal});
+    if(ac.signal.aborted)return;
+    setChecking(false);
+    if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else tell(onTutorState(state));
+  };
+  // A hint-mode reply shows its code only after the leak guard, which also joins it with Byte's earlier code in this chat
+  // and the kid's program; its grades stop with the question, so a kid who hid Byte doesn't wait on Run for checks
+  // nobody will see. However the question ends, its reply stops waiting: one that doesn't come (it failed, the
+  // kid hid Byte or left, or something broke) goes, and its question stays on screen but out of the history.
+  const ask=async()=>{const q=draft.trim();if(!q||waiting||busy)return;
+    const ac=start(),id=`${Date.now()}-${Math.random()}`;
+    onAsk?.();setDraft("");setNote(null);setSaid("Byte is thinking…");
+    setChat(c=>asked(c,id,q));
+    const put=m=>setChat(c=>c.map(x=>x.id===id?{...x,...m}:x));
+    let answered=false;
+    try{
+      const payload=tutorPayload({...context,tutorCode:code,mode,chat,question:q});
+      const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
+      if(ac.signal.aborted)return;
+      if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade:untilStopped(grade,ac.signal),earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;
+        put({content:text,pending:false});answered=true;setLeft(r.remaining);setSaid(spoken(text))}
+      else{const s=onTutorState(r.state);tell(s);if(s.needCode){setNeedCode(true);setCode("")}}
+    }catch{if(!ac.signal.aborted)tell(onTutorState("busy"))}   // a stopped question needs no note: the kid left
+    finally{if(!answered)setChat(c=>dropReply(c,id))}
+  };
+
+  const field={background:PANEL2,color:TEXT,border:`1px solid ${theme==="light"?DIM:`${ACCENT}33`}`,fontFamily:MONO,caretColor:ACCENT};
+  const small={padding:"4px 12px",fontSize:"12px"};
+  return <div className="mt-2 p-3 rounded-lg text-left" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
+    <div className="flex items-center gap-2 mb-2">
+      <div className="rounded-lg p-1 flex-shrink-0" style={{background:ART_WELL,border:`1px solid ${ACCENT}33`}}><NPCAvatar type="byte" size={36}/></div>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-bold" style={{color:ACCENT}}>Byte</div>
+        <div className="text-xs" style={{color:VDIM}}>{mode==="open"?"Ask me how your code works!":"I'll help you find it, not give it away."}</div>
+      </div>
+      {left!==null&&<div className="text-xs flex-shrink-0" style={{color:VDIM}}>{left} left today</div>}
+    </div>
+    {needCode?<div>
+      <div className="text-xs mb-2" style={{color:DIM}}>Byte needs a tutor code. Ask your grown-up for one.</div>
+      <div className="flex gap-2">
+        <input value={code} onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")unlock()}} maxLength={LIMITS.tutorCode} autoFocus
+          aria-label="Tutor code" {...CODE_TEXTAREA_PROPS} className="flex-1 min-w-0 px-2 py-1 rounded text-xs" style={field}/>
+        <Btn onClick={unlock} disabled={!code.trim()||checking} style={small}>{checking?"…":"Unlock"}</Btn>
+      </div>
+    </div>:<>
+      <div ref={logRef} className="max-h-56 overflow-y-auto flex flex-col gap-2 text-xs leading-relaxed">
+        {chat.length===0&&<div style={{color:DIM}}>{mode==="open"?"You did it! Ask me how your code works, or for another way to write it.":"Stuck? Tell me what's confusing you, and I'll help you find the problem."}</div>}
+        {chat.map(m=>m.role==="user"
+          ?<div key={m.id} className="self-end max-w-[85%] px-2 py-1 rounded whitespace-pre-wrap" style={{background:`${ACCENT}11`,color:ACCENT}}>{m.content}</div>
+          :<div key={m.id} style={{color:TEXT}}>{m.content&&<ByteSays text={m.content}/>}{m.pending&&<span aria-hidden="true" style={{color:ACCENT,animation:"blink 0.8s infinite"}}>▊</span>}</div>)}
+      </div>
+      <div className="flex gap-2 mt-2">
+        <input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")ask()}} maxLength={LIMITS.question} autoFocus
+          placeholder={busy?"Byte waits while your code runs…":"Ask Byte about your code…"} aria-label="Your question for Byte" className="flex-1 min-w-0 px-2 py-1 rounded text-xs" style={field}/>
+        <Btn onClick={ask} disabled={!draft.trim()||waiting||busy} style={small}>Ask</Btn>
+      </div>
+    </>}
+    {/* Always there, so a screen reader catches its words when they appear */}
+    <div role="status" className={`text-xs${note?" mt-2":""}`} style={{color:note?.tone==="err"?ERR:note?.tone==="gold"?GOLD:DIM}}>{note?.say}</div>
+    {/* The log isn't read out as it streams (its pieces, its ⌛). This is: "Byte is thinking…", then the whole checked reply */}
+    <div className="sr-only" aria-live="polite">{said}</div>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CHALLENGE ROOM — The core gameplay loop
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2702,6 +2807,12 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const [stuck,setStuck]=useState(0);   // clean runs that didn't pass; enough of them unlock "mark it done"
   const [markedDone,setMarkedDone]=useState(false);
   const [dialoguePhase,setDialoguePhase]=useState(chapterIntroDialogue?"chapter-intro":challenge.npcDialogue?"room-intro":"play");
+  // Byte, once this site has it set up. The chat lasts for the room: the room and its victory screen share it.
+  const tutorOn=useTutorReady();
+  const [showTutor,setShowTutor]=useState(false);
+  const [chat,setChat]=useState([]);
+  const runningRef=useRef(false);runningRef.current=isRunning;   // the leak guard mustn't grade while the kid's code runs
+  const byteAnswering=replyPending(chat);   // and Run waits while Byte answers: a run would stop the guard's grades
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
   const completedRef=useRef(false);
@@ -2715,7 +2826,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   // Passing, or marking the room done: the victory screen follows.
   const win=()=>{setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500)};
   const handleRun=async()=>{
-    if(isRunning||passed)return;
+    if(isRunning||passed||byteAnswering)return;
     runStop.started();
     const seq=++runSeq.current;
     setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
@@ -2743,6 +2854,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const finish=()=>{if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
     try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})};
   const concepts=getConceptsForChallenge(challenge);
+  // What Byte sees (see tutorPayload), and the grader the leak guard checks Byte's code with
+  const tutorContext={challenge,program:code,lastRunCode:attempts[attempts.length-1]?.code,result,parts,hintLevel};
+  const tutorGrade=graderFor({runner:PYTHON_RUNNER,rule:CHECKS[challenge.id],starter:challenge.starterCode||"",busy:()=>runningRef.current});
+  const offerTutor=tutorOn&&shouldOfferTutor("room",hintLevel,challenge.hints.length);
 
   // Dialogue phases
   if(dialoguePhase==="chapter-intro")return <NPCDialogue key="chapter-intro" npc={chapterIntroNpc} lines={chapterIntroDialogue} onComplete={()=>setDialoguePhase(challenge.npcDialogue?"room-intro":"play")}/>;
@@ -2780,6 +2895,12 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs flex gap-2"
             style={{background:`${GOLD}11`,color:GOLD,border:`1px solid ${GOLD}22`}}>
             <span aria-hidden="true" className="select-none">💡</span><div className="whitespace-pre-wrap min-w-0">{h}</div></div>)}
+          {/* Byte, once every hint is out. Asking here costs No Peeking, like a hint */}
+          {offerTutor&&<button onClick={()=>setShowTutor(s=>!s)} aria-expanded={showTutor}
+            className="mt-2 text-xs px-3 py-1 rounded cursor-pointer" style={{color:ACCENT,background:showTutor?`${ACCENT}22`:`${ACCENT}11`,border:`1px solid ${ACCENT}33`}}>
+            💬 {showTutor?"Hide Byte":"Ask Byte"}</button>}
+          {offerTutor&&showTutor&&<TutorPanel mode={tutorMode("room",passed,markedDone)} chat={chat} setChat={setChat} context={tutorContext} grade={tutorGrade}
+            busy={isRunning} onAsk={()=>setUsedHints(true)}/>}
         </div>
 
         {/* Help buttons */}
@@ -2816,8 +2937,9 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
-          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
-            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
+          {/* Run waits while Byte answers (Ctrl+Enter too, through handleRun); Stop still stops a program that's running */}
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed||(byteAnswering&&!isRunning)} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
+            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):byteAnswering?"⌛ Byte is answering…":"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:LINE,minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
@@ -2831,17 +2953,21 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       </div>
     </div>
 
-    {/* Victory: stays dark in both modes, like the other celebration pop-ups */}
-    {showVictory&&<ThemeScope name="dark"><Victory isBoss={isBoss} replaying={replaying} markedDone={markedDone} usedHints={usedHints} earnedXp={earnedXp} onContinue={finish}/></ThemeScope>}
+    {/* Victory: stays dark in both modes, like the other celebration pop-ups. Asking Byte here doesn't touch No Peeking */}
+    {showVictory&&<ThemeScope name="dark"><Victory isBoss={isBoss} replaying={replaying} markedDone={markedDone} usedHints={usedHints} earnedXp={earnedXp} onContinue={finish}
+      tutor={tutorOn&&<TutorPanel mode={tutorMode("victory",passed,markedDone)} chat={chat} setChat={setChat} context={tutorContext} grade={tutorGrade}/>}/></ThemeScope>}
   </div>;
 }
 
 // Room cleared. ChallengeRoom shows it inside ThemeScope name="dark", so it keeps the dark palette in light mode.
-function Victory({isBoss,replaying,markedDone,usedHints,earnedXp,onContinue}){
+// tutor: Byte's panel, when this site has Byte. The overlay scrolls, so an open chat fits at phone width.
+function Victory({isBoss,replaying,markedDone,usedHints,earnedXp,onContinue,tutor}){
   const {PANEL,GOLD,ACCENT,DIM}=useTheme();
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM}}>
+  const [asking,setAsking]=useState(false);
+  return <div className="fixed inset-0 overflow-y-auto z-50" style={{background:POP_SCRIM}}>
     <Particles active={true} type={isBoss?"boss":"victory"} count={isBoss?36:24}/>
-    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`:`linear-gradient(135deg,${PANEL},${POP_CLEAR})`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
+    <div className="min-h-full flex items-center justify-center p-4">
+    <div className={`text-center p-8 rounded-xl max-w-sm ${asking?"w-full":""}`} style={{background:isBoss?`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`:`linear-gradient(135deg,${PANEL},${POP_CLEAR})`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
       <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
       <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
       {replaying
@@ -2849,8 +2975,11 @@ function Victory({isBoss,replaying,markedDone,usedHints,earnedXp,onContinue}){
         :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
         :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
       {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
+      {tutor&&(asking?<div className="mb-4">{tutor}</div>:<button onClick={()=>setAsking(true)} className="block mx-auto mb-4 text-xs cursor-pointer" style={{color:DIM}}>
+        Any questions about this room? <span className="underline" style={{color:ACCENT}}>💬 Ask Byte</span></button>)}
       <Btn onClick={onContinue} color={isBoss?GOLD:ACCENT}
         autoFocus={markedDone}>CONTINUE →</Btn>
+    </div>
     </div>
   </div>;
 }
