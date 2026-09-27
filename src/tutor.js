@@ -274,10 +274,12 @@ const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 // grade(code) resolves to the room grader's { passed, stopped?, timedOut?, internal? }, and may reject.
 // earlier: the code Byte showed earlier in this chat (earlierCode). program: the kid's code now.
 // Resolves to { pieces, lines, passes, grades }: each code piece ({ inline, at, end, code, shown }) and each plain line
-// that looks like code ({ at, end, code }), with caught: "" or why. Each piece fails closed on its own: caught when it
-// passes ("passes"), when its grade didn't finish ("unsure") or when it reaches into Python ("unsafe": not safe to
-// grade, since kid code and grading share one Python; see reachesIntoPython). "unchecked": the grader couldn't
-// answer at all. Edits and joins count only a real pass, so they add no false alarms. passes: something passes.
+// that looks like code ({ at, end, code }), with caught: "" or why, and passes: whether anything gives it away.
+// Each piece fails closed on its own: "passes" (alone, or cut short), "unsure" (its grade didn't finish) or "unsafe"
+// (it reaches into Python, so it isn't safe to grade: kid code and grading share one Python; see reachesIntoPython).
+// Edits and joins count only a real pass, so they add no false alarms: "edited", "joined" (with Byte's other code),
+// "program" (after the kid's program), and "passes" for plain lines. "unchecked": the grader couldn't answer at all.
+// "too many": more than MAX_PIECES pieces, so nothing was graded. grades: how many grades it took.
 export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const cache = new Map();
   let blind = false, grades = 0;
