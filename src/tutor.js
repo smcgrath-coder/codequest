@@ -48,6 +48,16 @@ export function onTutorState(state, storage) {
   return { say: TUTOR_SAYS[state] ?? TUTOR_SAYS.busy, tone: state === "locked" ? "err" : state === "recharging" ? "gold" : "dim", needCode: state === "locked" };
 }
 
+// ── The chat ─────────────────────────────────────────────────────────
+// One chat per room, shared by its panels: [{ id, role: "user" | "assistant", content, pending?, failed? }].
+// A question goes out with its reply on the way (pending, until it's finished); the question's id is the reply's + "q".
+export const asked = (chat, id, question) => [...chat, { id: `${id}q`, role: "user", content: question }, { id, role: "assistant", content: "", pending: true }];
+// A reply on its way: every panel for the room waits for it, and so does Run (see ChallengeRoom).
+export const replyPending = chat => chat.some(m => m.role === "assistant" && m.pending);
+// A reply that didn't come (it failed, the kid left, or something broke) goes; its question stays on screen, marked
+// failed, so it's out of the history.
+export const dropReply = (chat, id) => chat.filter(m => m.id !== id).map(m => (m.id === `${id}q` ? { ...m, failed: true } : m));
+
 // ── The request ──────────────────────────────────────────────────────
 const clip = (s, n) => { s = String(s ?? ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 

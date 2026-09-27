@@ -10,7 +10,7 @@ import { runStopGuard, CODE_TEXTAREA_PROPS } from "./editor.js";
 import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
-import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, LIMITS } from "./tutor.js";
+import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2709,7 +2709,8 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
   const [code,setCode]=useState(loadTutorCode);
   const [needCode,setNeedCode]=useState(()=>!loadTutorCode());
   const [draft,setDraft]=useState("");
-  const [waiting,setWaiting]=useState(false);
+  const [checking,setChecking]=useState(false);   // the tutor code is being checked
+  const waiting=replyPending(chat);   // from the shared chat, so the room's panel and the victory screen's agree
   const [note,setNote]=useState(null);   // {say,tone}: why Byte couldn't answer
   const [left,setLeft]=useState(null);   // questions left today, when there's a cap
   const abortRef=useRef(null),logRef=useRef(null);
@@ -2717,27 +2718,31 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
   useEffect(()=>{const el=logRef.current;if(el)el.scrollTop=el.scrollHeight},[chat]);
   const start=()=>{abortRef.current?.abort();const ac=new AbortController();abortRef.current=ac;return ac};
 
-  const unlock=async()=>{const c=code.trim();if(!c||waiting)return;
-    const ac=start();setWaiting(true);setNote(null);
+  const unlock=async()=>{const c=code.trim();if(!c||checking)return;
+    const ac=start();setChecking(true);setNote(null);
     const state=await checkTutorCode(c,{signal:ac.signal});
     if(ac.signal.aborted)return;
-    setWaiting(false);
+    setChecking(false);
     if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else setNote(onTutorState(state));
   };
   // A hint-mode reply shows its code only after the leak guard, which also joins it with Byte's earlier code in this chat
-  // and the kid's program; a failed question stays on screen but out of the history.
+  // and the kid's program. However the question ends, its reply stops waiting: one that doesn't come (it failed, the
+  // kid hid Byte or left, or something broke) goes, and its question stays on screen but out of the history.
   const ask=async()=>{const q=draft.trim();if(!q||waiting||busy)return;
     const ac=start(),id=`${Date.now()}-${Math.random()}`;
-    onAsk?.();setDraft("");setNote(null);setWaiting(true);
-    const payload=tutorPayload({...context,tutorCode:code,mode,chat,question:q});
-    setChat(c=>[...c,{id:`${id}q`,role:"user",content:q},{id,role:"assistant",content:"",pending:true}]);
+    onAsk?.();setDraft("");setNote(null);
+    setChat(c=>asked(c,id,q));
     const put=m=>setChat(c=>c.map(x=>x.id===id?{...x,...m}:x));
-    const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
-    if(ac.signal.aborted)return;
-    if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade,earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;put({content:text,pending:false});setLeft(r.remaining)}
-    else{setChat(c=>c.filter(x=>x.id!==id).map(x=>x.id===`${id}q`?{...x,failed:true}:x));
-      const s=onTutorState(r.state);setNote(s);if(s.needCode){setNeedCode(true);setCode("")}}
-    setWaiting(false);
+    let answered=false;
+    try{
+      const payload=tutorPayload({...context,tutorCode:code,mode,chat,question:q});
+      const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
+      if(ac.signal.aborted)return;
+      if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade,earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;
+        put({content:text,pending:false});answered=true;setLeft(r.remaining)}
+      else{const s=onTutorState(r.state);setNote(s);if(s.needCode){setNeedCode(true);setCode("")}}
+    }catch{if(!ac.signal.aborted)setNote(onTutorState("busy"))}   // a stopped question needs no note: the kid left
+    finally{if(!answered)setChat(c=>dropReply(c,id))}
   };
 
   const field={background:PANEL2,color:TEXT,border:`1px solid ${theme==="light"?DIM:`${ACCENT}33`}`,fontFamily:MONO,caretColor:ACCENT};
@@ -2756,7 +2761,7 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
       <div className="flex gap-2">
         <input value={code} onChange={e=>setCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")unlock()}} maxLength={LIMITS.tutorCode} autoFocus
           aria-label="Tutor code" {...CODE_TEXTAREA_PROPS} className="flex-1 min-w-0 px-2 py-1 rounded text-xs" style={field}/>
-        <Btn onClick={unlock} disabled={!code.trim()||waiting} style={small}>{waiting?"…":"Unlock"}</Btn>
+        <Btn onClick={unlock} disabled={!code.trim()||checking} style={small}>{checking?"…":"Unlock"}</Btn>
       </div>
     </div>:<>
       <div ref={logRef} className="max-h-56 overflow-y-auto flex flex-col gap-2 text-xs leading-relaxed" aria-live="polite">
@@ -2800,6 +2805,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const [showTutor,setShowTutor]=useState(false);
   const [chat,setChat]=useState([]);
   const runningRef=useRef(false);runningRef.current=isRunning;   // the leak guard mustn't grade while the kid's code runs
+  const byteAnswering=replyPending(chat);   // and Run waits while Byte answers: a run would stop the guard's grades
 
   const [showGuideHelp,setShowGuideHelp]=useState(false);
   const completedRef=useRef(false);
@@ -2813,7 +2819,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   // Passing, or marking the room done: the victory screen follows.
   const win=()=>{setPassed(true);try{SFX.codeSuccess()}catch(e){};try{Music.playVictory()}catch(e){};setTimeout(()=>setShowVictory(true),500)};
   const handleRun=async()=>{
-    if(isRunning||passed)return;
+    if(isRunning||passed||byteAnswering)return;
     runStop.started();
     const seq=++runSeq.current;
     setIsRunning(true);setParts([]);setResult(null);setWaiting(false);
@@ -2924,8 +2930,9 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
-          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
-            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
+          {/* Run waits while Byte answers (Ctrl+Enter too, through handleRun); Stop still stops a program that's running */}
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed||(byteAnswering&&!isRunning)} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
+            {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):byteAnswering?"⌛ Byte is answering…":"▶ Run Code"}</Btn>
         </div>
         <div className="p-4 border-t" style={{borderColor:LINE,minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>

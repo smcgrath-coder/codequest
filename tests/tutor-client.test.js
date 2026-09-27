@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shouldOfferTutor, tutorMode, loadTutorCode, saveTutorCode, forgetTutorCode, TUTOR_CODE_KEY, onTutorState, TUTOR_SAYS,
-  historyFor, tutorPayload, probeTutor, checkTutorCode, askTutor, replyParts, hideCode, LIMITS } from "../src/tutor.js";
+  historyFor, tutorPayload, probeTutor, checkTutorCode, askTutor, replyParts, hideCode, LIMITS, asked, replyPending, dropReply } from "../src/tutor.js";
 import { validateRequest } from "../server/tutor.js";
 import { CHAPTERS } from "../src/content.js";
 
@@ -52,6 +52,18 @@ test("a locked answer forgets the saved code and asks for it again; the others j
   assert.equal(TUTOR_SAYS.locked, "That code doesn't work — ask your grown-up for one.");
   for (const s of ["recharging", "busy", "offline", "not-configured", "bad-request"]) assert.equal(onTutorState(s, store(m)).needCode, false, s);
   assert.equal(onTutorState("something-new").say, TUTOR_SAYS.busy);
+});
+
+test("the chat: a question goes out with its reply on the way; a reply that doesn't come goes, and its question is marked failed", () => {
+  const chat = asked([{ id: "0q", role: "user", content: "hi" }, { id: "0", role: "assistant", content: "hello" }], "1", "why?");
+  assert.deepEqual(chat.slice(2), [{ id: "1q", role: "user", content: "why?" }, { id: "1", role: "assistant", content: "", pending: true }]);
+  assert.equal(replyPending(chat), true); assert.equal(replyPending(chat.slice(0, 3)), false); assert.equal(replyPending([]), false);
+  const dropped = dropReply(chat, "1");
+  assert.deepEqual(dropped, [...chat.slice(0, 2), { id: "1q", role: "user", content: "why?", failed: true }]);
+  assert.equal(replyPending(dropped), false);
+  assert.deepEqual(historyFor(dropped).map(m => m.content), ["hi", "hello"], "out of the history");
+  assert.deepEqual(dropReply(dropped, "1"), dropped, "twice is the same as once");
+  assert.deepEqual(dropReply(chat, "0"), [{ id: "0q", role: "user", content: "hi", failed: true }, ...chat.slice(2)], "only that reply and its question");
 });
 
 test("the history: whole pairs of a question and its answer, the last six messages", () => {
