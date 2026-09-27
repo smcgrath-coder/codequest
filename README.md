@@ -107,13 +107,13 @@ Byte answers a kid's questions about the room they're in: after the last hint, a
 
 3. **Upstash Redis for the daily limit.** In the Vercel dashboard, open the project's Storage tab → Create Database → **Upstash for Redis** (a Marketplace integration), free plan. Connect it to this project for Production and Preview, and leave **Custom Prefix** blank. It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`; the function also reads `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` if you set Upstash up yourself. Without Upstash there's no daily limit, only the credit limit.
 4. **Redeploy.** Environment variable changes only apply to new deployments: Deployments → ⋯ → Redeploy, after any change.
-5. **Check.** `https://<your site>/api/tutor` should show `{"state":"ready","dailyCap":true}`: Byte is ready, with a daily limit. `"dailyCap":false` means Upstash isn't connected (step 3), so there's no daily limit. Then open a room, reveal every hint, and Ask Byte appears.
+5. **Check.** `https://<your site>/api/tutor` should show `{"state":"ready","dailyCap":true}`: Byte is ready, and the Upstash settings for the daily limit are there. `"dailyCap":false` means Upstash isn't connected (step 3), so there's no daily limit. `true` doesn't prove the limit works: if the function's logs say `counter unavailable` after a question, the Upstash URL or token is wrong and nothing is capped. Then open a room, reveal every hint, and Ask Byte appears.
 
 ### Codes
 
 Nothing limits how many codes someone can try, so use long, random codes (up to 64 characters): three random words and a number, like `otter-lantern-quilt-58`. To take a code away, or replace one that got around, edit `TUTOR_CODES` and redeploy. A device that saved the old code is asked for a new one.
 
-A code at its daily limit still costs something: each question past it is still counted, one Upstash request (INCR and EXPIRE). So someone with a code can use up Upstash's free plan, and then there's no daily limit. The OpenRouter credit limit stays the backstop.
+A code at its daily limit still costs something: each question past it is still counted, which is two Upstash commands (INCR and EXPIRE, in one request). So someone with a code can use up Upstash's free plan, and then there's no daily limit. The OpenRouter credit limit stays the backstop.
 
 ### What it sends, and what it keeps
 
