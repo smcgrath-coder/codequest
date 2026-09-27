@@ -2497,14 +2497,15 @@ function Codex({profile,onBack}){
       </div>
     </div>
     <div className="max-w-3xl mx-auto flex gap-4" style={{minHeight:"70vh"}}>
-      {/* Chapter sidebar */}
+      {/* Chapter sidebar. The selected tile's border is the chapter's ink: in light mode its tint is faint, and a pale
+          raw colour would barely show on white (ink() is the raw colour in dark mode) */}
       <div className="flex flex-col gap-2" style={{minWidth:"140px"}}>
         {CODEX.map(ch=>{const unlocked=discovered(ch.chapter);return <button key={ch.chapter}
           onClick={()=>{if(unlocked){setSelectedChapter(ch.chapter);setExpandedConcept(null)}}}
           disabled={!unlocked}
           className="p-3 rounded-lg text-left cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
           style={{background:selectedChapter===ch.chapter?(theme==="light"?`linear-gradient(${ch.color}11,${ch.color}11),${PANEL2}`:`${ch.color}22`):unlocked?PANEL2:`${DARK}88`,
-            border:`1px solid ${selectedChapter===ch.chapter?ch.color:unlocked?LINE:LINE_FAINT}`,
+            border:`1px solid ${selectedChapter===ch.chapter?ink(ch.color):unlocked?LINE:LINE_FAINT}`,
             opacity:unlocked?1:0.35}}>
           <div className="text-lg mb-1">{unlocked?ch.icon:"🔒"}</div>
           <div className="text-xs font-bold" style={{color:unlocked?ink(ch.color):DIM}}>{ch.title}</div>
