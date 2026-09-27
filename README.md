@@ -96,20 +96,24 @@ Byte answers a kid's questions about the room they're in: after the last hint, a
 ### Setting it up (Scott)
 
 1. **An OpenRouter key just for CodeQuest.** At [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), create a key named `CodeQuest` with a monthly **credit limit**. That limit is the backstop if anything else fails. With Sonnet 5, a question costs at most about 3¢, usually less: the reply, thinking included, stops at 2,000 output tokens ($10 per million), and the biggest question the function accepts is about 4,600 input tokens ($2 per million). So $10 a month covers at least 330 questions, and one code at the daily limit of 40 costs at most about $1.20 a day. Leave input and output logging off in OpenRouter's privacy settings.
-2. **Vercel environment variables.** In the project's Settings → Environment Variables, add these for **Production** and **Preview**:
+2. **Vercel environment variables.** In the project's Settings → Environment Variables, add these for **Production** and **Preview**. Turn the **Sensitive** switch on for `OPENROUTER_API_KEY` and `TUTOR_CODES`, so no one can read them back in the dashboard:
 
-   | Name | Type | Value |
+   | Name | Sensitive | Value |
    |---|---|---|
-   | `OPENROUTER_API_KEY` | Secret | the key from step 1 |
-   | `TUTOR_CODES` | Secret | the codes you hand out, comma-separated, e.g. `maple-river-42,comet-lamp-7`. Case and spaces don't matter. Make them hard to guess |
-   | `TUTOR_DAILY_LIMIT` | Config | questions per code per day (UTC), default `40` |
-   | `TUTOR_MODEL` | Config | optional: default `anthropic/claude-sonnet-5`; `anthropic/claude-haiku-4.5` costs half as much |
+   | `OPENROUTER_API_KEY` | on | the key from step 1 |
+   | `TUTOR_CODES` | on | the codes you hand out, comma-separated, e.g. `otter-lantern-quilt-58,cobalt-mango-ridge-31`. Case and spaces don't matter. See [Codes](#codes) |
+   | `TUTOR_DAILY_LIMIT` | off | questions per code per day (UTC), default `40` |
+   | `TUTOR_MODEL` | off | optional: default `anthropic/claude-sonnet-5`; `anthropic/claude-haiku-4.5` costs half as much |
 
 3. **Upstash Redis for the daily limit.** In the Vercel dashboard, open the project's Storage tab → Create Database → **Upstash for Redis** (a Marketplace integration), free plan. Connect it to this project for Production and Preview, and leave **Custom Prefix** blank. It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`; the function also reads `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` if you set Upstash up yourself. Without Upstash there's no daily limit, only the credit limit.
 4. **Redeploy.** Environment variable changes only apply to new deployments: Deployments → ⋯ → Redeploy, after any change.
-5. **Check.** `https://<your site>/api/tutor` should show `{"state":"ready"}`. Then open a room, reveal every hint, and Ask Byte appears.
+5. **Check.** `https://<your site>/api/tutor` should show `{"state":"ready","dailyCap":true}`: Byte is ready, with a daily limit. `"dailyCap":false` means Upstash isn't connected (step 3), so there's no daily limit. Then open a room, reveal every hint, and Ask Byte appears.
 
-To take a code away, remove it from `TUTOR_CODES` and redeploy; a device that saved it is asked for a new one.
+### Codes
+
+Nothing limits how many codes someone can try, so use long, random codes (up to 64 characters): three random words and a number, like `otter-lantern-quilt-58`. To take a code away, or replace one that got around, edit `TUTOR_CODES` and redeploy. A device that saved the old code is asked for a new one.
+
+A code at its daily limit still costs something: each question past it is still counted, one Upstash request (INCR and EXPIRE). So someone with a code can use up Upstash's free plan, and then there's no daily limit. The OpenRouter credit limit stays the backstop.
 
 ### What it sends, and what it keeps
 
