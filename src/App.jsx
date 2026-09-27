@@ -2539,13 +2539,14 @@ function Codex({profile,onBack}){
                 </button>
                 {isOpen&&<div className="px-3 pb-3 border-t" style={{borderColor:LINE_FAINT}}>
                   <p className="text-sm mt-2 mb-3" style={{color:TEXT}}>{concept.desc}</p>
+                  {/* The code stays dark in both modes, scrollbars too */}
                   <div className="mb-2">
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>SYNTAX</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.syntax}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap",colorScheme:"dark"}}>{concept.syntax}</pre>
                   </div>
                   <div>
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>EXAMPLE</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_EXAMPLE,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.ex}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_EXAMPLE,fontFamily:MONO,whiteSpace:"pre-wrap",colorScheme:"dark"}}>{concept.ex}</pre>
                   </div>
                 </div>}
               </div>;
@@ -2789,9 +2790,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {attempts.length>0&&<span className="text-xs py-1.5" style={{color:VDIM}}>Attempt #{attempts.length}</span>}
         </div>
 
-        {/* Concept guide: a dark code panel in both modes, like the editor (CODE_* never switch) */}
+        {/* Concept guide: a dark code panel in both modes, like the editor (CODE_* never switch); colorScheme keeps
+            its scrollbar dark too */}
         {showGuideHelp&&(
-          <div className="mt-3 rounded-lg overflow-hidden" style={{background:CODE_BG,border:`1px solid ${CODE_GOLD}33`}}>
+          <div className="mt-3 rounded-lg overflow-hidden" style={{background:CODE_BG,border:`1px solid ${CODE_GOLD}33`,colorScheme:"dark"}}>
             <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${CODE_GOLD}11`,color:CODE_GOLD}}>📖 CONCEPT GUIDE</div>
             <div className="p-3 max-h-64 overflow-y-auto">
               {concepts.map(c=>{const help=CONCEPT_HELP[c];if(!help)return null;
