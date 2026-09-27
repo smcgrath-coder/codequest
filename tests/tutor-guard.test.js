@@ -4,14 +4,14 @@
 // plain lines, spread over answers (with stray mentions around it), named out of order or added to the kid's program;
 // a one-line syntax example, a hint pointing at a missing `)`, the kid's own wrong code and the starter aren't. Long
 // blocks are cut, and when the grader can't say (at all, or partway) it fails closed. A stopped question's grades
-// stop too. Open mode is left alone.
+// stop too, and every guard grade but a piece's own stops a loop sooner than a kid's does. Open mode is left alone.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { makeCore } from "./helpers/python.js";
 import { CHECKS } from "../src/checks.js";
 import { CHAPTERS } from "../src/content.js";
-import { guardReply, leakCheck, earlierCode, graderFor, untilStopped, codeIn, replyParts, hideCode, LEAK_LINE, UNCHECKED_LINE, HINT_BLOCK_LINES, MAX_PIECES } from "../src/tutor.js";
+import { guardReply, leakCheck, earlierCode, graderFor, untilStopped, codeIn, replyParts, hideCode, LEAK_LINE, UNCHECKED_LINE, HINT_BLOCK_LINES, MAX_PIECES, GUARD_RUN_SECONDS } from "../src/tutor.js";
 
 const ROOMS = new Map(CHAPTERS.flatMap(c => [...c.rooms, c.boss]).map(c => [c.id, c]));
 const fixture = p => fs.readFileSync(new URL(`./fixtures/${p}`, import.meta.url), "utf8");
@@ -139,14 +139,41 @@ test("a solution behind a language line with a space, or four backticks, is stil
     assert.equal(await guardReply(`Here:\n${text}\nRun it!`, { mode: "hint", grade }), `Here:\n${LEAK_LINE}\nRun it!`, text);
 });
 
-test("graderFor uses the page's Python with the room's rule, and refuses when it can't grade safely", async () => {
+test("graderFor uses the page's Python with the room's rule and the guard's quicker time limit (or the kid's own), and refuses when it can't grade safely", async () => {
   const calls = [], runner = { available: () => true, grade: async (code, opts) => { calls.push([code, opts]); return { passed: false }; } };
-  await graderFor({ runner, rule: { out: 1 }, starter: "# hi" })("print(1)");
-  assert.deepEqual(calls, [["print(1)", { rule: { out: 1 }, starter: "# hi", inputs: [], attempt: 1 }]]);
+  const grade = graderFor({ runner, rule: { out: 1 }, starter: "# hi" });
+  await grade("print(1)"); await grade("print(2)", { full: true });
+  assert.deepEqual(calls, [["print(1)", { rule: { out: 1 }, starter: "# hi", inputs: [], attempt: 1, runSeconds: GUARD_RUN_SECONDS }],
+    ["print(2)", { rule: { out: 1 }, starter: "# hi", inputs: [], attempt: 1 }]]);
+  assert.ok(GUARD_RUN_SECONDS >= 0.3 && GUARD_RUN_SECONDS <= 1, "much less than grading's own 2 s, but not too little");
   await assert.rejects(graderFor({ runner, rule: { out: 1 }, busy: () => true, wait: 50 })("x"), "not while the kid's program runs, however long");
   await assert.rejects(graderFor({ runner, rule: undefined })("x"));
   await assert.rejects(graderFor({ runner: { ...runner, available: () => false }, rule: { out: 1 } })("x"));
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
+});
+
+// The page's runner, over this test's Python: runSeconds goes to grading.py (see runner.js's gradeCode).
+const pageRunner = { available: () => true, grade: async (code, { rule, starter, inputs, attempt, runSeconds }) => {
+  t.messages.length = 0; t.core.grade({ id: "g", code, rule: JSON.stringify(rule), starter, inputs: JSON.stringify(inputs), attempt, runSeconds });
+  return t.messages.find(m => m.type === "graded"); } };
+
+test("a guard grade stops a loop that never ends after GUARD_RUN_SECONDS, not the 2 s a kid's grade gets", async () => {
+  const room = ROOMS.get("ch4_r4"), grade = graderFor({ runner: pageRunner, rule: CHECKS[room.id], starter: room.starterCode });
+  const t0 = performance.now(), r = await grade('energy = 10\nwhile energy >= 0:\n    energy - 1\nprint("Shutdown!")'), ms = performance.now() - t0;
+  assert.match(r.feedback, /never finished/);
+  assert.ok(ms >= GUARD_RUN_SECONDS * 1000 && ms < GUARD_RUN_SECONDS * 1000 + 500, `${ms} ms`);
+});
+
+// A grade stopped sooner can't say that code wouldn't pass given the kid's 2 s, and a piece that doesn't pass is shown.
+test("each piece on its own is graded with the kid's own time limits; edits, joins and the kid's program with the guard's", async () => {
+  const real = graderOf("ch1_r5"), seen = [];
+  const grade = async (code, { full } = {}) => { seen.push([code, !!full]); return real(code); };
+  await leakCheck("Type `a = 15`, then `b = 27`, then `print(a + b)`.", { grade, program: "a = 1\nb = 2" });
+  assert.deepEqual(seen.filter(([, full]) => full).map(([code]) => code), ["a = 15", "b = 27", "print(a + b)"]);
+  assert.ok(seen.some(([code, full]) => code === "a = 1\nb = 2" && !full) && seen.some(([code, full]) => code === "a = 15\nb = 27\nprint(a + b)" && !full));
+  // Code that passes only given longer than the guard's limit is still caught.
+  const slow = async (code, { full } = {}) => (full ? { passed: true } : { passed: false, feedback: "When I checked your program, it never finished. Check your loops." });
+  assert.equal(await guardReply(block("print(sum(range(10 ** 7)))"), { mode: "hint", grade: slow }), LEAK_LINE);
 });
 
 test("graderFor waits for the kid's program to finish, and grades again when their Run stopped a grade", async () => {
@@ -174,6 +201,9 @@ test("untilStopped grades until the question stops, then the guard skips every g
   // The kid hid Byte during the first grade: its answer is thrown away, so nothing more is graded (and it fails closed).
   assert.equal(await guardReply(text, { mode: "hint", grade: untilStopped(off, ac.signal) }), `First:\n${UNCHECKED_LINE}\nthen:\n…\nRun it!`);
   assert.equal(off.calls, 1);
+  // Until then it passes on what the guard asks for: a piece's grade with the kid's own time limits.
+  const asked = []; await untilStopped(async (code, opts) => { asked.push([code, opts]); }, new AbortController().signal)("x", { full: true });
+  assert.deepEqual(asked, [["x", { full: true }]]);
 });
 
 // The shapes a whole solution can take in a reply, each a trivial edit away from pasting: split into blocks or inline

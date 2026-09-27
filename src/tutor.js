@@ -311,7 +311,8 @@ const allButOne = xs => xs.map((_, i) => xs.filter((_, j) => j !== i));
 const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 
 // Would this reply give the room away? One analysis for the guard and the evals (scripts/tutor-evals.js).
-// grade(code) resolves to the room grader's { passed, stopped?, timedOut?, internal? }, and may reject.
+// grade(code, { full }) resolves to the room grader's { passed, stopped?, timedOut?, internal? }, and may reject. full:
+// with the kid's own time limits; without it the grader may stop each run sooner (see graderFor).
 // earlier: the code Byte showed in its earlier answers in this chat, one entry an answer (earlierCode), each a list of
 // { code, plain } (a string is a piece, and a lone string an answer of one piece). program: the kid's code now.
 // Resolves to { pieces, lines, passes, grades }: each code piece ({ inline, at, end, code, shown }) and each plain line
@@ -325,21 +326,24 @@ const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const cache = new Map();
   let blind = false, grades = 0, slow = false;
-  // One grade per code string; null when the grader can't answer. After that nothing more is graded.
-  const graded = async code => {
-    if (!cache.has(code)) {
+  // One grade per code string and time limit; null when the grader can't answer. After that nothing more is graded.
+  const graded = async (code, full = false) => {
+    const key = `${+full}${code}`;
+    if (!cache.has(key)) {
       if (blind) return null;
       grades++;
-      cache.set(code, (async () => { try { return (await grade(code)) || null; } catch { return null; } })());
+      cache.set(key, (async () => { try { return (await grade(code, { full })) || null; } catch { return null; } })());
     }
-    const r = await cache.get(code);
+    const r = await cache.get(key);
     if (!r) blind = true;
     return r;
   };
+  // A piece gets the kid's own time limits: a grade stopped sooner can't say it wouldn't pass, and a piece that doesn't
+  // is shown.
   const closed = async code => {
     if (!code.trim()) return "";
     if (reachesIntoPython(code)) return "unsafe";
-    const r = await graded(code);
+    const r = await graded(code, true);
     return !r ? "unchecked" : r.passed ? "passes" : r.stopped || r.timedOut || r.internal ? "unsure" : "";
   };
   // Only a real pass counts. A grade that was stopped (the kid pressed Run) or broke is no answer, like none at all.
@@ -472,18 +476,26 @@ export function earlierCode(chat) {
 
 // How long the guard's grader waits for the kid's own program to finish (it may be waiting at an input()).
 export const GRADER_WAIT_MS = 60_000;
-// The guard's grade(code) for one room: the page's Python with the room's rule. A grade would stop the kid's own
-// program, so while that runs (busy()) it waits, and a grade the kid's Run stopped is tried again once it's done. It
-// rejects, so the guard fails closed, when there's no Python or no rule, or the kid's program runs longer than wait.
+// Each run in a guard grade stops after this many seconds, not grading.py's 2 (HIDDEN_RUN_SECONDS): every join that
+// loops forever (the kid's own endless loop quoted back, say) keeps the code ⌛ that long. Only a real pass counts in
+// edits and joins, so one stopped sooner just doesn't count. In node the slowest run of any reference solution is
+// ch6_s2's 90 ms (its help() imports pydoc afresh every run); every other run takes under 1 ms, and the slowest whole
+// grade 152 ms (ch10_s1's 2,053 runs). 1 s is 11 times the slowest run: room for a school Chromebook several times
+// slower. No reference solution, other correct answer or one-line example grades differently with it.
+export const GUARD_RUN_SECONDS = 1;
+// The guard's grade(code, { full }) for one room: the page's Python with the room's rule, its runs stopped after
+// GUARD_RUN_SECONDS (the kid's own limits with full). A grade would stop the kid's own program, so while that runs
+// (busy()) it waits, and a grade the kid's Run stopped is tried again once it's done. It rejects, so the guard fails
+// closed, when there's no Python or no rule, or the kid's program runs longer than wait.
 export function graderFor({ runner, rule, starter = "", busy = () => false, wait = GRADER_WAIT_MS }) {
   const idle = async () => {
     for (const t0 = Date.now(); busy(); await new Promise(r => setTimeout(r, 100))) if (Date.now() - t0 > wait) throw new Error("can't grade now");
   };
-  return async code => {
+  return async (code, { full = false } = {}) => {
     for (let tries = 0; ; tries++) {
       await idle();
       if (!rule || !runner.available()) throw new Error("can't grade now");
-      const r = await runner.grade(code, { rule, starter, inputs: [], attempt: 1 });
+      const r = await runner.grade(code, { rule, starter, inputs: [], attempt: 1, ...(!full && { runSeconds: GUARD_RUN_SECONDS }) });
       if (!r?.stopped || !busy() || tries >= 2) return r;
     }
   };
@@ -491,4 +503,4 @@ export function graderFor({ runner, rule, starter = "", busy = () => false, wait
 
 // A grade(code) that refuses once the question is stopped (the kid hid Byte or left). The guard then goes blind and
 // skips every grade after the one in flight: its answer would be thrown away, and the kid shouldn't wait on Run for it.
-export const untilStopped = (grade, signal) => code => (signal.aborted ? Promise.reject(new Error("stopped")) : grade(code));
+export const untilStopped = (grade, signal) => (code, opts) => (signal.aborted ? Promise.reject(new Error("stopped")) : grade(code, opts));
