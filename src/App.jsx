@@ -10,7 +10,7 @@ import { runStopGuard, CODE_TEXTAREA_PROPS } from "./editor.js";
 import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
-import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, graderFor, hideCode, replyParts, LIMITS } from "./tutor.js";
+import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, LIMITS } from "./tutor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2724,7 +2724,8 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
     setWaiting(false);
     if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else setNote(onTutorState(state));
   };
-  // A hint-mode reply shows its code only after the leak guard; a failed question stays on screen but out of the history.
+  // A hint-mode reply shows its code only after the leak guard, which also joins it with Byte's earlier code in this chat
+  // and the kid's program; a failed question stays on screen but out of the history.
   const ask=async()=>{const q=draft.trim();if(!q||waiting||busy)return;
     const ac=start(),id=`${Date.now()}-${Math.random()}`;
     onAsk?.();setDraft("");setNote(null);setWaiting(true);
@@ -2733,7 +2734,7 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
     const put=m=>setChat(c=>c.map(x=>x.id===id?{...x,...m}:x));
     const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
     if(ac.signal.aborted)return;
-    if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade});if(ac.signal.aborted)return;put({content:text,pending:false});setLeft(r.remaining)}
+    if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade,earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;put({content:text,pending:false});setLeft(r.remaining)}
     else{setChat(c=>c.filter(x=>x.id!==id).map(x=>x.id===`${id}q`?{...x,failed:true}:x));
       const s=onTutorState(r.state);setNote(s);if(s.needCode){setNeedCode(true);setCode("")}}
     setWaiting(false);

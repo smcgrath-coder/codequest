@@ -48,7 +48,8 @@ test("the Practice Arena never gets Byte", () => {
 
 test("TutorPanel checks hint replies with the leak guard, hides their code while streaming, forgets a locked code, and stops when closed", () => {
   const panel = piece("TutorPanel");
-  assert.match(panel, /guardReply\(r\.text,\{mode,grade\}\)/);
+  // The guard joins the reply with Byte's earlier code in this chat (before the new question) and the kid's program.
+  assert.match(panel, /guardReply\(r\.text,\{mode,grade,earlier:earlierCode\(chat\),program:context\.program\}\)/);
   assert.match(panel, /mode==="hint"\?hideCode\(t\):t/);
   assert.match(panel, /onTutorState\(r\.state\)/);
   assert.match(panel, /useEffect\(\(\)=>\(\)=>abortRef\.current\?\.abort\(\),\[\]\)/);
