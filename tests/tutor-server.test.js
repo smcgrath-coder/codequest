@@ -93,7 +93,7 @@ test("the OpenRouter body: the model setting (Sonnet 5 by default), low-effort h
     model: "anthropic/claude-sonnet-5", messages, stream: true, max_tokens: 2000,
     reasoning: { effort: "low", exclude: true }, provider: { data_collection: "deny", zdr: true },
   });
-  assert.equal(DEFAULT_MODEL, "anthropic/claude-sonnet-5"); assert.ok(MAX_TOKENS > 1024, "above the 1024-token reasoning floor");
+  assert.equal(DEFAULT_MODEL, "anthropic/claude-sonnet-5"); assert.ok(MAX_TOKENS > 1024, "above the smallest thinking budget, 1024 tokens");
   assert.equal(openRouterBody(messages, { TUTOR_MODEL: " anthropic/claude-haiku-4.5 " }).model, "anthropic/claude-haiku-4.5");
   assert.equal(openRouterBody(messages, { TUTOR_MODEL: "" }).model, DEFAULT_MODEL);
 });

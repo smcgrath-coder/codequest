@@ -5,9 +5,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { LIMITS } from "../src/tutor-limits.js";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
-// Reasoning shares max_tokens with the reply. At effort "low" a Claude model thinks with at least 1024 tokens and
-// max_tokens must be above that, so 2000 leaves about 976 for a 2-4 sentence reply. It is also the real cost
-// bound: stopping a stream doesn't stop billing on the zero-retention providers (Bedrock, Vertex).
+// Reasoning shares max_tokens with the reply. At effort "low" a Claude model gets a thinking budget of at least 1024
+// tokens (it can use less), and max_tokens must be above that, so 2000 leaves about 976 or more for a 2-4 sentence
+// reply. It is also the real cost bound: stopping a stream doesn't stop billing on the zero-retention providers
+// (Bedrock, Vertex).
 export const MAX_TOKENS = 2000;
 export const DEFAULT_DAILY_LIMIT = 40;
 
