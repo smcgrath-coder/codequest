@@ -26,9 +26,8 @@ export async function* readSSE(body) {
         if (payload === "[DONE]") return;
         if (payload !== null) yield payload;
       }
-      if (done) {                                 // a last event with no blank line after it
-        if (buf) feed(buf);
-        const payload = take();
+      if (done) {                                 // a last line with no \n (a lone \r there ends an event too),
+        const payload = (buf ? feed(buf) : null) ?? take();   // else a last event with no blank line after it
         if (payload !== null && payload !== "[DONE]") yield payload;
         return;
       }
@@ -56,6 +55,7 @@ export async function* streamText(body) {
   for await (const payload of readSSE(body)) {
     let chunk;
     try { chunk = JSON.parse(payload); } catch { continue; }
+    if (!chunk || typeof chunk !== "object") continue;   // "data: null" or a bare number: not a chunk
     if (chunk.error) throw new UpstreamError(chunk.error);
     const choice = chunk.choices?.[0], text = choice?.delta?.content;
     if (text) { gotText = true; yield text; }

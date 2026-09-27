@@ -23,6 +23,14 @@ test("keep-alive comments, the empty first chunk and the usage chunk give no tex
   assert.equal(await collect(streamOf(`data:${JSON.stringify({ choices: [{ delta: { content: "no space" } }] })}`)), "no space", "data: with no space, and no blank line at the end");
 });
 
+test("a last event ended by a lone \\r still comes out, and payloads that aren't objects are skipped", async () => {
+  const payloads = []; for await (const p of readSSE(streamOf("data: a\r\n\r\ndata: LAST\r\n\r", { size: 1 }))) payloads.push(p);
+  assert.deepEqual(payloads, ["a", "LAST"]);
+  const text = JSON.stringify({ choices: [{ delta: { content: "still here" } }] });
+  assert.equal(await collect(streamOf(`data: null\n\ndata: 7\n\ndata: "hi"\n\ndata: ${text}\n\ndata: [DONE]\n\n`)), "still here");
+  await assert.rejects(collect(streamOf("data: null\n\ndata: [DONE]\n\n")), e => e instanceof UpstreamError && e.type === "empty");
+});
+
 test("an error event throws, before any text or after some", async () => {
   await assert.rejects(collect(streamOf(sseError(502, "provider_unavailable"))), e => e instanceof UpstreamError && e.code === 502 && e.type === "provider_unavailable");
   const got = [];
