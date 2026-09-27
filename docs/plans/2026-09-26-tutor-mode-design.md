@@ -114,3 +114,17 @@ The old Tutor mode called Anthropic straight from the browser with the key in th
 - **Cost.** Per-code daily caps and the key's credit limit bound it.
 - **Model drift.** The model is a setting, and the eval script can be re-run after any change.
 - **Kids' data.** It's minimised (no names or profiles), and requests are routed to zero-retention providers only.
+
+## Notes from planning (2026-09-26)
+
+Details the research and the plan settled, within the decisions above:
+
+- **Setup check and code check.** `GET /api/tutor` answers `ready` or `not-configured`, so the game hides Ask Byte until the server has a key and codes. A code is checked with `{ tutorCode, check: true }`, which spends no question.
+- **Codes** are compared without case or surrounding spaces, each entry in constant time.
+- **The system prompt is only the fixed rules.** Every request field, even the task and hints, goes in the user message, since the server can't tell them from anything else a browser sends.
+- **Answers.** Upstream failures are `busy`, except OpenRouter's 402 (the key's credit limit, or no credits), which is `recharging`. The server waits for the first words before answering, because an error can be the first event of a 200 stream. A reply that breaks off after that ends the stream with an error, and the game shows `busy`.
+- **Upstash failing at runtime** doesn't stop Byte: it's logged and nothing is capped, with the credit limit as the backstop.
+- **Cost.** With zero data retention, Sonnet 5 is served by Amazon Bedrock and Google Vertex only, and stopping a stream doesn't stop billing there. So `max_tokens: 2000` is the real bound (low-effort reasoning takes at least 1024 of it). No attribution headers are sent: they would list the game on OpenRouter's public rankings.
+- **The leak guard** also checks `inline` code, grades the visible lines of a cut block as well as the whole, and fails closed when the grader can't answer. While a hint-mode reply streams in, its code shows as ⌛ until it's checked. Byte waits while the kid's program runs, because grading then would stop it.
+- **One chat per room**, shared by the room and its victory screen.
+- **Vercel**: `maxDuration` 60 s and `supportsCancellation` for `api/tutor.js` in `vercel.json`. Only `api/tutor.js` lives in `api/`; the rest is in `server/`, which never becomes a route.

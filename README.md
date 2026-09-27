@@ -10,6 +10,7 @@ An RPG-style game that teaches Python programming through 12 chapters of challen
 - **Boss Battles** — test mastery at the end of each chapter
 - **Side Quests** — optional challenges for bonus XP
 - **Built-in Guide** — progressive, context-aware hints with no API needed
+- **Byte the tutor (optional)** — once every hint in a room is out, a kid with a tutor code from a grown-up can ask Byte, who helps them find the problem without giving the answer away. It's off until the site is set up (see [Byte the tutor](#-byte-the-tutor-optional))
 - **Code Codex** — 58-entry reference guide
 - **Practice Arena** — 24 standalone challenges
 - **Multi-Profile Saves** — multiple players on one device
@@ -76,7 +77,7 @@ Cross-Origin-Embedder-Policy: require-corp
 npm test
 ```
 
-The suite runs real Python: it loads Pyodide from the `pyodide` npm package, so it needs no network. For every challenge it checks that the reference solution (`tests/fixtures/solutions/`) and the other correct answers (`tests/fixtures/alternatives/`) pass, and that the starter code, `print("hello")` and the wrong answers (`tests/fixtures/wrong/`) don't. It also tests the runner (Stop, time limits, `input()`, a clean slate between runs), the friendly error messages and the keyword checker, and runs the reference solutions in real Python when `python3` is installed. CI runs the tests on Python 3.14 and a build on every push. Node 22 or 24+ is needed.
+The suite runs real Python: it loads Pyodide from the `pyodide` npm package, so it needs no network. For every challenge it checks that the reference solution (`tests/fixtures/solutions/`) and the other correct answers (`tests/fixtures/alternatives/`) pass, and that the starter code, `print("hello")` and the wrong answers (`tests/fixtures/wrong/`) don't. It also tests the runner (Stop, time limits, `input()`, a clean slate between runs), the friendly error messages and the keyword checker, and runs the reference solutions in real Python when `python3` is installed. Byte's tests use a pretend OpenRouter, so they need no key. CI runs the tests on Python 3.14 and a build on every push. Node 22 or 24+ is needed.
 
 ## 🌐 Deploy to Vercel (Free)
 
@@ -88,12 +89,62 @@ The suite runs real Python: it loads Pyodide from the `pyodide` npm package, so 
 
 Your game will be live at `https://codequest.vercel.app` (or similar). `vercel.json` sends the headers that let Python run.
 
+## 🤖 Byte the tutor (optional)
+
+Byte answers a kid's questions about the room they're in: after the last hint, and on the victory screen ("Any questions about this room?"). In a room it gives nudges, never the fix, and asking costs No Peeking like a hint. After a real pass it can explain the kid's own code and show another way. A small Vercel Function, `api/tutor.js`, talks to Claude through [OpenRouter](https://openrouter.ai), so no key ever reaches the browser. Until the setup below is done, the game hides Ask Byte.
+
+### Setting it up (Scott)
+
+1. **An OpenRouter key just for CodeQuest.** At [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), create a key named `CodeQuest` with a monthly **credit limit** (a question costs about 1.5–2.5¢: Sonnet 5's thinking alone is at least 1,024 output tokens at $10 per million, so $10 a month covers several hundred questions). That limit is the backstop if anything else fails. Leave input and output logging off in OpenRouter's privacy settings.
+2. **Vercel environment variables.** In the project's Settings → Environment Variables, add these for **Production** and **Preview**:
+
+   | Name | Type | Value |
+   |---|---|---|
+   | `OPENROUTER_API_KEY` | Secret | the key from step 1 |
+   | `TUTOR_CODES` | Secret | the codes you hand out, comma-separated, e.g. `maple-river-42,comet-lamp-7`. Case and spaces don't matter. Make them hard to guess |
+   | `TUTOR_DAILY_LIMIT` | Config | questions per code per day (UTC), default `40` |
+   | `TUTOR_MODEL` | Config | optional: default `anthropic/claude-sonnet-5`; `anthropic/claude-haiku-4.5` costs half as much |
+
+3. **Upstash Redis for the daily limit.** In the Vercel dashboard, open the project's Storage tab → Create Database → **Upstash for Redis** (a Marketplace integration), free plan. Connect it to this project for Production and Preview, and leave **Custom Prefix** blank. It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`; the function also reads `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` if you set Upstash up yourself. Without Upstash there's no daily limit, only the credit limit.
+4. **Redeploy.** Environment variable changes only apply to new deployments: Deployments → ⋯ → Redeploy, after any change.
+5. **Check.** `https://<your site>/api/tutor` should show `{"state":"ready"}`. Then open a room, reveal every hint, and Ask Byte appears.
+
+To take a code away, remove it from `TUTOR_CODES` and redeploy; a device that saved it is asked for a new one.
+
+### What it sends, and what it keeps
+
+Only the room's task, the kid's code, what it printed, the error, the checker's words, the hints shown and the chat go to the model: no hero name, no profile. Requests only go to providers that keep no data (OpenRouter's zero data retention; for Claude that's Amazon Bedrock and Google Vertex). The function never logs a code, the key, or anything the kid wrote or Byte said, and the daily counter stores a hash of the code, never the code. The tutor code is remembered on the device as `cq:tutor-code`.
+
+### Locally
+
+`npm run dev` serves `/api/tutor` from the same handler, with a **pretend Byte** and no key: the tutor code is `dev`. A question with the word `leak` makes the pretend Byte send your own code back (so you can watch the leak guard replace a passing answer), and `fail` makes it act as if OpenRouter were down. `TUTOR_DAILY_LIMIT=3 npm run dev` shows "I need to recharge". The dev server never reads `.env`.
+
+### Evals against the real model
+
+`tests/fixtures/tutor-evals.json` holds 16 stuck-kid situations: typos, a missing colon, bad indentation, off-topic questions, three ways of asking for the answer, and questions after a pass. `npm test` runs them against the pretend Byte. To try the real model (about 16 questions, so roughly 30–40¢):
+
+```bash
+OPENROUTER_API_KEY=sk-or-... npm run tutor:eval            # add -- --show to print the replies
+```
+
+It checks each reply for code that would pass the room in hint mode (with the room's real grader), length, and staying on topic, and says what the leak guard caught. Run it again after changing `TUTOR_MODEL`.
+
 ## 🏗️ Project Structure
 
 ```
 codequest/
 ├── public/
 │   └── music/           ← Your MP3 files go here
+├── api/
+│   └── tutor.js         ← Vercel Function for Byte: wires server/handler.js to Vercel's env, fetch and Upstash
+├── server/              ← Byte's server side (not routes; bundled into the function)
+│   ├── handler.js       ← /api/tutor: states, the daily cap, the OpenRouter call, the streamed reply
+│   ├── tutor.js         ← Request checks, code check, the prompt and the OpenRouter body
+│   ├── counter.js       ← The daily question count (Upstash REST, or in memory)
+│   ├── sse.js           ← Reads OpenRouter's stream
+│   ├── dev.js           ← /api/tutor on `npm run dev`, with the pretend Byte
+│   └── fake-openrouter.js ← The pretend OpenRouter for tests and dev
+├── scripts/             ← The Byte evals (`npm run tutor:eval`)
 ├── src/
 │   ├── App.jsx          ← Screens, pixel art and game flow
 │   ├── content.js       ← Chapters, challenges, trophies, Codex, practice
@@ -112,16 +163,18 @@ codequest/
 │   ├── checks/          ← Rules by chapter (batch-a.js, batch-b.js, batch-c.js)
 │   ├── grader.js        ← Keyword checker: the fallback when Python can't run
 │   ├── progress.js      ← XP, trophies, practice unlocks, save repair
+│   ├── tutor.js         ← Byte in the game: when it's offered, the saved code, the request, the leak guard
+│   ├── tutor-limits.js  ← Field limits shared by the game and the server
 │   ├── editor.js        ← Code editor keys (Tab / Shift+Tab / Ctrl+Enter)
 │   ├── theme.js         ← Colours and fonts
 │   ├── music.js         ← Music player system
 │   ├── main.jsx         ← React entry point
 │   └── index.css        ← Tailwind + base styles
-├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor, theme and saved settings, music, colour scan)
+├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor, theme and saved settings, music, colour scan, Byte)
 │   └── fixtures/        ← Reference, alternative and wrong answers for every challenge
 ├── index.html
 ├── package.json
-├── vercel.json          ← Cross-origin isolation headers, Pyodide caching
+├── vercel.json          ← Cross-origin isolation headers, Pyodide caching, Byte's function settings
 ├── vite.config.js
 ├── tailwind.config.js
 └── postcss.config.js
