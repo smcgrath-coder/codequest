@@ -304,6 +304,8 @@ const LONE = /^\s*(?:\w+|[^\w\s]{1,3})\s*$/, SYMBOL = /^\s*[^\w\s]{1,3}\s*$/;
 // return, break, continue or pass), and not a line of output. A mention like `==` or `:` would break every join it's in.
 const statementy = code => (LONE.test(code) ? /^\s*(?:return|break|continue|pass)\s*$/.test(code)
   : /[(=:]/.test(code) || /^\s*(?:(?:return|break|continue|pass|import|from)\b|[#"'])/.test(code));
+// A list without each of its items in turn.
+const allButOne = xs => xs.map((_, i) => xs.filter((_, j) => j !== i));
 // Why a piece gives the room away: it passes on its own (or cut short), after a trivial edit, joined with Byte's other
 // code (in this reply or earlier ones), or added to the kid's program.
 const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
@@ -370,6 +372,10 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   // set of nothing but the kid's own lines quoted back (a guess might just fix their program): when a line opens a
   // block, the indents a kid could add (at most REINDENTS of those per reply), and the first piece moved last ("put
   // this after that"). If a join passes, every piece of this reply in it is caught, and the rest is tried again.
+  // A mention in this reply that could be a line of code (an `else:`, `x == 5`, an example line) breaks every join
+  // it's in, so the joins also leave out each of its statements in turn (after Byte's earlier code: the rest of a
+  // solution spread over answers), and each of its plain lines (alone, and after that earlier code). A statement left
+  // alone, with no earlier code, was graded on its own already.
   const have = new Set(program.split("\n").map(l => l.trim()));
   const fresh = set => set.filter(x => x.visible.split("\n").some(l => l.trim() && !have.has(l.replace(PROMPT, "").trim())));
   let budget = REINDENTS;
@@ -398,7 +404,7 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const kept = answers.map(a => a.filter(x => statementy(x.code))), said = kept.flat(), early = said.map(x => x.code), key = b => b.join("\n");
   const hangs = (x, next) => !x.code.includes("\n") && opens(x.code) && !/^\s/.test(next?.code ?? "");
   const befores = [[], kept[kept.length - 1] ?? [], said.filter(x => !x.plain), kept.flatMap(a => a.filter((x, i) => !hangs(x, a[i + 1]))),
-    ...(said.length > 1 && said.length <= MAX_PIECES ? said.map((_, i) => said.filter((_, j) => j !== i)) : [])]
+    ...(said.length > 1 && said.length <= MAX_PIECES ? allButOne(said) : [])]
     .map(b => b.map(x => x.code)).filter((b, i, bs) => early.length && key(b) !== key(early) && bs.findIndex(c => key(c) === key(b)) === i);
   // The kid's program comes first in the last joins: the line it's missing, say. Not when it already passes (the kid
   // has the answer), or doesn't reach its end (a crash, or a loop that never stops: lines added after it never run).
@@ -413,7 +419,9 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     const runs = [...new Set(ls.map(l => l.run))], blocks = ps.filter(p => !p.inline), stmts = ps.filter(p => statementy(p.visible));
     const sets = [[ps, all], [blocks, early], [stmts, early]].filter(([set, before]) => set.length && set.length + before.length > 1);
     if (stmts.length > 1) sets.push([[...stmts.slice(1), stmts[0]], early, true]);
+    if (stmts.length > 2 || (stmts.length > 1 && early.length)) sets.push(...allButOne(stmts).map(set => [set, early]));
     if (ls.length) sets.push([ls, []], ...(runs.length > 1 ? runs.map(r => [ls.filter(l => l.run === r), []]) : []));
+    if (ls.length > 1 && ls.length <= REINDENTS) sets.push(...allButOne(ls).map(set => [set, []]), ...(early.length ? allButOne(ls).map(set => [set, early]) : []));
     if (ls.length && (ps.length || all.length)) sets.push([now, all]);
     const clean = now.filter(x => x.plain || statementy(x.visible));
     sets.push(...befores.filter(b => clean.length + b.length > 1).map(b => [clean, b]));

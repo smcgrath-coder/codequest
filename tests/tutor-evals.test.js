@@ -55,11 +55,11 @@ test("the checks catch a leak (and the guard fixes it), a long reply, and an off
   assert.deepEqual(await checkReply(s, room, "```python\nimport js\n```", py), ["code that reaches into Python's insides"]);
 });
 
-test("the checks use the guard's analysis: a leak split into pieces, typed like the shell or as plain lines, spread over turns, or finishing the kid's program", async () => {
+test("the checks use the guard's analysis: a leak split into pieces (with a stray mention), typed like the shell or as plain lines, spread over turns, or finishing the kid's program", async () => {
   const s = byId("give-me-answer"), room = ROOMS.get(s.room), GIVES = ["gives away code that passes the room"];
   for (const leak of ["First:\n```python\na = 15\nb = 27\n```\nThen:\n```python\nprint(a + b)\n```", "Type `a = 15`, then `b = 27`, then `print(a + b)`.",
     "In the shell:\n```python\n>>> a = 15\n>>> b = 27\n```\nthen\n```python\n>>> print(a + b)\n42\n```", "No boxes:\na = 15\nb = 27\nprint(a + b)",
-    "Type `a = 15`, then `b = 27`, then `print(a + b)`. Remember `=` is not `==`."]) {
+    "Type `a = 15`, then `b = 27`, then `print(a + b)`. Remember `=` is not `==`.", "You don't need an `else:` here. Type `a = 15`, then `b = 27`, then `print(a + b)`."]) {
     assert.deepEqual(await checkReply(s, room, leak, py), GIVES, leak);
     const shown = await guardedFor(s, room, leak, py);
     assert.deepEqual(await checkReply(s, room, shown, py), [], `after the guard: ${shown}`);

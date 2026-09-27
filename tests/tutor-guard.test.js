@@ -19,6 +19,8 @@ const solution = id => fixture(`solutions/${id}.py`);
 const block = code => "```python\n" + code.trimEnd() + "\n```";
 // A solution's lines of code, without comments or blank lines.
 const codeLinesOf = id => solution(id).split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));
+// A solution's lines, less the starter's comments (a kid has those already).
+const linesOf = id => solution(id).split("\n").filter(l => l.trim() && !(ROOMS.get(id).starterCode || "").includes(l));
 // Every line of a solution is on screen, in order: the kid could copy them all.
 const allSeen = (shown, lines) => { let at = 0; for (const l of lines) { const i = shown.indexOf(l.trim(), at); if (i < 0) return false; at = i + l.trim().length; } return true; };
 
@@ -205,8 +207,6 @@ test("a solution split up or dressed up is still caught, and none of its lines a
 });
 
 test("one stray mention like `==`, `=` or `:` doesn't hide a split solution from the joins (comments and docstrings count)", async () => {
-  // A solution's lines, less the starter's comments (a kid has those already).
-  const linesOf = id => solution(id).split("\n").filter(l => l.trim() && !(ROOMS.get(id).starterCode || "").includes(l));
   for (const id of ["ch1_r5", "ch1_r3", "ch6_s2"]) {
     const ls = linesOf(id), inline = ls.map(l => "`" + l + "`").join(", then ");
     for (const text of [`Type ${inline}. Remember \`=\` is not \`==\`.`, `Type ${inline}. No \`:\` needed.`, `Mind the \`=\`:\n${ls.map(block).join("\nthen\n")}`]) {
@@ -214,6 +214,31 @@ test("one stray mention like `==`, `=` or `:` doesn't hide a split solution from
       assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
       assert.match(shown, /`=`|`:`/, "the mention itself still shows");
     }
+  }
+});
+
+// A mention that could be a line of code breaks every join it's in, so the joins also leave out each piece in turn.
+test("one stray mention that could be code (`else:`, `x == 5`, an `if x > 5:` block) or an example line just before plain lines doesn't hide a split solution, in one answer or the second of two", async () => {
+  for (const id of ["ch1_r5", "ch1_r3", "ch2_r1"]) {
+    const ls = linesOf(id), inline = ls.map(l => "`" + l + "`").join(", then ");
+    for (const [text, mention] of [[`You don't need an \`else:\` here. Type ${inline}.`, "`else:`"], [`Remember \`x == 5\` asks, it doesn't store. Type ${inline}.`, "`x == 5`"],
+      [`An if line looks like:\n${block("if x > 5:")}\nNow yours:\n${ls.map(block).join("\nthen\n")}`, block("if x > 5:")]]) {
+      const shown = await guardReply(text, { mode: "hint", grade: graderOf(id) });
+      assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
+      assert.ok(shown.includes(mention), `${id}: the mention itself still shows: ${shown}`);
+    }
+  }
+  for (const id of ["ch1_r1", "ch2_r2", "ch4_r5"]) {
+    const ls = codeLinesOf(id), shown = await guardReply(`Type these:\nprint(3 + 4)\n${ls.join("\n")}`, { mode: "hint", grade: graderOf(id) });
+    assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
+    assert.ok(shown.startsWith("Type these:\nprint(3 + 4)\n"), `${id}: the example still shows: ${shown}`);
+  }
+  // The same in the second of two answers, the first with the rest of the solution.
+  for (const [id, say] of [["ch1_r5", l => `You don't need an \`else:\` here. Add \`${l}\`.`], ["ch1_r3", l => `Remember \`x == 5\` asks. Add \`${l}\`.`],
+    ["ch4_s1", l => `Then:\nprint(3 + 4)\n${l}`]]) {
+    const ls = linesOf(id), first = await guardReply(`Start with:\n${block(ls.slice(0, -1).join("\n"))}`, { mode: "hint", grade: graderOf(id) });
+    const shown = await guardReply(say(ls[ls.length - 1]), { mode: "hint", grade: graderOf(id), earlier: earlierCode([{ role: "assistant", content: first }]) });
+    assert.ok(shown.includes(LEAK_LINE) && !allSeen(`${first}\n${shown}`, ls), `${id}: ${first}\n${shown}`);
   }
 });
 
