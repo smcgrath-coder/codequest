@@ -125,12 +125,13 @@ function Particles({ active, type="victory", count=24 }) {
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => {
     if (!active) { setParticles([]); return; }
-    // art:begin — the sparkle colours; the pop-ups that show them stay dark in both modes
+    // art:begin — the sparkle colours; the pop-ups that show them stay dark in both modes. All 6-digit, since the
+    // glow glues an alpha on (#fff88 would be invalid and dropped).
     const colors = type === "boss"
-      ? ["#ffd700","#ffeb3b","#ff9800","#fff","#ffc107"]
+      ? ["#ffd700","#ffeb3b","#ff9800","#ffffff","#ffc107"]
       : type === "badge"
-      ? ["#ffd700","#ffeb3b","#fff"]
-      : ["#64ffda","#00bfa5","#80f0ff","#fff","#a8d8a8"];
+      ? ["#ffd700","#ffeb3b","#ffffff"]
+      : ["#64ffda","#00bfa5","#80f0ff","#ffffff","#a8d8a8"];
     // art:end
     const p = Array.from({length: count}, (_, i) => ({
       id: i,
@@ -2295,11 +2296,12 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
   const nextLock=chapters.find(ch=>!ch.comingSoon&&xp<ch.requiredXp);
   // The map is a night scene that stays dark in light mode, so its nodes, paths and labels take the dark palette (M).
   const M=PALETTES.dark;
+  // Each state has its own hover glow: gluing 44 onto bd breaks when bd already carries an alpha (available's).
   const cls={
-    locked:{bg:`${M.PANEL2}cc`,bd:MAP_EDGE_LOCKED,tx:MAP_LOCKED,glow:"none"},
-    available:{bg:`${M.PANEL2}ee`,bd:`${M.ACCENT}66`,tx:M.TEXT,glow:`0 0 12px ${M.ACCENT}22`},
-    "in-progress":{bg:`${MAP_ACTIVE}dd`,bd:M.ACCENT,tx:M.ACCENT,glow:`0 0 20px ${M.ACCENT}44`},
-    completed:{bg:`${MAP_DONE}dd`,bd:M.OK,tx:M.ACCENT,glow:`0 0 12px ${M.OK}22`}
+    locked:{bg:`${M.PANEL2}cc`,bd:MAP_EDGE_LOCKED,tx:MAP_LOCKED,glow:"none",hover:"none"},
+    available:{bg:`${M.PANEL2}ee`,bd:`${M.ACCENT}66`,tx:M.TEXT,glow:`0 0 12px ${M.ACCENT}22`,hover:`0 0 30px ${M.ACCENT}44`},
+    "in-progress":{bg:`${MAP_ACTIVE}dd`,bd:M.ACCENT,tx:M.ACCENT,glow:`0 0 20px ${M.ACCENT}44`,hover:`0 0 30px ${M.ACCENT}44`},
+    completed:{bg:`${MAP_DONE}dd`,bd:M.OK,tx:M.ACCENT,glow:`0 0 12px ${M.OK}22`,hover:`0 0 30px ${M.OK}44`}
   };
 
   return <div className="min-h-screen flex flex-col" style={{background:DARK}}>
@@ -2345,7 +2347,7 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
           <button onClick={()=>s!=="locked"&&onSelectChapter(ch)} disabled={s==="locked"}
             className="flex flex-col items-center gap-1 p-2 rounded-lg transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
             style={{background:c.bg,border:`2px solid ${c.bd}`,minWidth:"90px",maxWidth:"110px",boxShadow:c.glow,backdropFilter:"blur(8px)",animation:s==="in-progress"?"cq-glow-pulse 3s ease-in-out infinite":s==="available"?"cq-pulse 4s ease-in-out infinite":"none"}}
-            onMouseEnter={e=>{if(s!=="locked"){e.currentTarget.style.transform="scale(1.08)";e.currentTarget.style.boxShadow=`0 0 30px ${c.bd}44`}}}
+            onMouseEnter={e=>{if(s!=="locked"){e.currentTarget.style.transform="scale(1.08)";e.currentTarget.style.boxShadow=c.hover}}}
             onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";e.currentTarget.style.boxShadow=c.glow}}>
             <span className="text-xl">{s==="locked"?"🔒":s==="completed"?"✅":ch.icon}</span>
             <span className="text-xs font-bold tracking-wide text-center leading-tight" style={{color:c.tx,textShadow:`0 1px 3px ${MAP_SHADOW}cc`}}>{ch.name}</span>
