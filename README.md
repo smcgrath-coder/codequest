@@ -95,7 +95,7 @@ Byte answers a kid's questions about the room they're in: after the last hint, a
 
 ### Setting it up (Scott)
 
-1. **An OpenRouter key just for CodeQuest.** At [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), create a key named `CodeQuest` with a monthly **credit limit** (a question costs about 1.5–2.5¢: Sonnet 5's thinking alone is at least 1,024 output tokens at $10 per million, so $10 a month covers several hundred questions). That limit is the backstop if anything else fails. Leave input and output logging off in OpenRouter's privacy settings.
+1. **An OpenRouter key just for CodeQuest.** At [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), create a key named `CodeQuest` with a monthly **credit limit**. That limit is the backstop if anything else fails. With Sonnet 5, a question costs at most about 3¢, usually less: the reply, thinking included, stops at 2,000 output tokens ($10 per million), and the biggest question the function accepts is about 4,600 input tokens ($2 per million). So $10 a month covers at least 330 questions, and one code at the daily limit of 40 costs at most about $1.20 a day. Leave input and output logging off in OpenRouter's privacy settings.
 2. **Vercel environment variables.** In the project's Settings → Environment Variables, add these for **Production** and **Preview**:
 
    | Name | Type | Value |
@@ -121,7 +121,7 @@ Only the room's task, the kid's code, what it printed, the error, the checker's 
 
 ### Evals against the real model
 
-`tests/fixtures/tutor-evals.json` holds 16 stuck-kid situations: typos, a missing colon, bad indentation, off-topic questions, three ways of asking for the answer, and questions after a pass. `npm test` runs them against the pretend Byte. To try the real model (about 16 questions, so roughly 30–40¢):
+`tests/fixtures/tutor-evals.json` holds 23 stuck-kid situations, such as typos, a missing colon, bad indentation, off-topic questions, asking for the answer, and questions after a pass. `npm test` runs them against the pretend Byte. To try the real model (23 questions, so at most about 70¢ with Sonnet 5, usually less):
 
 ```bash
 OPENROUTER_API_KEY=sk-or-... npm run tutor:eval            # add -- --show to print the replies

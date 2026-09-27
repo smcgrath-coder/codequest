@@ -24,7 +24,7 @@ The old Tutor mode called Anthropic straight from the browser with the key in th
 ## Facts this rests on (2026-09-26)
 
 - **Hints.** Every room and boss has hints: 106 have 2, and 3 have 1. So "after the last hint" is always a clear moment.
-- **Pricing.** OpenRouter lists `anthropic/claude-sonnet-5` at $2/M input and $10/M output, with reasoning supported, and `anthropic/claude-haiku-4.5` at $1/$5. A tutor turn is about 2K tokens in and a few hundred out, so roughly 1¢ with Sonnet 5.
+- **Pricing.** OpenRouter lists `anthropic/claude-sonnet-5` at $2/M input and $10/M output, with reasoning supported, and `anthropic/claude-haiku-4.5` at $1/$5. The planning notes set `max_tokens: 2000`, thinking included, so a tutor turn is at most 2,000 tokens out (2¢) plus at most about 4,600 in (the biggest request the server's field limits allow, at about 4 characters a token: about 0.9¢). That is at most about 3¢ with Sonnet 5, usually less.
 - **OpenRouter request options.** `provider.data_collection: "deny"` and `provider.zdr: true` (only providers that don't retain prompts), `reasoning.effort` (`"low"` and others), and `max_tokens`.
 - **Vercel.** A Vite project can have an `api/` folder whose files run as functions on the same origin. `vercel.json`'s COOP/COEP headers also apply to them, which is harmless for same-origin fetches.
 
