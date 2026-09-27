@@ -152,3 +152,20 @@ js.Object.prototype.toJSON = js.Function.new("return 'hacked'")`);
     delete Object.prototype.toJSON;
   }
 });
+
+// A stand-in grading.py that says which time limit for each run it was given.
+const LIMIT_GRADING = `import json
+def grade_json(code, rule, starter, inputs, attempt, seconds="its own"):
+    return json.dumps({"passed": False, "feedback": str(seconds)})
+`;
+
+// The leak guard's grades stop sooner (see tutor.js's graderFor). The kid's own grading sends no limit, so grading.py
+// keeps its own, and stand-ins like the ones above, which take no limit, still work.
+test("a grade's shorter time limit for each run (runSeconds) reaches grading.py; without one it keeps its own", async () => {
+  const g = await makeCore({ grading: LIMIT_GRADING });
+  for (const [runSeconds, said] of [[0.5, "0.5"], [undefined, "its own"]]) {
+    g.messages.length = 0;
+    g.core.grade({ id: "g1", code: "", rule: "{}", inputs: "[]", runSeconds });
+    assert.equal(g.messages[0].feedback, said);
+  }
+});

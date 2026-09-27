@@ -249,6 +249,16 @@ test("a grading pass sends its rule and inputs as JSON text, made with the JSON.
     { type: "grade", code: "print hi", rule: `{"output":[{"expr":"lines(['hi'])"}]}`, starter: "# go", inputs: '["Sam"]', attempt: 2 });
 });
 
+test("a grading pass sends a shorter time limit for each run (the leak guard's) when it's given one; a kid's sends none", async () => {
+  for (const runSeconds of [0.5, undefined]) {
+    const grade = track(gradeCode("print hi", { rule: {}, ...(runSeconds && { runSeconds }) }));
+    await advance(200);
+    assert.equal(grade.value.passed, true);
+    const sent = workers.at(-1).sent.at(-1);
+    assert.equal(sent.type, "grade"); assert.equal(sent.runSeconds, runSeconds); assert.equal("runSeconds" in sent, !!runSeconds);
+  }
+});
+
 test("a grading pass that fails inside grading restarts the worker in the background, so the next Run starts clean", async () => {
   const spawned = workers.length, old = workers.at(-1);
   const fine = track(gradeCode("print hi", { rule: {} }));
