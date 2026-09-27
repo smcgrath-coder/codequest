@@ -2841,7 +2841,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
     try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})};
   const concepts=getConceptsForChallenge(challenge);
   // What Byte sees (see tutorPayload), and the grader the leak guard checks Byte's code with
-  const tutorContext={challenge,program:code,lastRunCode:attempts.at(-1)?.code,result,parts,hintLevel};
+  const tutorContext={challenge,program:code,lastRunCode:attempts[attempts.length-1]?.code,result,parts,hintLevel};
   const tutorGrade=graderFor({runner:PYTHON_RUNNER,rule:CHECKS[challenge.id],starter:challenge.starterCode||"",busy:()=>runningRef.current});
   const offerTutor=tutorOn&&shouldOfferTutor("room",hintLevel,challenge.hints.length);
 
