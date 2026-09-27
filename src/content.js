@@ -1,4 +1,4 @@
-import { ACCENT } from "./theme.js";
+import { ACCENT, GOLD } from "./theme.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // CHALLENGE DATA
@@ -1699,3 +1699,23 @@ export const GRIND_CHALLENGES = [
   {cat:"robotics",minCh:"ch12",name:"Sensor Analyzer",task:"Given 20 sensor readings:\nreadings = [80,75,70,65,58,50,42,35,28,22,18,15,12,10,15,20,35,55,72,80]\nFind: minimum, maximum, average.\nCount how many are below BLACK_LINE=22.\nFind the index of the first black reading.",expectedBehavior:"Analyze sensor data: min, max, avg, count below threshold, first detection index",starterCode:"BLACK_LINE = 22\nreadings = [80,75,70,65,58,50,42,35,28,22,18,15,12,10,15,20,35,55,72,80]\n\n"},
   {cat:"robotics",minCh:"ch12",name:"Run Optimizer",task:"4 runs with times and points:\nruns = [{\"name\":\"Run1\",\"time\":28,\"points\":120},{\"name\":\"Run2\",\"time\":35,\"points\":80},{\"name\":\"Run3\",\"time\":42,\"points\":160},{\"name\":\"Run4\",\"time\":31,\"points\":95}]\nMatch time = 150s. Find the best combo that fits.\nSort by points/time ratio. Print the optimal order.",expectedBehavior:"Calculate efficiency ratio, sort runs, fit within time limit, print optimal order",starterCode:"# Run optimization\nruns = [\n    {\"name\":\"Run1\",\"time\":28,\"points\":120},\n    {\"name\":\"Run2\",\"time\":35,\"points\":80},\n    {\"name\":\"Run3\",\"time\":42,\"points\":160},\n    {\"name\":\"Run4\",\"time\":31,\"points\":95}\n]\nMATCH_TIME = 150\n\n"},
 ];
+
+// ═══════════════════════════════════════════════════════════════════
+// NPCS — the characters who talk in the dialogue boxes
+// ═══════════════════════════════════════════════════════════════════
+
+// Their colours are the dark-mode ones; NPCDialogue draws their names with ink(), which darkens them in light mode.
+export const NPCS = {
+  byte:{name:"Byte",type:"byte",title:"Robot Companion",color:ACCENT},
+  professor:{name:"Professor Loop",type:"professor",title:"The Eccentric Scientist",color:"#9b59b6"},
+  guardian:{name:"The Guardian",type:"guardian",title:"Keeper of the Gates",color:GOLD},
+  cipher:{name:"Cipher",type:"cipher",title:"The Mysterious One",color:"#e74c3c"},
+  iterator:{name:"Iterator",type:"iterator",title:"The Clockwork Keeper",color:"#3498db"},
+  index:{name:"Index",type:"index",title:"The Archivist Owl",color:"#1abc9c"},
+  forge:{name:"Forge",type:"forge",title:"The Fire Smith",color:"#e74c3c"},
+  cartographer:{name:"Cartographer",type:"cartographer",title:"The Map Keeper",color:"#f39c12"},
+  pixel:{name:"Pixel",type:"pixel",title:"The Game Sprite",color:"#e91e63"},
+  champion:{name:"The Champion",type:"champion",title:"Arena Master",color:"#ff5722"},
+  wrench:{name:"Wrench",type:"wrench",title:"The Dockmaster",color:"#ff9800"},
+  navigator:{name:"Navigator",type:"navigator",title:"Mission Control",color:"#00e676"},
+};

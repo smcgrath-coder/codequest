@@ -52,6 +52,16 @@ export function getTrackForContext({ screen, chapterId, isBoss }) {
   }
 }
 
+// The music on/off choice on this device. "1" is muted; anything else, or blocked storage, is not.
+// localStorage is looked up inside the try, not as a default parameter: blocked storage throws on the lookup itself.
+export const MUTED_KEY = "cq:music-muted";
+export function loadMusicMuted(storage) {
+  try { return (storage ?? globalThis.localStorage)?.getItem(MUTED_KEY) === "1"; } catch { return false; }
+}
+export function saveMusicMuted(muted, storage) {
+  try { (storage ?? globalThis.localStorage)?.setItem(MUTED_KEY, muted ? "1" : "0"); } catch {}
+}
+
 // Singleton music player
 class MusicPlayer {
   constructor() {
@@ -92,6 +102,7 @@ class MusicPlayer {
     if (!audio) return;
 
     audio.volume = this._muted ? 0 : this._volume;
+    audio.muted = this._muted;   // iPad and iPhone Safari ignore volume, so mute needs muted too
     audio.currentTime = 0;
     
     // Browser requires user interaction before playing audio
@@ -116,6 +127,7 @@ class MusicPlayer {
     if (!victory) { if (callback) callback(); return; }
 
     victory.volume = this._muted ? 0 : this._volume;
+    victory.muted = this._muted;
     victory.currentTime = 0;
     
     victory.onended = () => {
@@ -147,12 +159,19 @@ class MusicPlayer {
     }
   }
 
-  toggleMute() {
-    this._muted = !this._muted;
+  // Mutes or unmutes, including the track playing now; tracks started later read _muted. Returns the new state.
+  // Sets muted as well as volume: iPad and iPhone Safari treat volume as read-only.
+  setMuted(muted) {
+    this._muted = !!muted;
     if (this._current) {
       this._current.volume = this._muted ? 0 : this._volume;
+      this._current.muted = this._muted;
     }
     return this._muted;
+  }
+
+  toggleMute() {
+    return this.setMuted(!this._muted);
   }
 
   get muted() { return this._muted; }

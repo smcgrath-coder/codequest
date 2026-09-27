@@ -15,6 +15,7 @@ An RPG-style game that teaches Python programming through 12 chapters of challen
 - **Multi-Profile Saves** — multiple players on one device
 - **Chiptune SFX** — 12 sound effects via Tone.js
 - **Background Music** — 11 tracks with per-screen context switching
+- **Light and dark mode** — the ☀️/🌙 button beside 🎵 switches the screens to a cool grey-blue light look and back; the pixel art, the world map and the code editor stay dark. Both buttons are remembered on the device
 
 ## 🚀 Quick Start
 
@@ -116,7 +117,7 @@ codequest/
 │   ├── music.js         ← Music player system
 │   ├── main.jsx         ← React entry point
 │   └── index.css        ← Tailwind + base styles
-├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor)
+├── tests/               ← `npm test` (runner, grading rules, errors, grader, progress, editor, theme and saved settings, music, colour scan)
 │   └── fixtures/        ← Reference, alternative and wrong answers for every challenge
 ├── index.html
 ├── package.json
@@ -137,7 +138,7 @@ The music system (`src/music.js`) automatically plays the right track based on g
 - **Victory** → Victory Fanfare (plays once, then resumes previous track)
 - **Codex/Character Sheet/Practice** → Codex Menu
 
-Players can mute/unmute music with the 🎵 button in the bottom-right corner.
+Players can mute/unmute music with the 🎵 button in the bottom-right corner, and the device remembers the choice.
 
 ## 📝 Curriculum
 

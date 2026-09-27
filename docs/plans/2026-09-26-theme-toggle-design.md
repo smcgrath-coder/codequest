@@ -1,0 +1,198 @@
+# Design: dark/light mode toggle
+
+Date: 2026-09-26. Status: approved.
+
+## Goal
+
+CodeQuest is dark everywhere. Add a light mode that the player can switch on with a round button next to the music button, and remember both buttons' settings on the device.
+
+## Decisions (Scott, 2026-09-26)
+
+| Topic | Decision |
+|---|---|
+| Scope | The screens turn light; the pixel art stays as it is, framed like pictures |
+| Code editor and OUTPUT | Stay dark, like a terminal, in both modes |
+| First visit | Dark, as today; a saved choice wins |
+| Light look | Cool grey-blue |
+| Remember | Both the theme and the music mute, per device |
+| Approach | A React theme context with a dark and a light palette |
+| Dark-mode fix | Lift VDIM so it passes contrast in dark mode too |
+
+## Where colour lives today (inventory, main at 9f10ece)
+
+- **Theme tokens.** `src/theme.js` has 9 colour tokens, as plain constants, used about 245 times in UI code. 58 of those uses glue a hex alpha onto the token (`${GOLD}33`). There are also 21 dynamic ones (`${n.color}44`) and 8 hover handlers that write `element.style`.
+- **Hard-coded colours.** `src/App.jsx` has about 1,065 hex literals.
+  - About 971 are art: NPCAvatar, SceneBanner, MapBackground, PixelAvatar, the COLORS palette and the Particles palettes.
+  - About 94 are UI: orange `#e67e22…` 29, white-alpha hairlines 23, dark gradient stops 12, NPC colours 10, greys 8, `#00bfa5` 4, and hand-copied ERR/ACCENT values 7.
+  - There are 8 `rgba()` literals.
+- **Art that uses theme tokens (19 places).** ACCENT at App.jsx 433, 456, 474, 475, 481-483, 498-500, 1394, 2190, 2197, 2198, 2219, 2220; GOLD at 647, 648, 1636. If light mode darkened those tokens, characters would repaint.
+- **Other files.**
+  - `src/python/CodePanel.jsx` has 6 literals and 7 token-plus-alpha uses.
+  - `src/content.js` has 11 chapter colours.
+  - `src/index.css` sets the body to `#0d1117`.
+- **No `React.memo`/`useMemo`.** An App state change re-renders the whole tree.
+- **Music mute isn't saved.** It lives in `useState(false)` in App and `_muted` in `src/music.js`.
+
+## 1. What changes and what stays
+
+**Turns light:**
+- every screen, card, button, pill, menu and the top bar;
+- the task and hint boxes;
+- the NPC dialogue box.
+
+**Stays dark in both modes:**
+- **Pixel-art characters.** Each sits on its own small dark tile (`ART_WELL`). Their backgrounds are transparent, and pale unoutlined parts (lab coat, crowns) and the semi-transparent leg shadows need a dark backing.
+- **Scene banners** (SceneBanner), which paint their own night sky.
+- **The world map frame** (MapBackground, nodes, paths, labels). The top bar above it switches.
+- **The code editor and the OUTPUT `<pre>`**, plus the Codex `<pre>` examples and the Concept Guide panel.
+- **The celebration pop-ups** (room cleared, BadgeUnlock, TrophyUnlock). Their gold-and-white sparkles need a dark backdrop.
+- **The crash screen** (ErrorBoundary).
+
+**Small fixes that come with this change:**
+- The hint text is drawn at `${GOLD}cc`, which gives 3.79:1 in light. It becomes solid GOLD.
+- Inputs whose only border is `${ACCENT}33` (for example the hero-name input) get a visible border in light mode.
+- In dark mode, VDIM goes from `#4a5568` to `#7a8699`, lifting it from about 2.3:1 to about 4.6:1 on PANEL2.
+
+## 2. Palettes
+
+Every palette value is 6-digit hex, so glued alpha (`${TOKEN}33`) keeps working. The LINE tokens are the exception: they are 8-digit values that are always used whole, never with glued alpha.
+
+| Token | Dark | Light |
+|---|---|---|
+| DARK (page edge, locked cards) | #0a0a14 | #e8edf4 |
+| PANEL (gradient centre, HUD) | #0d1b2a | #f5f7fb |
+| PANEL2 (cards) | #1a1a2e | #ffffff |
+| TEXT | #ccd6f6 | #1b2436 |
+| DIM | #8892b0 | #4a5570 |
+| VDIM | #7a8699 (was #4a5568) | #5b6780 |
+| ACCENT | #64ffda | #00695c |
+| GOLD | #ffd700 | #7c5400 |
+| ERR | #ff6b6b | #b01a1a |
+| ORANGE (new, from `#e67e22`) | #e67e22 | #9a3d00 |
+| OK (new, from `#00bfa5`) | #00bfa5 | #00664f |
+| LINE_FAINT / LINE / LINE_STRONG (new) | #ffffff08 / #ffffff11 / #ffffff22 | #1b243614 / #1b24361f / #1b243633 |
+
+The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on their own tint (11, 18 or 22 alpha) over those surfaces. The synthesis computed TEXT 13.2–15.5, DIM 6.3–7.4, ACCENT 5.6–6.6, GOLD 5.7–6.7, ERR 5.9–7.0 and ORANGE 5.9–6.9. Light ERR was first #b71c1c, which scores 4.47:1 on its own 22 tint over DARK, under the 4.5 the test asks for, so it became #b01a1a (4.75:1 there).
+
+**Fixed sets (never switch):**
+- **ART:** `ART_ACCENT #64ffda`, `ART_GOLD #ffd700`, `ART_WELL #1a1a2e`.
+- **CODE:** `CODE_BG #0a0a14`, `CODE_TEXT #e6e6e6`, `CODE_ACCENT #64ffda`, `CODE_EXAMPLE #a8d8a8`. Each scores at least 12:1 on CODE_BG.
+
+**Light "ink" for NPC and chapter colours:** `ink(c)` returns `LIGHT_INK[c] ?? c` in light mode, and `c` in dark mode. It is used only where a name or heading is drawn as text.
+
+| Dark | Light |
+|---|---|
+| #9b59b6 | #8e44ad |
+| #2ecc71 | #1a7541 |
+| #3498db | #1c6a9e |
+| #1abc9c | #10735f |
+| #e74c3c | #b0301f |
+| #f39c12 | #905c07 |
+| #e91e63 | #bf185a |
+| #ff5722 | #be2f00 |
+| #ff9800 | #945800 |
+| #00e676 | #00783e |
+| #64ffda | light ACCENT |
+| #ffd700 | light GOLD |
+
+Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour's 11 tint over DARK, PANEL and PANEL2, because the Codex header and the open concept card lay that tint straight on the page. Seven inks were darkened for this in the final review (#2ecc71, #3498db, #1abc9c, #f39c12, #e91e63, #ff5722, #ff9800); the first values dropped to 4.33–4.45:1 over DARK.
+
+## 3. How it works
+
+**`src/theme.js`**
+- exports `PALETTES = { dark, light }`, the ART and CODE sets, `LIGHT_INK` and `inkFor(theme, c)`;
+- exports `loadTheme()`/`saveTheme()` for `localStorage["cq:theme"]`, wrapped in try/catch; anything but `"light"` means dark;
+- keeps the old named exports as the dark values, so tests and any unconverted import keep working.
+
+**`ThemeContext` and `useTheme()`**
+- App holds `theme` in state, starting from `document.documentElement.dataset.theme` (set by the inline script) or `loadTheme()`.
+- The context carries only the theme name, `"dark"` or `"light"`. `useTheme()` builds the palette from it and returns `{ ...PALETTES[theme], theme, ink }`, where `ink(c)` is `inkFor(theme, c)`.
+- Each colour-using component adds one line at the top: `const { DARK, PANEL, …, ORANGE, OK, LINE } = useTheme();`. It uses the same names as the imports, so the existing references in its body are untouched.
+- The components that need the line: Btn, XpBar, SessionTimer, NPCDialogue, TitleScreen, CharacterCreate, ProfileSelect, SessionSetup, WorldMap, ChapterOverview, CharacterSheet, Codex, GrindingZone, ChallengeRoom, BadgeUnlock, TrophyUnlock, App, and CodeEditor/OutputPanel.
+- Btn's default parameter `color = ACCENT` is evaluated before the hook runs, so it moves after the hook as `color ??= ACCENT`.
+
+**`ThemeScope name="dark"`** re-provides the dark theme. Only the celebration pop-ups use it (Victory, BadgeUnlock, TrophyUnlock). The map frame reads `PALETTES.dark` (as `M`) and the `MAP_` colours itself, and the avatar tiles use the fixed `ART_WELL`. Neither sits in a ThemeScope, so a component that calls `useTheme()` there gets the player's theme.
+
+**Art pinning.** The 19 art token uses become `ART_ACCENT` or `ART_GOLD`. The art sections are fenced with `// art:begin` and `// art:end` comments.
+
+**Hard-coded UI colours** become named tokens with their suffixes kept: `#e67e2233` → `${ORANGE}33`, `#ffffff11` → `LINE`, `#00bfa5` → `OK`, and the copied ERR/ACCENT values become the tokens.
+
+**`index.html`**
+- An inline script before the module script sets `<html data-theme>` from `cq:theme`, so there is no flash.
+- `index.css` switches the body background and `color-scheme` on `html[data-theme=light]`.
+- App keeps the attribute in sync when the theme changes, but only the toggle saves the choice. A player who never presses it has nothing saved, as with 🎵, so a later default (following the OS setting, say) can still tell "never chose" from "chose dark".
+
+**The toggle** goes in the existing `fixed bottom-4 right-4` container, beside 🎵, in the same round style:
+- ☀️ in dark mode, 🌙 in light mode;
+- `aria-label`/`title` of "Switch to light mode" or "Switch to dark mode";
+- keyboard-focusable.
+
+**Music mute is saved** as `localStorage["cq:music-muted"]`. `Music.setMuted(m)` sets `_muted`, turns the playing track's volume to 0 or back (as the 🎵 button always has), and returns the new value. App starts `musicMuted` from storage and applies it once on load.
+
+iPad and iPhone Safari treat an audio element's `volume` as read-only, so volume 0 alone never silenced music there. `setMuted`, `play()` and `playVictory()` also set the track's `muted` flag.
+
+**Browser support.** Nothing needs a newer browser than the app already needs: no `color-mix()`, no container queries. So devices on the keyword fallback get light mode too.
+
+## Changes made while planning (2026-09-26)
+
+- Light ERR is #b01a1a (see section 2).
+- More fixed colours sit next to ART and CODE in `theme.js`: `CODE_GOLD`, `CODE_DIM` and `CODE_LINE` (the Concept Guide, the editor's line numbers, the code panels' borders); the `MAP_` colours and `MAP_GLOW` (the map's nodes, dots, label shadows and in-progress glow); `DIALOGUE_SCRIM`; and the pop-ups' `POP_` colours and `BOSS_PURPLE`.
+- App provides the theme, so it reads its own colours from `PALETTES[theme]` rather than calling `useTheme()`. CodeEditor uses only `CODE_` colours and needs no hook.
+- The room-cleared overlay became its own component, `Victory`, so it can sit inside `ThemeScope name="dark"`.
+- The NPCS table moved from `App.jsx` to `content.js`, so the tests can import it.
+- In light mode a boss room glows faintly gold instead of purple.
+
+## Changes from the final review (2026-09-26)
+
+- Seven light inks are darker, so they stay readable on their own 11 tint laid straight on the page (see section 2).
+- In light mode the selected Codex tile's border is the chapter's ink, not its raw colour.
+- The Concept Guide and the Codex code blocks set `colorScheme: "dark"`, like the editor, so their scrollbars stay dark.
+- Two glued alphas that made invalid hex are fixed: an available map node's hover glow and the white sparkle's glow. Both were already on main.
+- The theme is saved only when the player presses the toggle.
+- Mute also sets `muted`, for iPad and iPhone.
+- The colour scan gained an exact check by Babel scope analysis, and a wider colour pattern.
+
+## 4. Testing
+
+**`tests/theme.test.js`** checks that:
+- both palettes have the same keys;
+- the values are 6-digit hex (LINE tokens excepted);
+- each text token scores at least 4.5:1 on every surface, and on its own tints at 11, 18 and 22 over each surface, in both modes;
+- the CODE pairs score at least 4.5:1 on CODE_BG;
+- `LIGHT_INK` covers every CODEX colour, every NPC colour and every chapter colour, and each scores at least 4.5:1 on every light surface, and on its raw colour's 11 tint over each surface (the Codex header and cards);
+- `loadTheme()`/`saveTheme()` treat a missing, broken or unavailable storage as dark.
+
+**`tests/music.test.js`** checks that mute sets and clears both the volume and the `muted` flag, that a track started while muted starts muted, and the saved choice.
+
+**`tests/no-raw-colours.test.js`** reads App.jsx and CodePanel.jsx as text, drops the art-fenced regions, and checks that:
+- no colour is written out by hand outside `theme.js`: hex, a CSS colour function in any case (`rgb(`, `hsl(`, `oklch(`, `color-mix(` and the rest) or a Tailwind colour class (`bg-white`, `text-gray-900`);
+- no switchable token name appears inside an art region;
+- each component that uses a token calls `useTheme()` (a simple per-function scan);
+- by Babel scope analysis, only ErrorBoundary reads a switching colour imported from `theme.js`. This catches what the text scans can't: nested templates, `const t = useTheme()`, lowercase render helpers and default parameters.
+
+**The existing suite** stays green: 2,849 tests.
+
+**Browser, in both modes:**
+- title, heroes, create (the pale swatches), session, map (dark, while the HUD switches);
+- chapter pages (locked, open and done), a normal room and a boss;
+- NPC dialogue, hints, the Concept Guide, and output with an error and with `input()`;
+- the pop-ups, the Codex, Practice and the Character Sheet.
+
+Also check that:
+- toggling mid-room keeps the code;
+- a reload keeps both settings, with no dark flash;
+- the layout works at phone width;
+- the toggle can be focused from the keyboard;
+- there are no console errors.
+
+## 5. Rollout
+
+- Work happens on branch `theme-toggle`, with each task built test-first and reviewed for spec and code quality, and a final whole-branch review.
+- Ask Scott before pushing. Vercel then builds a preview, and the public site at codequest-pi.vercel.app is unchanged until merge.
+- Ask before opening the PR.
+
+## Risks
+
+- **A component that misses its `useTheme()` line stays dark.** That is visible, not silent, and the source-scan test catches it.
+- **Art borrowing a switchable token would repaint when toggled.** The art fences and the scan prevent it.
+- **Light mode shows more of the page edge.** The inline script and body rule cover the background, including overscroll on iPads.

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, Component } from "react";
 import * as Tone from "tone";
-import { Music, getTrackForContext } from "./music.js";
-import { DARK, PANEL, PANEL2, ACCENT, GOLD, TEXT, DIM, VDIM, MONO, ERR } from "./theme.js";
+import { Music, getTrackForContext, loadMusicMuted, saveMusicMuted } from "./music.js";
+import { DARK, ACCENT, DIM, MONO, ERR, PALETTES, ThemeScope, useTheme, loadTheme, saveTheme, ART_ACCENT, ART_GOLD, ART_WELL, CODE_BG, CODE_TEXT, CODE_ACCENT, CODE_EXAMPLE, CODE_GOLD, MAP_GLOW, MAP_EDGE_LOCKED, MAP_LOCKED, MAP_DOT, MAP_ACTIVE, MAP_DONE, MAP_SHADOW, DIALOGUE_SCRIM, BOSS_PURPLE, bossGlow, POP_SCRIM, POP_SCRIM_DEEP, POP_CLEAR, POP_TROPHY, POP_TROPHY_END } from "./theme.js";
 import { validateOffline, CONCEPT_HELP, getConceptsForChallenge } from "./grader.js";
-import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES } from "./content.js";
+import { CHAPTERS, TROPHIES, CODEX, GRIND_CHALLENGES, NPCS } from "./content.js";
 import { availablePractice, normalizeProfile, afterClear, markedDoneChallenges } from "./progress.js";
 import { CodeEditor, OutputPanel, PYTHON_RUNNER, appendPart } from "./python/CodePanel.jsx";
 import { runStopGuard } from "./editor.js";
@@ -76,19 +76,20 @@ const SFX = {
   roomEnter()    { this._playMelody(["E4","G4","C5"], ["16n","16n","8n"], [0,0.1,0.2]); },
 };
 
-// Error boundary — catches runtime crashes and shows message instead of white screen
+// Error boundary — catches runtime crashes and shows message instead of white screen. It stays dark in both
+// modes: it reads the plain theme.js imports (the dark palette), not useTheme().
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   render() {
     if (this.state.hasError) {
-      return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0d1117",padding:"2rem"}}>
+      return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:DARK,padding:"2rem"}}>
         <div style={{maxWidth:"500px",textAlign:"center",fontFamily:"'Courier New',monospace"}}>
           <div style={{fontSize:"48px",marginBottom:"16px"}}>💥</div>
-          <h2 style={{color:"#ff6b6b",marginBottom:"12px"}}>Something crashed!</h2>
-          <p style={{color:"#8b949e",fontSize:"14px",marginBottom:"16px"}}>{this.state.error?.message || "Unknown error"}</p>
+          <h2 style={{color:ERR,marginBottom:"12px"}}>Something crashed!</h2>
+          <p style={{color:DIM,fontSize:"14px",marginBottom:"16px"}}>{this.state.error?.message || "Unknown error"}</p>
           <button onClick={()=>{this.setState({hasError:false,error:null})}}
-            style={{background:"#64ffda18",border:"1px solid #64ffda66",color:"#64ffda",padding:"8px 24px",borderRadius:"6px",cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
+            style={{background:`${ACCENT}18`,border:`1px solid ${ACCENT}66`,color:ACCENT,padding:"8px 24px",borderRadius:"6px",cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
             Try Again</button>
         </div>
       </div>;
@@ -97,13 +98,14 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Global CSS keyframes — always rendered
+// Global CSS keyframes — always rendered. cq-glow-pulse lights the map's in-progress node, and the map stays dark
+// in both modes, so its glow is the fixed MAP_GLOW.
 function GlobalStyles() {
   return <style>{`
     @keyframes cq-float-up { 0%{opacity:1;transform:translateY(0)} 100%{opacity:0;transform:translateY(-60px)} }
     @keyframes cq-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
     @keyframes cq-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 40%{transform:translateX(4px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(2px)} }
-    @keyframes cq-glow-pulse { 0%,100%{box-shadow:0 0 20px rgba(100,255,218,0.1)} 50%{box-shadow:0 0 40px rgba(100,255,218,0.3)} }
+    @keyframes cq-glow-pulse { 0%,100%{box-shadow:0 0 20px ${MAP_GLOW}1a} 50%{box-shadow:0 0 40px ${MAP_GLOW}4d} }
     @keyframes cq-slide-in { 0%{opacity:0;transform:translateX(-20px)} 100%{opacity:1;transform:translateX(0)} }
     @keyframes cq-fade-in { 0%{opacity:0} 100%{opacity:1} }
     @keyframes cq-scale-in { 0%{opacity:0;transform:scale(0.8)} 100%{opacity:1;transform:scale(1)} }
@@ -123,11 +125,14 @@ function Particles({ active, type="victory", count=24 }) {
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => {
     if (!active) { setParticles([]); return; }
+    // art:begin — the sparkle colours; the pop-ups that show them stay dark in both modes. All 6-digit, since the
+    // glow glues an alpha on (#fff88 would be invalid and dropped).
     const colors = type === "boss"
-      ? ["#ffd700","#ffeb3b","#ff9800","#fff","#ffc107"]
+      ? ["#ffd700","#ffeb3b","#ff9800","#ffffff","#ffc107"]
       : type === "badge"
-      ? ["#ffd700","#ffeb3b","#fff"]
-      : ["#64ffda","#00bfa5","#80f0ff","#fff","#a8d8a8"];
+      ? ["#ffd700","#ffeb3b","#ffffff"]
+      : ["#64ffda","#00bfa5","#80f0ff","#ffffff","#a8d8a8"];
+    // art:end
     const p = Array.from({length: count}, (_, i) => ({
       id: i,
       x: 50 + (Math.random() - 0.5) * 30,
@@ -162,6 +167,7 @@ function Particles({ active, type="victory", count=24 }) {
 
 // Floating XP indicator
 function FloatingXP({ amount, visible }) {
+  const {ACCENT}=useTheme();
   if (!visible) return null;
   return <div style={{
     position: "fixed", top: "40%", left: "50%", transform: "translateX(-50%)",
@@ -193,6 +199,7 @@ function ScreenWrap({ children, screenKey }) {
 // PIXEL ART SYSTEM
 // ═══════════════════════════════════════════════════════════════════
 
+// art:begin — the characters keep their own colours in both modes (ACCENT and GOLD pinned as ART_ACCENT and ART_GOLD)
 const COLORS = {
   hair: ["#2d1b00","#8b4513","#daa520","#ff4500","#1a1a2e","#4a90d9","#9b59b6","#2ecc71"],
   skin: ["#fdbcb4","#f1c27d","#e0ac69","#c68642","#8d5524","#5c3d2e"],
@@ -430,7 +437,7 @@ function PixelAvatar({ hair=0, skin=0, shirt=0, accessory=0, size=64 }) {
       </g>}
       {acc==="antenna"&&<g>
         <rect x="22" y="0" width="2" height="2" fill="#888"/>
-        <rect x="21" y="0" width="4" height="1" fill={ACCENT}/>
+        <rect x="21" y="0" width="4" height="1" fill={ART_ACCENT}/>
         <rect x="22" y="0" width="2" height="1" fill="#aaffee"/>
         <rect x="23" y="1" width="1" height="1" fill="#888"/>
       </g>}
@@ -453,7 +460,7 @@ function NPCAvatar({ type, size=64 }) {
       {type==="byte"?<g>
         {/* ══ BYTE — Friendly Robot ══ */}
         {/* Antenna */}
-        <rect x="22" y="0" width="4" height="2" fill={ACCENT}/>
+        <rect x="22" y="0" width="4" height="2" fill={ART_ACCENT}/>
         <rect x="23" y="0" width="2" height="1" fill="#aaffee"/>
         <rect x="23" y="2" width="2" height="3" fill="#8899aa"/>
         <rect x="22" y="2" width="1" height="2" fill={OL}/>
@@ -471,16 +478,16 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="7" width="20" height="8" fill="#0a1a2a"/>
         <rect x="14" y="7" width="20" height="1" fill="#0d2038"/>
         {/* Eyes — LED */}
-        <rect x="17" y="9" width="4" height="4" fill={ACCENT}/>
-        <rect x="27" y="9" width="4" height="4" fill={ACCENT}/>
+        <rect x="17" y="9" width="4" height="4" fill={ART_ACCENT}/>
+        <rect x="27" y="9" width="4" height="4" fill={ART_ACCENT}/>
         <rect x="18" y="9" width="2" height="2" fill="#aaffee"/>
         <rect x="28" y="9" width="2" height="2" fill="#aaffee"/>
         <rect x="19" y="10" width="1" height="1" fill="#fff"/>
         <rect x="29" y="10" width="1" height="1" fill="#fff"/>
         {/* Smile */}
-        <rect x="20" y="13" width="8" height="1" fill={ACCENT} opacity="0.6"/>
-        <rect x="19" y="12" width="1" height="1" fill={ACCENT} opacity="0.4"/>
-        <rect x="28" y="12" width="1" height="1" fill={ACCENT} opacity="0.4"/>
+        <rect x="20" y="13" width="8" height="1" fill={ART_ACCENT} opacity="0.6"/>
+        <rect x="19" y="12" width="1" height="1" fill={ART_ACCENT} opacity="0.4"/>
+        <rect x="28" y="12" width="1" height="1" fill={ART_ACCENT} opacity="0.4"/>
         {/* Neck */}
         <rect x="21" y="18" width="6" height="3" fill="#78909c"/>
         <rect x="20" y="18" width="1" height="2" fill={OL}/>
@@ -495,9 +502,9 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="31" width="20" height="3" fill="#90a4ae"/>
         {/* Chest panel */}
         <rect x="18" y="24" width="12" height="6" fill="#0a1a2a"/>
-        <rect x="20" y="25" width="3" height="2" fill={ACCENT} opacity="0.3"/>
-        <rect x="25" y="25" width="3" height="2" fill={ACCENT} opacity="0.2"/>
-        <rect x="22" y="28" width="4" height="1" fill={ACCENT} opacity="0.15"/>
+        <rect x="20" y="25" width="3" height="2" fill={ART_ACCENT} opacity="0.3"/>
+        <rect x="25" y="25" width="3" height="2" fill={ART_ACCENT} opacity="0.2"/>
+        <rect x="22" y="28" width="4" height="1" fill={ART_ACCENT} opacity="0.15"/>
         {/* Arms */}
         <rect x="10" y="22" width="1" height="10" fill={OL}/>
         <rect x="37" y="22" width="1" height="10" fill={OL}/>
@@ -644,8 +651,8 @@ function NPCAvatar({ type, size=64 }) {
         <rect x="14" y="9" width="20" height="7" fill="#1a1a2e"/>
         <rect x="14" y="9" width="20" height="1" fill="#c0a030"/>
         {/* Eyes behind visor */}
-        <rect x="17" y="11" width="4" height="3" fill={GOLD}/>
-        <rect x="27" y="11" width="4" height="3" fill={GOLD}/>
+        <rect x="17" y="11" width="4" height="3" fill={ART_GOLD}/>
+        <rect x="27" y="11" width="4" height="3" fill={ART_GOLD}/>
         <rect x="18" y="12" width="2" height="1" fill="#fff8c0"/>
         <rect x="28" y="12" width="2" height="1" fill="#fff8c0"/>
         <rect x="19" y="11" width="1" height="1" fill="#fff"/>
@@ -1388,10 +1395,12 @@ function NPCAvatar({ type, size=64 }) {
     </svg>
   );
 }
+// art:end
 
+// art:begin — SceneBanner paints its own night sky, so it keeps its colours in both modes
 function SceneBanner({ scene }) {
   const themes = {
-    terminal:{bg:"#0d1117",ac:ACCENT,ground:"#0a1a2a",wall:"#121d2e"},
+    terminal:{bg:"#0d1117",ac:ART_ACCENT,ground:"#0a1a2a",wall:"#121d2e"},
     vault:{bg:"#1a0d2a",ac:"#9b59b6",ground:"#12081e",wall:"#231040"},
     crossroads:{bg:"#0d1b0d",ac:"#2ecc71",ground:"#0a150a",wall:"#1a2e1a"},
     boss:{bg:"#2a0d0d",ac:"#ff4500",ground:"#1a0808",wall:"#301515"},
@@ -1633,7 +1642,7 @@ function SceneBanner({ scene }) {
         {/* Chandelier */}
         <rect x="155" y="5" width="10" height="3" fill="#2a3a3a"/>
         <rect x="158" y="8" width="4" height="10" fill="#1a2a2a"/>
-        {[150,155,160,165,170].map((x,i)=> <rect key={`cl${i}`} x={x} y="18" width="2" height="4" fill={GOLD} opacity={0.3+i*0.05}/>)}
+        {[150,155,160,165,170].map((x,i)=> <rect key={`cl${i}`} x={x} y="18" width="2" height="4" fill={ART_GOLD} opacity={0.3+i*0.05}/>)}
         {/* Floor */}
         <rect x="0" y="105" width="320" height="35" fill={t.ground}/>
         {/* Floor pattern — herringbone */}
@@ -1939,27 +1948,14 @@ function SceneBanner({ scene }) {
     </svg>
   );
 }
+// art:end
 
 // ═══════════════════════════════════════════════════════════════════
-// NPC DATA & DIALOGUE
+// NPC DIALOGUE
 // ═══════════════════════════════════════════════════════════════════
-
-const NPCS = {
-  byte:{name:"Byte",type:"byte",title:"Robot Companion",color:ACCENT},
-  professor:{name:"Professor Loop",type:"professor",title:"The Eccentric Scientist",color:"#9b59b6"},
-  guardian:{name:"The Guardian",type:"guardian",title:"Keeper of the Gates",color:GOLD},
-  cipher:{name:"Cipher",type:"cipher",title:"The Mysterious One",color:"#e74c3c"},
-  iterator:{name:"Iterator",type:"iterator",title:"The Clockwork Keeper",color:"#3498db"},
-  index:{name:"Index",type:"index",title:"The Archivist Owl",color:"#1abc9c"},
-  forge:{name:"Forge",type:"forge",title:"The Fire Smith",color:"#e74c3c"},
-  cartographer:{name:"Cartographer",type:"cartographer",title:"The Map Keeper",color:"#f39c12"},
-  pixel:{name:"Pixel",type:"pixel",title:"The Game Sprite",color:"#e91e63"},
-  champion:{name:"The Champion",type:"champion",title:"Arena Master",color:"#ff5722"},
-  wrench:{name:"Wrench",type:"wrench",title:"The Dockmaster",color:"#ff9800"},
-  navigator:{name:"Navigator",type:"navigator",title:"Mission Control",color:"#00e676"},
-};
 
 function NPCDialogue({ npc, lines, onComplete }) {
+  const { PANEL, PANEL2, TEXT, VDIM, LINE_FAINT, ink } = useTheme();
   const [li, setLi] = useState(0);
   const [ci, setCi] = useState(0);
   const [txt, setTxt] = useState("");
@@ -1983,20 +1979,20 @@ function NPCDialogue({ npc, lines, onComplete }) {
   const isLast = !typing && li===lines.length-1;
 
   return (
-    <div className="fixed inset-0 flex items-end justify-center z-40 p-4" style={{background:"rgba(0,0,0,0.75)"}} onClick={click}>
+    <div className="fixed inset-0 flex items-end justify-center z-40 p-4" style={{background:DIALOGUE_SCRIM}} onClick={click}>
       <div className="w-full max-w-2xl rounded-xl p-5 mb-4 cursor-pointer select-none"
-        style={{background:`linear-gradient(135deg,${PANEL},${PANEL2})`,border:`2px solid ${n.color}44`,boxShadow:`0 0 40px ${n.color}22, inset 0 1px 0 #ffffff08`}}>
+        style={{background:`linear-gradient(135deg,${PANEL},${PANEL2})`,border:`2px solid ${n.color}44`,boxShadow:`0 0 40px ${n.color}22, inset 0 1px 0 ${LINE_FAINT}`}}>
         <div className="flex items-start gap-5">
           <div className="flex-shrink-0 flex flex-col items-center">
-            <div className="rounded-xl p-2" style={{background:`${n.color}11`,border:`2px solid ${n.color}33`,boxShadow:`0 0 20px ${n.color}15`}}>
+            <div className="rounded-xl p-2" style={{background:ART_WELL,border:`2px solid ${n.color}33`,boxShadow:`0 0 20px ${n.color}15`}}>
               <NPCAvatar type={n.type} size={80}/>
             </div>
-            <span className="text-xs font-bold mt-2 tracking-wide" style={{color:n.color}}>{n.name}</span>
+            <span className="text-xs font-bold mt-2 tracking-wide" style={{color:ink(n.color)}}>{n.name}</span>
             <span style={{color:VDIM,fontSize:"9px"}}>{n.title}</span>
           </div>
           <div className="flex-1 min-h-[80px] flex items-center">
             <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.7"}}>
-              {txt}{typing && <span style={{color:n.color,animation:"blink 0.8s infinite"}}>▊</span>}
+              {txt}{typing && <span style={{color:ink(n.color),animation:"blink 0.8s infinite"}}>▊</span>}
             </div>
           </div>
         </div>
@@ -2023,7 +2019,8 @@ async function saveProfileList(l){try{localStorage.setItem("cq:profiles",JSON.st
 // SHARED UI COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
-function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",style={}}){
+function Btn({children,onClick,color,disabled,autoFocus,className="",style={}}){
+  const {ACCENT}=useTheme();color??=ACCENT;   // here, not as a default parameter, which would read the dark ACCENT before the hook
   const handleClick=()=>{try{SFX.init().then(()=>SFX.click())}catch(e){}if(onClick)onClick();};
   return <button onClick={handleClick} disabled={disabled} autoFocus={autoFocus}
     className={`px-5 py-2 rounded font-bold text-sm tracking-wider transition-all duration-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
@@ -2033,20 +2030,22 @@ function Btn({children,onClick,color=ACCENT,disabled,autoFocus,className="",styl
 }
 
 function XpBar({current,next,label}){
+  const {PANEL2,DIM,ACCENT,OK}=useTheme();
   const pct=next>0?Math.min((current/next)*100,100):100;
   return <div className="w-full">
     {label&&<div className="flex justify-between text-xs mb-1" style={{color:DIM}}><span>{label}</span><span>{current}/{next} XP</span></div>}
     <div className="w-full h-2 rounded-full overflow-hidden" style={{background:PANEL2}}>
-      <div className="h-full rounded-full transition-all duration-1000" style={{width:`${pct}%`,background:`linear-gradient(90deg,${ACCENT},#00bfa5)`,boxShadow:`0 0 8px ${ACCENT}55`}}/>
+      <div className="h-full rounded-full transition-all duration-1000" style={{width:`${pct}%`,background:`linear-gradient(90deg,${ACCENT},${OK})`,boxShadow:`0 0 8px ${ACCENT}55`}}/>
     </div>
   </div>;
 }
 
 function SessionTimer({time,active}){
+  const {ACCENT,ERR}=useTheme();
   if(!active||time===null)return null;
   const m=Math.floor(time/60),s=time%60,low=time<120;
   return <div className="flex items-center gap-2 px-3 py-1 rounded-full text-sm font-mono"
-    style={{background:low?"#ff6b6b22":`${ACCENT}11`,color:low?ERR:ACCENT,border:`1px solid ${low?"#ff6b6b44":`${ACCENT}33`}`}}>
+    style={{background:low?`${ERR}22`:`${ACCENT}11`,color:low?ERR:ACCENT,border:`1px solid ${low?`${ERR}44`:`${ACCENT}33`}`}}>
     ⏱ {m}:{s.toString().padStart(2,"0")}
   </div>;
 }
@@ -2056,6 +2055,7 @@ function SessionTimer({time,active}){
 // ═══════════════════════════════════════════════════════════════════
 
 function TitleScreen({onStart}){
+  const {DARK,PANEL,DIM,VDIM,ACCENT}=useTheme();
   const [fade,setFade]=useState(false);
   useEffect(()=>{setTimeout(()=>setFade(true),100)},[]);
   return <div className="min-h-screen flex flex-col items-center justify-center p-8" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
@@ -2070,6 +2070,7 @@ function TitleScreen({onStart}){
 }
 
 function CharacterCreate({onComplete,existingProfiles}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,LINE_STRONG,theme}=useTheme();
   const [name,setName]=useState("");
   const [hair,setHair]=useState(0);
   const [skin,setSkin]=useState(0);
@@ -2087,7 +2088,7 @@ function CharacterCreate({onComplete,existingProfiles}){
       <div className="text-xs mb-2 tracking-wider" style={{color:DIM}}>{label}</div>
       <div className="flex gap-2 flex-wrap">
         {options.map((c,i)=><button key={i} onClick={()=>onChange(i)} className="w-8 h-8 rounded cursor-pointer"
-          style={{background:typeof c==="string"&&c!=="none"?c:PANEL2,border:`2px solid ${i===value?ACCENT:"transparent"}`,fontSize:"11px",color:TEXT}}>
+          style={{background:typeof c==="string"&&c!=="none"?c:PANEL2,border:`2px solid ${i===value?ACCENT:theme==="light"?LINE_STRONG:"transparent"}`,fontSize:"11px",color:TEXT}}>
           {typeof c==="string"&&c!=="none"?"":COLORS.accessory[i]?.[0]?.toUpperCase()||"∅"}</button>)}
       </div>
     </div>
@@ -2099,13 +2100,13 @@ function CharacterCreate({onComplete,existingProfiles}){
       {step==="name"?<div className="text-center">
         <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="Enter hero name..."
           maxLength={16} className="w-full p-3 rounded-lg text-center text-lg focus:outline-none"
-          style={{background:PANEL2,color:TEXT,border:`1px solid ${ACCENT}33`,fontFamily:MONO,caretColor:ACCENT}}
+          style={{background:PANEL2,color:TEXT,border:`1px solid ${theme==="light"?DIM:`${ACCENT}33`}`,fontFamily:MONO,caretColor:ACCENT}}
           onKeyDown={e=>e.key==="Enter"&&name.trim()&&setStep("avatar")}/>
         <div className="mt-4"><Btn onClick={()=>name.trim()&&setStep("avatar")} disabled={!name.trim()}>NEXT →</Btn></div>
       </div>:<div>
         <div className="flex justify-center mb-6">
           <div className="p-4 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
-            <PixelAvatar hair={hair} skin={skin} shirt={shirt} accessory={accessory} size={128}/>
+            <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar hair={hair} skin={skin} shirt={shirt} accessory={accessory} size={128}/></div>
             <div className="text-center mt-2 text-sm font-bold" style={{color:ACCENT}}>{name}</div>
           </div>
         </div>
@@ -2123,6 +2124,7 @@ function CharacterCreate({onComplete,existingProfiles}){
 }
 
 function ProfileSelect({profiles,onSelect,onCreate}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,GOLD}=useTheme();
   return <div className="min-h-screen flex items-center justify-center p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="max-w-md w-full">
       <div className="text-center mb-8"><div className="text-4xl mb-2">⚔️</div><h2 className="text-2xl font-bold" style={{fontFamily:MONO,color:TEXT}}>Choose Your Hero</h2></div>
@@ -2131,7 +2133,7 @@ function ProfileSelect({profiles,onSelect,onCreate}){
           className="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-300 text-left"
           style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT}} onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`}}>
-          <PixelAvatar {...p.avatar} size={56}/>
+          <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar {...p.avatar} size={56}/></div>
           <div className="flex-1">
             <div className="font-bold" style={{color:TEXT}}>{p.name}</div>
             <div className="text-xs" style={{color:DIM}}>
@@ -2147,11 +2149,12 @@ function ProfileSelect({profiles,onSelect,onCreate}){
 }
 
 function SessionSetup({onSelect,profile}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,GOLD}=useTheme();
   const times=[10,15,20,30];
   return <div className="min-h-screen flex flex-col items-center justify-center p-8" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <div className="text-center max-w-md w-full">
       <div className="flex items-center justify-center gap-4 mb-8 p-4 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}22`}}>
-        <PixelAvatar {...profile.avatar} size={64}/>
+        <div className="inline-flex rounded-lg" style={{background:ART_WELL}}><PixelAvatar {...profile.avatar} size={64}/></div>
         <div className="text-left">
           <div className="font-bold" style={{color:TEXT}}>{profile.name}</div>
           <div className="text-xs" style={{color:DIM}}>{profile.xp} XP</div>
@@ -2174,6 +2177,7 @@ function SessionSetup({onSelect,profile}){
   </div>;
 }
 
+// art:begin — MapBackground: the night scene behind the world map keeps its own colours in both modes
 function MapBackground() {
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" style={{imageRendering:"pixelated"}}>
@@ -2187,15 +2191,15 @@ function MapBackground() {
       {/* Sky */}
       <rect width="400" height="300" fill="url(#mapSky)"/>
       {/* Stars */}
-      {[...Array(40)].map((_,i)=> <rect key={`ms${i}`} x={5+i*10+(i%7)*3} y={3+(i*13)%80} width={i%5===0?"2":"1"} height={i%5===0?"2":"1"} fill={i%3===0?ACCENT:i%3===1?"#9b59b6":"#fff"} opacity={0.08+((i%5)*0.06)}/>)}
+      {[...Array(40)].map((_,i)=> <rect key={`ms${i}`} x={5+i*10+(i%7)*3} y={3+(i*13)%80} width={i%5===0?"2":"1"} height={i%5===0?"2":"1"} fill={i%3===0?ART_ACCENT:i%3===1?"#9b59b6":"#fff"} opacity={0.08+((i%5)*0.06)}/>)}
       {/* Distant mountains */}
       <polygon points="0,180 40,120 80,150 120,100 160,140 200,90 240,130 280,105 320,145 360,110 400,160 400,200 0,200" fill="#0a0f1a"/>
       <polygon points="0,190 50,140 100,170 150,130 200,160 250,120 300,150 350,130 400,170 400,210 0,210" fill="#0d1520"/>
       {/* Midground terrain */}
       <polygon points="0,210 30,190 70,200 120,185 170,195 220,180 270,195 320,185 370,200 400,190 400,300 0,300" fill="#0d1b0d"/>
       {/* Water/river */}
-      <path d="M0,260 Q50,255 100,262 Q150,268 200,258 Q250,250 300,260 Q350,270 400,258" fill="none" stroke={ACCENT} strokeWidth="3" opacity="0.15"/>
-      <path d="M0,264 Q50,259 100,266 Q150,272 200,262 Q250,254 300,264 Q350,274 400,262" fill="none" stroke={ACCENT} strokeWidth="1.5" opacity="0.08"/>
+      <path d="M0,260 Q50,255 100,262 Q150,268 200,258 Q250,250 300,260 Q350,270 400,258" fill="none" stroke={ART_ACCENT} strokeWidth="3" opacity="0.15"/>
+      <path d="M0,264 Q50,259 100,266 Q150,272 200,262 Q250,254 300,264 Q350,274 400,262" fill="none" stroke={ART_ACCENT} strokeWidth="1.5" opacity="0.08"/>
       {/* Trees scattered */}
       {[[30,195],[60,205],[90,198],[310,190],[340,200],[370,195],[150,188],[190,192],[260,188]].map(([x,y],i)=> <g key={`mt${i}`}>
         <rect x={x-3} y={y-12} width="8" height="14" fill="#1a3a1a" rx="2"/>
@@ -2216,8 +2220,8 @@ function MapBackground() {
       <path d="M168,264 Q220,256 272,246 Q316,230 360,216" fill="none" stroke="#2a3a2a" strokeWidth="2.5" opacity="0.18" strokeDasharray="5,3"/>
       {/* Terminal building */}
       <rect x="38" y="114" width="20" height="14" fill="#0d1117" rx="1"/>
-      <rect x="40" y="116" width="7" height="5" fill={ACCENT} opacity="0.2"/>
-      <rect x="49" y="116" width="7" height="5" fill={ACCENT} opacity="0.15"/>
+      <rect x="40" y="116" width="7" height="5" fill={ART_ACCENT} opacity="0.2"/>
+      <rect x="49" y="116" width="7" height="5" fill={ART_ACCENT} opacity="0.15"/>
       {/* Vault entrance */}
       <rect x="120" y="58" width="16" height="18" fill="#1a0d2a" rx="2"/>
       <rect x="124" y="60" width="8" height="10" fill="#231040"/>
@@ -2274,12 +2278,14 @@ function MapBackground() {
     </svg>
   );
 }
+// art:end
 
 // ═══════════════════════════════════════════════════════════════════
 // SETTINGS MODAL (API key management)
 // ═══════════════════════════════════════════════════════════════════
 
 function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,timeRemaining,sessionActive}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,ORANGE,LINE_FAINT}=useTheme();
   useEffect(()=>{warmUp().catch(()=>{})},[]);   // load Python in the background; a failure means the keyword grader
   const xp=profile.xp,cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const status=ch=>{
@@ -2288,18 +2294,21 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
     if(ch.rooms?.some(r=>cr.has(r.id)))return "in-progress";return "available";
   };
   const nextLock=chapters.find(ch=>!ch.comingSoon&&xp<ch.requiredXp);
+  // The map is a night scene that stays dark in light mode, so its nodes, paths and labels take the dark palette (M).
+  const M=PALETTES.dark;
+  // Each state has its own hover glow: gluing 44 onto bd breaks when bd already carries an alpha (available's).
   const cls={
-    locked:{bg:`${PANEL2}cc`,bd:"#333",tx:"#555",glow:"none"},
-    available:{bg:`${PANEL2}ee`,bd:`${ACCENT}66`,tx:TEXT,glow:`0 0 12px ${ACCENT}22`},
-    "in-progress":{bg:"#1a2a1add",bd:ACCENT,tx:ACCENT,glow:`0 0 20px ${ACCENT}44`},
-    completed:{bg:"#0d2818dd",bd:"#00bfa5",tx:ACCENT,glow:`0 0 12px #00bfa522`}
+    locked:{bg:`${M.PANEL2}cc`,bd:MAP_EDGE_LOCKED,tx:MAP_LOCKED,glow:"none",hover:"none"},
+    available:{bg:`${M.PANEL2}ee`,bd:`${M.ACCENT}66`,tx:M.TEXT,glow:`0 0 12px ${M.ACCENT}22`,hover:`0 0 30px ${M.ACCENT}44`},
+    "in-progress":{bg:`${MAP_ACTIVE}dd`,bd:M.ACCENT,tx:M.ACCENT,glow:`0 0 20px ${M.ACCENT}44`,hover:`0 0 30px ${M.ACCENT}44`},
+    completed:{bg:`${MAP_DONE}dd`,bd:M.OK,tx:M.ACCENT,glow:`0 0 12px ${M.OK}22`,hover:`0 0 30px ${M.OK}44`}
   };
 
   return <div className="min-h-screen flex flex-col" style={{background:DARK}}>
     {/* HUD bar */}
-    <div className="flex justify-between items-center p-4 border-b" style={{borderColor:"#ffffff08",background:`${PANEL}ee`,backdropFilter:"blur(8px)"}}>
+    <div className="flex justify-between items-center p-4 border-b" style={{borderColor:LINE_FAINT,background:`${PANEL}ee`,backdropFilter:"blur(8px)"}}>
       <div className="flex items-center gap-3">
-        <button onClick={onCharSheet} className="cursor-pointer rounded-lg p-1 transition-all duration-300" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}
+        <button onClick={onCharSheet} className="cursor-pointer rounded-lg p-1 transition-all duration-300" style={{background:ART_WELL,border:`1px solid ${ACCENT}33`}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT}} onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`}}>
           <PixelAvatar {...profile.avatar} size={40}/></button>
         <div>
@@ -2314,22 +2323,22 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
           onMouseEnter={e=>{e.currentTarget.style.borderColor=ACCENT;e.currentTarget.style.boxShadow=`0 0 12px ${ACCENT}22`}}
           onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ACCENT}33`;e.currentTarget.style.boxShadow="none"}}>📖 Codex</button>
         <button onClick={onGrind} className="px-2 py-1.5 rounded-lg cursor-pointer text-xs font-bold transition-all duration-200"
-          style={{background:PANEL2,border:`1px solid #e67e2233`,color:"#e67e22",fontFamily:MONO}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#e67e22";e.currentTarget.style.boxShadow=`0 0 12px #e67e2222`}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#e67e2233";e.currentTarget.style.boxShadow="none"}}>⚔️ Practice</button>
+          style={{background:PANEL2,border:`1px solid ${ORANGE}33`,color:ORANGE,fontFamily:MONO}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=ORANGE;e.currentTarget.style.boxShadow=`0 0 12px ${ORANGE}22`}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=`${ORANGE}33`;e.currentTarget.style.boxShadow="none"}}>⚔️ Practice</button>
         <div className="flex gap-1">{(profile.badges||[]).map((b,i)=><span key={i} title={b.name} className="text-lg">{b.icon}</span>)}</div>
       </div>
     </div>
     <div className="px-4 pt-2 max-w-sm"><XpBar current={xp} next={nextLock?.requiredXp||xp} label={nextLock?`Next: ${nextLock.name}`:"All unlocked!"}/></div>
     {/* Map area */}
     <div className="flex-1 flex items-center justify-center p-4">
-      <div className="relative w-full max-w-3xl rounded-xl overflow-hidden" style={{minHeight:"380px",border:"1px solid #ffffff08"}}>
+      <div className="relative w-full max-w-3xl rounded-xl overflow-hidden" style={{minHeight:"380px",border:`1px solid ${LINE_FAINT}`}}>
         <MapBackground/>
         {/* Path lines overlay */}
         <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none" style={{zIndex:1}}>
           {chapters.slice(0,-1).map((ch,i)=>{const n=chapters[i+1],st=status(n);return <line key={i}
             x1={ch.mapPosition.x} y1={ch.mapPosition.y} x2={n.mapPosition.x} y2={n.mapPosition.y}
-            stroke={st!=="locked"?ACCENT:"#555"} strokeWidth={st!=="locked"?"0.6":"0.3"}
+            stroke={st!=="locked"?M.ACCENT:MAP_LOCKED} strokeWidth={st!=="locked"?"0.6":"0.3"}
             strokeDasharray={st==="locked"?"2,2":"none"} opacity={st!=="locked"?0.5:0.3}/>})}
         </svg>
         {/* Chapter nodes */}
@@ -2338,15 +2347,15 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
           <button onClick={()=>s!=="locked"&&onSelectChapter(ch)} disabled={s==="locked"}
             className="flex flex-col items-center gap-1 p-2 rounded-lg transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
             style={{background:c.bg,border:`2px solid ${c.bd}`,minWidth:"90px",maxWidth:"110px",boxShadow:c.glow,backdropFilter:"blur(8px)",animation:s==="in-progress"?"cq-glow-pulse 3s ease-in-out infinite":s==="available"?"cq-pulse 4s ease-in-out infinite":"none"}}
-            onMouseEnter={e=>{if(s!=="locked"){e.currentTarget.style.transform="scale(1.08)";e.currentTarget.style.boxShadow=`0 0 30px ${c.bd}44`}}}
+            onMouseEnter={e=>{if(s!=="locked"){e.currentTarget.style.transform="scale(1.08)";e.currentTarget.style.boxShadow=c.hover}}}
             onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";e.currentTarget.style.boxShadow=c.glow}}>
             <span className="text-xl">{s==="locked"?"🔒":s==="completed"?"✅":ch.icon}</span>
-            <span className="text-xs font-bold tracking-wide text-center leading-tight" style={{color:c.tx,textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>{ch.name}</span>
-            <span className="text-center leading-tight" style={{color:DIM,fontSize:"8px",textShadow:"0 1px 2px rgba(0,0,0,0.9)"}}>{s==="locked"?`${ch.requiredXp} XP`:s==="completed"?"Complete!":ch.comingSoon?"Coming Soon":ch.subtitle}</span>
+            <span className="text-xs font-bold tracking-wide text-center leading-tight" style={{color:c.tx,textShadow:`0 1px 3px ${MAP_SHADOW}cc`}}>{ch.name}</span>
+            <span className="text-center leading-tight" style={{color:M.DIM,fontSize:"8px",textShadow:`0 1px 2px ${MAP_SHADOW}e6`}}>{s==="locked"?`${ch.requiredXp} XP`:s==="completed"?"Complete!":ch.comingSoon?"Coming Soon":ch.subtitle}</span>
             {s==="in-progress"&&<div className="flex gap-1 mt-1">
-              {ch.rooms.filter(r=>!r.optional).map(r=><div key={r.id} className="w-2 h-2 rounded-full" style={{background:cr.has(r.id)?ACCENT:"#444",border:`1px solid ${cr.has(r.id)?ACCENT:"#555"}`,boxShadow:cr.has(r.id)?`0 0 4px ${ACCENT}66`:"none"}}/>)}
-              {ch.rooms.filter(r=>r.optional).map(r=><div key={r.id} className="w-2 h-2" style={{background:cr.has(r.id)?"#e67e22":"#444",border:`1px solid ${cr.has(r.id)?"#e67e22":"#555"}`,transform:"rotate(45deg)",boxShadow:cr.has(r.id)?`0 0 4px #e67e2266`:"none"}}/>)}
-              {ch.boss&&<div className="w-2 h-2 rounded-full" style={{background:cb.has(ch.boss.id)?GOLD:"#444",border:`1px solid ${cb.has(ch.boss.id)?GOLD:`${GOLD}44`}`}}/>}
+              {ch.rooms.filter(r=>!r.optional).map(r=><div key={r.id} className="w-2 h-2 rounded-full" style={{background:cr.has(r.id)?M.ACCENT:MAP_DOT,border:`1px solid ${cr.has(r.id)?M.ACCENT:MAP_LOCKED}`,boxShadow:cr.has(r.id)?`0 0 4px ${M.ACCENT}66`:"none"}}/>)}
+              {ch.rooms.filter(r=>r.optional).map(r=><div key={r.id} className="w-2 h-2" style={{background:cr.has(r.id)?M.ORANGE:MAP_DOT,border:`1px solid ${cr.has(r.id)?M.ORANGE:MAP_LOCKED}`,transform:"rotate(45deg)",boxShadow:cr.has(r.id)?`0 0 4px ${M.ORANGE}66`:"none"}}/>)}
+              {ch.boss&&<div className="w-2 h-2 rounded-full" style={{background:cb.has(ch.boss.id)?M.GOLD:MAP_DOT,border:`1px solid ${cb.has(ch.boss.id)?M.GOLD:`${M.GOLD}44`}`}}/>}
             </div>}
           </button>
         </div>})}
@@ -2356,19 +2365,20 @@ function WorldMap({chapters,profile,onSelectChapter,onCharSheet,onCodex,onGrind,
 }
 
 function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ORANGE,LINE_FAINT,LINE,LINE_STRONG}=useTheme();
   const cr=new Set(profile.completedRooms||[]),cb=new Set(profile.completedBosses||[]);
   const mainRooms=chapter.rooms.filter(r=>!r.optional);
   const sideQuests=chapter.rooms.filter(r=>r.optional);
-  const SIDE_COLOR="#e67e22";
+  const SIDE_COLOR=ORANGE;
 
   const RoomBtn=({room,i,avail,isSide})=>{
     const done=cr.has(room.id);
     const accent=isSide?SIDE_COLOR:ACCENT;
     return <button key={room.id} onClick={()=>avail&&onSelectRoom(room,!isSide&&i===0)} disabled={!avail}
       className="flex items-center gap-4 p-4 rounded-lg text-left transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
-      style={{background:done?`${accent}08`:avail?PANEL2:DARK,border:`1px solid ${done?`${accent}44`:avail?"#ffffff22":"#ffffff08"}`,opacity:avail?1:0.4}}>
+      style={{background:done?`${accent}08`:avail?PANEL2:DARK,border:`1px solid ${done?`${accent}44`:avail?LINE_STRONG:LINE_FAINT}`,opacity:avail?1:0.4}}>
       <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-        style={{background:done?`${accent}22`:PANEL2,color:done?accent:DIM,border:`1px solid ${done?`${accent}44`:"#ffffff11"}`}}>
+        style={{background:done?`${accent}22`:PANEL2,color:done?accent:DIM,border:`1px solid ${done?`${accent}44`:LINE}`}}>
         {done?"✓":isSide?"⭐":i+1}</div>
       <div className="flex-1"><div className="font-bold text-sm" style={{color:done?accent:TEXT}}>{room.name}</div>
         <div className="text-xs" style={{color:DIM}}>{done?"Complete":isSide?"Side Quest":"Main Track"} • {room.xpReward} XP</div></div>
@@ -2409,7 +2419,7 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
       {chapter.boss&&(()=>{const allMainDone=mainRooms.every(r=>cr.has(r.id)),bDone=cb.has(chapter.boss.id);
         return <div className="mt-6"><button onClick={()=>allMainDone&&onSelectBoss(chapter.boss)} disabled={!allMainDone}
           className="flex items-center gap-4 p-4 rounded-lg text-left w-full cursor-pointer disabled:cursor-not-allowed"
-          style={{background:bDone?"#2a1a0022":allMainDone?PANEL2:DARK,border:`2px solid ${bDone?`${GOLD}44`:allMainDone?`${GOLD}66`:"#ffffff08"}`,opacity:allMainDone?1:0.4}}>
+          style={{background:bDone?`${GOLD}08`:allMainDone?PANEL2:DARK,border:`2px solid ${bDone?`${GOLD}44`:allMainDone?`${GOLD}66`:LINE_FAINT}`,opacity:allMainDone?1:0.4}}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg flex-shrink-0"
             style={{background:bDone?`${GOLD}22`:PANEL2,border:`1px solid ${GOLD}66`}}>{bDone?"👑":"⚔️"}</div>
           <div className="flex-1"><div className="font-bold text-sm" style={{color:GOLD}}>BOSS: {chapter.boss.name}</div>
@@ -2420,12 +2430,13 @@ function ChapterOverview({chapter,profile,onSelectRoom,onSelectBoss,onBack}){
 }
 
 function CharacterSheet({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ORANGE,LINE_FAINT,LINE}=useTheme();
   const markedDone=markedDoneChallenges(profile);
   return <div className="min-h-screen p-6" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     <Btn onClick={onBack} color={DIM} className="mb-6">← Map</Btn>
     <div className="max-w-lg mx-auto">
       <div className="flex flex-col items-center mb-6 p-6 rounded-xl" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
-        <PixelAvatar {...profile.avatar} size={128}/>
+        <div className="rounded-lg p-2" style={{background:ART_WELL}}><PixelAvatar {...profile.avatar} size={128}/></div>
         <h2 className="text-xl font-bold mt-3" style={{color:TEXT,fontFamily:MONO}}>{profile.name}</h2>
         <div className="text-sm" style={{color:DIM}}>Level {Math.floor(profile.xp/100)+1}</div>
         <div className="w-full mt-3"><XpBar current={profile.xp%100} next={100} label="Next Level"/></div>
@@ -2441,18 +2452,18 @@ function CharacterSheet({profile,onBack}){
         {(profile.badges||[]).length===0&&<span className="text-xs" style={{color:VDIM}}>Defeat bosses to earn badges!</span>}
         {(profile.badges||[]).map((b,i)=><span key={i} className="px-3 py-2 rounded-lg text-sm" style={{background:`${GOLD}15`,border:`1px solid ${GOLD}44`,color:GOLD}}>{b.icon} {b.name}</span>)}
       </div>
-      <h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:"#e67e22"}}>🏆 TROPHIES</h3>
+      <h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:ORANGE}}>🏆 TROPHIES</h3>
       <div className="grid grid-cols-2 gap-2">
         {TROPHIES.map(t=>{const e=(profile.trophies||[]).includes(t.id);return <div key={t.id} className="p-2 rounded-lg flex items-center gap-2"
-          style={{background:e?"#e67e2215":`${DARK}88`,border:`1px solid ${e?"#e67e2244":"#ffffff08"}`,opacity:e?1:0.4}}>
-          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?"#e67e22":DIM}}>{t.name}</div><div className="text-xs" style={{color:VDIM}}>{t.desc}</div></div>
+          style={{background:e?`${ORANGE}15`:`${DARK}88`,border:`1px solid ${e?`${ORANGE}44`:LINE_FAINT}`,opacity:e?1:0.4}}>
+          <span className="text-lg">{t.icon}</span><div><div className="text-xs font-bold" style={{color:e?ORANGE:DIM}}>{t.name}</div><div className="text-xs" style={{color:e?DIM:VDIM}}>{t.desc}</div></div>
         </div>})}
       </div>
       {markedDone.length>0&&<div className="mt-6">
         <h3 className="text-sm font-bold mb-2 tracking-wider uppercase" style={{color:DIM}}>✋ Marked done</h3>
         <p className="text-xs mb-3" style={{color:DIM}}>You marked these done yourself. Try them again sometime!</p>
         <div className="flex flex-wrap gap-2">
-          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:"1px solid #ffffff11",color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
+          {markedDone.map(c=><span key={c.id} className="px-3 py-2 rounded-lg text-sm" style={{background:PANEL2,border:`1px solid ${LINE}`,color:TEXT}}>{c.isBoss?"⚔️ ":""}{c.name}</span>)}
         </div>
       </div>}
     </div>
@@ -2464,6 +2475,7 @@ function CharacterSheet({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function Codex({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,LINE_FAINT,LINE,ink,theme}=useTheme();
   const [selectedChapter,setSelectedChapter]=useState(null);
   const [expandedConcept,setExpandedConcept]=useState(null);
   const cr=new Set(profile.completedRooms||[]);
@@ -2487,17 +2499,18 @@ function Codex({profile,onBack}){
       </div>
     </div>
     <div className="max-w-3xl mx-auto flex gap-4" style={{minHeight:"70vh"}}>
-      {/* Chapter sidebar */}
+      {/* Chapter sidebar. The selected tile's border is the chapter's ink: in light mode its tint is faint, and a pale
+          raw colour would barely show on white (ink() is the raw colour in dark mode) */}
       <div className="flex flex-col gap-2" style={{minWidth:"140px"}}>
         {CODEX.map(ch=>{const unlocked=discovered(ch.chapter);return <button key={ch.chapter}
           onClick={()=>{if(unlocked){setSelectedChapter(ch.chapter);setExpandedConcept(null)}}}
           disabled={!unlocked}
           className="p-3 rounded-lg text-left cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
-          style={{background:selectedChapter===ch.chapter?`${ch.color}22`:unlocked?PANEL2:`${DARK}88`,
-            border:`1px solid ${selectedChapter===ch.chapter?ch.color:unlocked?"#ffffff11":"#ffffff05"}`,
+          style={{background:selectedChapter===ch.chapter?(theme==="light"?`linear-gradient(${ch.color}11,${ch.color}11),${PANEL2}`:`${ch.color}22`):unlocked?PANEL2:`${DARK}88`,
+            border:`1px solid ${selectedChapter===ch.chapter?ink(ch.color):unlocked?LINE:LINE_FAINT}`,
             opacity:unlocked?1:0.35}}>
           <div className="text-lg mb-1">{unlocked?ch.icon:"🔒"}</div>
-          <div className="text-xs font-bold" style={{color:unlocked?ch.color:DIM}}>{ch.title}</div>
+          <div className="text-xs font-bold" style={{color:unlocked?ink(ch.color):DIM}}>{ch.title}</div>
           <div className="text-xs" style={{color:VDIM}}>{unlocked?`${ch.concepts.length} concepts`:"Locked"}</div>
         </button>})}
       </div>
@@ -2512,29 +2525,30 @@ function Codex({profile,onBack}){
         </div>:<div>
           <div className="mb-4 p-3 rounded-lg" style={{background:`${active.color}11`,border:`1px solid ${active.color}33`}}>
             <span className="text-lg mr-2">{active.icon}</span>
-            <span className="font-bold" style={{color:active.color}}>{active.title}</span>
+            <span className="font-bold" style={{color:ink(active.color)}}>{active.title}</span>
             <span className="text-xs ml-3" style={{color:DIM}}>{active.concepts.length} concepts</span>
           </div>
           <div className="flex flex-col gap-2">
             {active.concepts.map((concept,i)=>{
               const isOpen=expandedConcept===i;
               return <div key={i} className="rounded-lg overflow-hidden transition-all duration-200"
-                style={{background:isOpen?`${active.color}11`:PANEL2,border:`1px solid ${isOpen?active.color+"66":"#ffffff0a"}`}}>
+                style={{background:isOpen?`${active.color}11`:PANEL2,border:`1px solid ${isOpen?active.color+"66":LINE}`}}>
                 <button onClick={()=>setExpandedConcept(isOpen?null:i)} className="w-full p-3 text-left flex items-center gap-3 cursor-pointer">
                   <span className="text-sm">{catIcons[concept.cat]||"📌"}</span>
-                  <span className="text-sm font-bold flex-1" style={{color:isOpen?active.color:TEXT}}>{concept.name}</span>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{background:"#ffffff08",color:DIM}}>{concept.cat}</span>
+                  <span className="text-sm font-bold flex-1" style={{color:isOpen?ink(active.color):TEXT}}>{concept.name}</span>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{background:LINE_FAINT,color:DIM}}>{concept.cat}</span>
                   <span style={{color:DIM,fontSize:"10px"}}>{isOpen?"▼":"▶"}</span>
                 </button>
-                {isOpen&&<div className="px-3 pb-3 border-t" style={{borderColor:"#ffffff08"}}>
+                {isOpen&&<div className="px-3 pb-3 border-t" style={{borderColor:LINE_FAINT}}>
                   <p className="text-sm mt-2 mb-3" style={{color:TEXT}}>{concept.desc}</p>
+                  {/* The code stays dark in both modes, scrollbars too */}
                   <div className="mb-2">
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>SYNTAX</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:DARK,color:ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.syntax}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_ACCENT,fontFamily:MONO,whiteSpace:"pre-wrap",colorScheme:"dark"}}>{concept.syntax}</pre>
                   </div>
                   <div>
                     <div className="text-xs font-bold mb-1" style={{color:DIM}}>EXAMPLE</div>
-                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:DARK,color:"#a8d8a8",fontFamily:MONO,whiteSpace:"pre-wrap"}}>{concept.ex}</pre>
+                    <pre className="p-2 rounded text-xs overflow-x-auto" style={{background:CODE_BG,color:CODE_EXAMPLE,fontFamily:MONO,whiteSpace:"pre-wrap",colorScheme:"dark"}}>{concept.ex}</pre>
                   </div>
                 </div>}
               </div>;
@@ -2551,6 +2565,7 @@ function Codex({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function GrindingZone({profile,onBack}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,ACCENT,ERR,ORANGE,LINE_FAINT,LINE}=useTheme();
   const [challenge,setChallenge]=useState(null);
   const [code,setCode]=useState("");
   const [parts,setParts]=useState([]);
@@ -2602,14 +2617,14 @@ function GrindingZone({profile,onBack}){
     <div className="flex items-center gap-4 mb-6">
       <Btn onClick={onBack} color={DIM}>← Map</Btn>
       <div>
-        <h2 className="text-xl font-bold" style={{fontFamily:MONO,color:"#e67e22"}}>⚔️ Practice Arena</h2>
+        <h2 className="text-xl font-bold" style={{fontFamily:MONO,color:ORANGE}}>⚔️ Practice Arena</h2>
         <p className="text-xs" style={{color:DIM}}>Sharpen your skills with random challenges — no XP, just practice</p>
       </div>
     </div>
     <div className="max-w-lg mx-auto">
-      <div className="mb-6 p-4 rounded-xl text-center" style={{background:PANEL2,border:`1px solid #e67e2233`}}>
+      <div className="mb-6 p-4 rounded-xl text-center" style={{background:PANEL2,border:`1px solid ${ORANGE}33`}}>
         <div className="text-3xl mb-2">🎲</div>
-        <Btn onClick={()=>pickRandom(null)} color="#e67e22" disabled={available.length===0}>Random Challenge</Btn>
+        <Btn onClick={()=>pickRandom(null)} color={ORANGE} disabled={available.length===0}>Random Challenge</Btn>
         <div className="text-xs mt-2" style={{color:DIM}}>{available.length>0?`${available.length} challenges available`:"Clear your first room to unlock practice challenges"}</div>
       </div>
       {categories.length>0&&<h3 className="text-sm font-bold mb-3 tracking-wider" style={{color:DIM}}>BY CATEGORY</h3>}
@@ -2617,9 +2632,9 @@ function GrindingZone({profile,onBack}){
         {categories.map(cat=>{const count=available.filter(g=>g.cat===cat).length;return <button key={cat}
           onClick={()=>pickRandom(cat)}
           className="p-4 rounded-lg text-left cursor-pointer transition-all duration-200"
-          style={{background:PANEL2,border:"1px solid #ffffff0a"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#e67e2266"}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#ffffff0a"}}>
+          style={{background:PANEL2,border:`1px solid ${LINE}`}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=`${ORANGE}66`}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=LINE}}>
           <div className="text-lg mb-1">{catIcons[cat]||"📌"}</div>
           <div className="text-sm font-bold" style={{color:TEXT}}>{cat}</div>
           <div className="text-xs" style={{color:DIM}}>{count} challenge{count!==1?"s":""}</div>
@@ -2630,22 +2645,22 @@ function GrindingZone({profile,onBack}){
 
   return <div className="min-h-screen flex flex-col" style={{background:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
-    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
+    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:LINE}}>
       <div className="flex items-center gap-3">
         <Btn onClick={()=>{dropRun();setChallenge(null)}} color={DIM}>← Back</Btn>
         <div>
-          <span className="text-sm font-bold" style={{color:"#e67e22"}}>{challenge.name}</span>
-          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#e67e2218",color:"#e67e22"}}>{challenge.cat}</span>
-          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:"#ffffff08",color:DIM}}>Practice — No XP</span>
+          <span className="text-sm font-bold" style={{color:ORANGE}}>{challenge.name}</span>
+          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:`${ORANGE}18`,color:ORANGE}}>{challenge.cat}</span>
+          <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{background:LINE_FAINT,color:DIM}}>Practice — No XP</span>
         </div>
       </div>
-      <Btn onClick={()=>pickRandom(challenge.cat)} color="#e67e22">🎲 New Challenge</Btn>
+      <Btn onClick={()=>pickRandom(challenge.cat)} color={ORANGE}>🎲 New Challenge</Btn>
     </div>
     <div className="flex-1 flex flex-col lg:flex-row">
       {/* Task panel */}
-      <div className="lg:w-2/5 p-4 border-b lg:border-b-0 lg:border-r overflow-y-auto" style={{borderColor:"#ffffff11",maxHeight:"calc(100vh - 56px)"}}>
-        <div className="p-3 rounded-lg mb-4" style={{background:`#e67e2210`,border:`1px solid #e67e2233`}}>
-          <h3 className="text-sm font-bold mb-2" style={{color:"#e67e22"}}>📋 Challenge</h3>
+      <div className="lg:w-2/5 p-4 border-b lg:border-b-0 lg:border-r overflow-y-auto" style={{borderColor:LINE,maxHeight:"calc(100vh - 56px)"}}>
+        <div className="p-3 rounded-lg mb-4" style={{background:`${ORANGE}10`,border:`1px solid ${ORANGE}33`}}>
+          <h3 className="text-sm font-bold mb-2" style={{color:ORANGE}}>📋 Challenge</h3>
           <pre className="text-sm whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO}}>{challenge.task}</pre>
         </div>
       </div>
@@ -2672,6 +2687,7 @@ function GrindingZone({profile,onBack}){
 // ═══════════════════════════════════════════════════════════════════
 
 function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplier,chapterIntroNpc,chapterIntroDialogue}){
+  const {DARK,PANEL,PANEL2,TEXT,DIM,VDIM,ACCENT,GOLD,ERR,OK,LINE,theme}=useTheme();
   const [code,setCode]=useState(challenge.starterCode||"");
   const [parts,setParts]=useState([]);
   const [waiting,setWaiting]=useState(false);
@@ -2723,15 +2739,19 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
   const markDone=()=>{if(!canMarkDone)return;setMarkedDone(true);win()};
 
   const earnedXp=replaying?0:Math.round(challenge.xpReward*xpMultiplier);
+  // CONTINUE on the victory screen. Once only: the overlay closes so a second Enter/Space can't award XP again
+  const finish=()=>{if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
+    try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})};
   const concepts=getConceptsForChallenge(challenge);
 
   // Dialogue phases
   if(dialoguePhase==="chapter-intro")return <NPCDialogue key="chapter-intro" npc={chapterIntroNpc} lines={chapterIntroDialogue} onComplete={()=>setDialoguePhase(challenge.npcDialogue?"room-intro":"play")}/>;
   if(dialoguePhase==="room-intro")return <NPCDialogue key="room-intro" npc={challenge.npc||"byte"} lines={challenge.npcDialogue} onComplete={()=>setDialoguePhase("play")}/>;
 
-  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,#1a0d2a 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
+  // A boss room glows purple in dark mode; in light mode the purple would be a dark blot, so it glows faintly gold.
+  return <div className="min-h-screen flex flex-col" style={{background:isBoss?`radial-gradient(ellipse at center,${bossGlow(theme)} 0%,${DARK} 70%)`:`radial-gradient(ellipse at center,${PANEL} 0%,${DARK} 70%)`}}>
     {/* Top bar */}
-    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:"#ffffff11"}}>
+    <div className="flex items-center justify-between p-3 border-b" style={{borderColor:LINE}}>
       <Btn onClick={onBack} color={DIM} style={{padding:"4px 12px",fontSize:"12px"}}>← Back</Btn>
       <div className="flex items-center gap-2">
         {isBoss&&<span className="text-xs px-2 py-1 rounded" style={{background:`${GOLD}22`,color:GOLD}}>⚔️ BOSS</span>}
@@ -2744,7 +2764,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
 
     <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
       {/* Left: narrative + task + help */}
-      <div className="lg:w-2/5 p-4 overflow-y-auto border-b lg:border-b-0 lg:border-r" style={{borderColor:"#ffffff11"}}>
+      <div className="lg:w-2/5 p-4 overflow-y-auto border-b lg:border-b-0 lg:border-r" style={{borderColor:LINE}}>
         <div className="text-sm mb-3 leading-relaxed whitespace-pre-wrap" style={{color:DIM,fontStyle:"italic"}}>{challenge.narrative}</div>
         <div className="p-3 rounded-lg mb-3" style={{background:PANEL2,border:`1px solid ${ACCENT}33`}}>
           <div className="text-xs font-bold mb-2 tracking-wider" style={{color:ACCENT}}>YOUR TASK</div>
@@ -2758,7 +2778,7 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             💡 Hint ({challenge.hints.length-hintLevel} left)</button>}
           {/* The bulb sits in its own column, so every line of a code hint starts at the same edge, and copying the hint leaves it out */}
           {challenge.hints.slice(0,hintLevel).map((h,i)=><div key={i} className="mt-2 p-3 rounded text-xs flex gap-2"
-            style={{background:`${GOLD}11`,color:`${GOLD}cc`,border:`1px solid ${GOLD}22`}}>
+            style={{background:`${GOLD}11`,color:GOLD,border:`1px solid ${GOLD}22`}}>
             <span aria-hidden="true" className="select-none">💡</span><div className="whitespace-pre-wrap min-w-0">{h}</div></div>)}
         </div>
 
@@ -2772,15 +2792,16 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
           {attempts.length>0&&<span className="text-xs py-1.5" style={{color:VDIM}}>Attempt #{attempts.length}</span>}
         </div>
 
-        {/* Concept guide */}
+        {/* Concept guide: a dark code panel in both modes, like the editor (CODE_* never switch); colorScheme keeps
+            its scrollbar dark too */}
         {showGuideHelp&&(
-          <div className="mt-3 rounded-lg overflow-hidden" style={{background:DARK,border:`1px solid ${GOLD}33`}}>
-            <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${GOLD}11`,color:GOLD}}>📖 CONCEPT GUIDE</div>
+          <div className="mt-3 rounded-lg overflow-hidden" style={{background:CODE_BG,border:`1px solid ${CODE_GOLD}33`,colorScheme:"dark"}}>
+            <div className="p-2 text-xs font-bold tracking-wider" style={{background:`${CODE_GOLD}11`,color:CODE_GOLD}}>📖 CONCEPT GUIDE</div>
             <div className="p-3 max-h-64 overflow-y-auto">
               {concepts.map(c=>{const help=CONCEPT_HELP[c];if(!help)return null;
                 return <div key={c} className="mb-4">
-                  <div className="text-xs font-bold mb-1 uppercase tracking-wider" style={{color:GOLD}}>{c.replace("-"," ")}</div>
-                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-wrap" style={{color:TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
+                  <div className="text-xs font-bold mb-1 uppercase tracking-wider" style={{color:CODE_GOLD}}>{c.replace("-"," ")}</div>
+                  {help.map((line,i)=><div key={i} className="text-xs mb-1 whitespace-pre-wrap" style={{color:CODE_TEXT,fontFamily:MONO,lineHeight:"1.5"}}>{line}</div>)}
                 </div>})}
             </div>
           </div>
@@ -2795,10 +2816,10 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
             <span className="text-xs" style={{color:VDIM}}>Ctrl+Enter to run</span>
           </div>
           <CodeEditor code={code} setCode={setCode} onRun={handleRun}/>
-          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?"#00bfa5":ACCENT}>
+          <Btn onClick={()=>{if(runStop.click())(isRunning?stopCode:handleRun)()}} disabled={passed} className="mt-3" color={isRunning?ERR:passed?OK:ACCENT}>
             {isRunning?"■ Stop":passed?(markedDone?"✓ Marked done":"✓ Passed!"):"▶ Run Code"}</Btn>
         </div>
-        <div className="p-4 border-t" style={{borderColor:"#ffffff11",minHeight:"100px"}}>
+        <div className="p-4 border-t" style={{borderColor:LINE,minHeight:"100px"}}>
           <div className="text-xs font-mono tracking-wider mb-2" style={{color:DIM}}>OUTPUT</div>
           <div style={result?{animation:result.passes?"cq-slide-in 0.3s ease-out":"cq-shake 0.4s ease-out"}:undefined}>
             <OutputPanel status={pyStatus} parts={parts} waitingForInput={waiting} onAnswer={t=>{answerInput(t);setWaiting(false)}} checking={checking}
@@ -2810,32 +2831,36 @@ function ChallengeRoom({challenge,isBoss,replaying,onComplete,onBack,xpMultiplie
       </div>
     </div>
 
-    {/* Victory */}
-    {showVictory&&<div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.85)"}}>
-      <Particles active={showVictory} type={isBoss?"boss":"victory"} count={isBoss?36:24}/>
-      <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?"linear-gradient(135deg,#1a0d2a,#0d1b2a)":`linear-gradient(135deg,${PANEL},#0a1a14)`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
-        <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
-        <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
-        {replaying
-          ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
-          :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
-          :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
-        {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
-        <Btn onClick={()=>{
-          // Once only: the overlay closes so a second Enter/Space can't award XP again
-          if(completedRef.current)return;completedRef.current=true;setShowVictory(false);
-          try{isBoss?SFX.bossDefeat():SFX.roomClear()}catch(e){};onComplete(earnedXp,!usedHints,{markedDone})}} color={isBoss?GOLD:ACCENT}
-          autoFocus={markedDone}>CONTINUE →</Btn>
-      </div>
-    </div>}
+    {/* Victory: stays dark in both modes, like the other celebration pop-ups */}
+    {showVictory&&<ThemeScope name="dark"><Victory isBoss={isBoss} replaying={replaying} markedDone={markedDone} usedHints={usedHints} earnedXp={earnedXp} onContinue={finish}/></ThemeScope>}
+  </div>;
+}
+
+// Room cleared. ChallengeRoom shows it inside ThemeScope name="dark", so it keeps the dark palette in light mode.
+function Victory({isBoss,replaying,markedDone,usedHints,earnedXp,onContinue}){
+  const {PANEL,GOLD,ACCENT,DIM}=useTheme();
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM}}>
+    <Particles active={true} type={isBoss?"boss":"victory"} count={isBoss?36:24}/>
+    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:isBoss?`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`:`linear-gradient(135deg,${PANEL},${POP_CLEAR})`,border:`2px solid ${isBoss?GOLD:ACCENT}`,boxShadow:`0 0 40px ${isBoss?`${GOLD}33`:`${ACCENT}33`}`,animation:"cq-scale-in 0.4s ease-out"}}>
+      <div className="text-5xl mb-3">{isBoss?"👑":"⭐"}</div>
+      <h3 className="text-xl font-bold mb-2" style={{color:isBoss?GOLD:ACCENT}}>{isBoss?"BOSS DEFEATED!":"ROOM CLEARED!"}</h3>
+      {replaying
+        ?<div className="text-sm mb-3" style={{color:DIM}}>Practice replay — no XP this time</div>
+        :markedDone?<div className="text-lg font-bold font-mono mb-3" style={{color:ACCENT}}>Marked done — half XP</div>
+        :<div className="text-3xl font-bold font-mono mb-1" style={{color:ACCENT,animation:"cq-pulse 1.5s ease-in-out infinite"}}>+{earnedXp} XP</div>}
+      {!usedHints&&!markedDone&&<div className="text-xs mb-3" style={{color:GOLD}}>🙈 No hints used!</div>}
+      <Btn onClick={onContinue} color={isBoss?GOLD:ACCENT}
+        autoFocus={markedDone}>CONTINUE →</Btn>
+    </div>
   </div>;
 }
 
 function BadgeUnlock({badge,onContinue}){
+  const {PANEL,GOLD}=useTheme();
   useEffect(()=>{try{SFX.badgeUnlock()}catch(e){}},[]);
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.9)"}}>
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM_DEEP}}>
     <Particles active={true} type="badge" count={28}/>
-    <div className="text-center p-10 rounded-xl max-w-sm mx-4" style={{background:"linear-gradient(135deg,#1a0d2a,#0d1b2a)",border:`2px solid ${GOLD}`,boxShadow:`0 0 60px ${GOLD}33`,animation:"cq-scale-in 0.5s ease-out"}}>
+    <div className="text-center p-10 rounded-xl max-w-sm mx-4" style={{background:`linear-gradient(135deg,${BOSS_PURPLE},${PANEL})`,border:`2px solid ${GOLD}`,boxShadow:`0 0 60px ${GOLD}33`,animation:"cq-scale-in 0.5s ease-out"}}>
       <div className="text-6xl mb-4" style={{animation:"cq-pulse 2s ease-in-out infinite"}}>{badge.icon}</div>
       <div className="text-xs tracking-widest mb-2" style={{color:GOLD}}>NEW ABILITY UNLOCKED</div>
       <h3 className="text-2xl font-bold mb-6" style={{color:GOLD,fontFamily:MONO}}>{badge.name}</h3>
@@ -2845,15 +2870,16 @@ function BadgeUnlock({badge,onContinue}){
 }
 
 function TrophyUnlock({trophy,onContinue}){
+  const {DIM,ORANGE}=useTheme();
   useEffect(()=>{try{SFX.trophyUnlock()}catch(e){}},[]);
-  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:"rgba(0,0,0,0.9)"}}>
+  return <div className="fixed inset-0 flex items-center justify-center z-50" style={{background:POP_SCRIM_DEEP}}>
     <Particles active={true} type="boss" count={30}/>
-    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:"linear-gradient(135deg,#2a1a0a,#1a0d0a)",border:"2px solid #e67e22",boxShadow:"0 0 40px #e67e2233",animation:"cq-scale-in 0.5s ease-out"}}>
+    <div className="text-center p-8 rounded-xl max-w-sm mx-4" style={{background:`linear-gradient(135deg,${POP_TROPHY},${POP_TROPHY_END})`,border:`2px solid ${ORANGE}`,boxShadow:`0 0 40px ${ORANGE}33`,animation:"cq-scale-in 0.5s ease-out"}}>
       <div className="text-5xl mb-3" style={{animation:"cq-pulse 2s ease-in-out infinite"}}>{trophy.icon}</div>
-      <div className="text-xs tracking-widest mb-2" style={{color:"#e67e22"}}>TROPHY EARNED</div>
-      <h3 className="text-xl font-bold mb-2" style={{color:"#e67e22",fontFamily:MONO}}>{trophy.name}</h3>
+      <div className="text-xs tracking-widest mb-2" style={{color:ORANGE}}>TROPHY EARNED</div>
+      <h3 className="text-xl font-bold mb-2" style={{color:ORANGE,fontFamily:MONO}}>{trophy.name}</h3>
       <p className="text-sm mb-4" style={{color:DIM}}>{trophy.desc}</p>
-      <Btn onClick={onContinue} color="#e67e22">CONTINUE</Btn>
+      <Btn onClick={onContinue} color={ORANGE}>CONTINUE</Btn>
     </div>
   </div>;
 }
@@ -2883,7 +2909,13 @@ export default function App(){
   const [pendingBadge,setPendingBadge]=useState(null);
   const [pendingTrophies,setPendingTrophies]=useState([]);
   const [queuedBadge,setQueuedBadge]=useState(null);
-  const [musicMuted,setMusicMuted]=useState(false);
+  const [musicMuted,setMusicMuted]=useState(()=>Music.setMuted(loadMusicMuted()));
+  // Light or dark: index.html has already set <html data-theme> from the saved choice, so the first paint matches.
+  // Only the toggle saves, so a player who never chose has nothing saved (like the music button).
+  const [theme,setTheme]=useState(()=>document.documentElement.dataset.theme==="light"?"light":loadTheme());
+  useEffect(()=>{document.documentElement.dataset.theme=theme},[theme]);
+  // App provides the theme, so it reads its own colours from the palette rather than useTheme().
+  const {DARK,PANEL2,ACCENT,DIM,TEXT,LINE_STRONG}=PALETTES[theme];
 
   // Music: play the right track when screen/context changes
   useEffect(()=>{
@@ -2962,7 +2994,7 @@ export default function App(){
 
   if(screen==="loading")return <div className="min-h-screen flex items-center justify-center" style={{background:DARK}}><div style={{color:ACCENT,fontFamily:MONO}}>Loading...</div></div>;
 
-  return <ErrorBoundary><div style={{fontFamily:MONO,minHeight:"100vh"}}>
+  return <ErrorBoundary><ThemeScope name={theme}><div style={{fontFamily:MONO,minHeight:"100vh"}}>
     <GlobalStyles/>
     <ScreenWrap screenKey={screen}>
     {screen==="title"&&<TitleScreen onStart={()=>setScreen("create")}/>}
@@ -2978,16 +3010,25 @@ export default function App(){
       onComplete={completeChallenge} onBack={()=>setScreen("chapter")} xpMultiplier={xpMultiplier}
       chapterIntroNpc={chapterIntroNpc} chapterIntroDialogue={chapterIntroDialogue}/>}
     </ScreenWrap>
+    {/* The celebration pop-ups stay dark in both modes: their sparkles need a dark backdrop */}
+    <ThemeScope name="dark">
     {pendingTrophies.length>0&&<TrophyUnlock key={pendingTrophies[0].id} trophy={pendingTrophies[0]} onContinue={dismissTrophy}/>}
     {pendingBadge&&<BadgeUnlock badge={pendingBadge} onContinue={()=>{setPendingBadge(null);setScreen("chapter")}}/>}
-    {/* Music controls */}
+    </ThemeScope>
+    {/* Corner controls: light/dark and music, each remembered on this device */}
     <div className="fixed bottom-4 right-4 flex gap-2" style={{zIndex:100}}>
-      <button onClick={()=>{const m=Music.toggleMute();setMusicMuted(m)}}
+      <button onClick={()=>{const t=theme==="light"?"dark":"light";setTheme(t);saveTheme(t)}}
         className="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all"
-        style={{background:PANEL2,border:`1px solid ${musicMuted?"#ffffff22":ACCENT+"44"}`,color:musicMuted?DIM:ACCENT,opacity:0.8}}
-        title={musicMuted?"Unmute music":"Mute music"}>
+        style={{background:PANEL2,border:`1px solid ${LINE_STRONG}`,color:TEXT,opacity:0.8}}
+        title={theme==="light"?"Switch to dark mode":"Switch to light mode"} aria-label={theme==="light"?"Switch to dark mode":"Switch to light mode"}>
+        {theme==="light"?"🌙":"☀️"}
+      </button>
+      <button onClick={()=>{const m=Music.toggleMute();setMusicMuted(m);saveMusicMuted(m)}}
+        className="w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all"
+        style={{background:PANEL2,border:`1px solid ${musicMuted?LINE_STRONG:ACCENT+"44"}`,color:musicMuted?DIM:ACCENT,opacity:0.8}}
+        title={musicMuted?"Unmute music":"Mute music"} aria-label={musicMuted?"Unmute music":"Mute music"}>
         {musicMuted?"🔇":"🎵"}
       </button>
     </div>
-  </div></ErrorBoundary>;
+  </div></ThemeScope></ErrorBoundary>;
 }
