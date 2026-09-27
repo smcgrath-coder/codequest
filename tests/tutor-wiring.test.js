@@ -90,3 +90,21 @@ test("Run waits while Byte answers, Ctrl+Enter too, but Stop still stops a progr
   assert.match(run, /disabled=\{passed\|\|\(byteAnswering&&!isRunning\)\}/);
   assert.match(run, /\{isRunning\?"■ Stop":passed\?\(markedDone\?"✓ Marked done":"✓ Passed!"\):byteAnswering\?"⌛ Byte is answering…":"▶ Run Code"\}/);
 });
+
+test("a screen reader hears the question go out, then the whole checked reply, not each piece as it streams", () => {
+  const panel = piece("TutorPanel"), ask = panel.slice(panel.indexOf("const ask="), panel.indexOf("const field="));
+  assert.doesNotMatch(panel.match(/<div ref=\{logRef\}[^>]*>/)[0], /aria-live|role=/, "the log isn't a live region");
+  assert.match(panel, /const \[said,setSaid\]=useState\(""\)/);
+  assert.match(panel, /<div className="sr-only" aria-live="polite">\{said\}<\/div>/);
+  assert.match(ask, /setSaid\("Byte is thinking…"\)/);
+  assert.match(ask, /put\(\{content:text,pending:false\}\);answered=true;[^\n]*setSaid\(spoken\(text\)\)/, "the guarded reply, as plain text");
+  assert.doesNotMatch(ask, /onText:[^\n]*setSaid/, "never the pieces as they stream");
+  // A note is read out by the status line, which is always there (so a reader catches it) and the hidden line goes quiet
+  assert.match(panel, /const tell=s=>\{setSaid\(""\);setNote\(s\)\}/);
+  assert.equal(ask.match(/tell\(/g).length, 2, "a failed answer and a broken one");
+  assert.doesNotMatch(panel, /setNote\(onTutorState/, "every note goes through tell");
+  assert.match(panel, /<div role="status"[^>]*>\{note\?\.say\}<\/div>/);
+  assert.doesNotMatch(panel, /note&&<div role="status"/);
+  assert.match(panel, /<span aria-hidden="true"[^>]*>▊<\/span>/, "the cursor isn't read out");
+  assert.doesNotMatch(panel, /aria-label="Byte is thinking"/);
+});

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shouldOfferTutor, tutorMode, loadTutorCode, saveTutorCode, forgetTutorCode, TUTOR_CODE_KEY, onTutorState, TUTOR_SAYS,
-  historyFor, tutorPayload, probeTutor, checkTutorCode, askTutor, replyParts, hideCode, LIMITS, asked, replyPending, dropReply } from "../src/tutor.js";
+  historyFor, tutorPayload, probeTutor, checkTutorCode, askTutor, replyParts, hideCode, LIMITS, asked, replyPending, dropReply, spoken } from "../src/tutor.js";
 import { validateRequest } from "../server/tutor.js";
 import { CHAPTERS } from "../src/content.js";
 
@@ -146,6 +146,11 @@ test("a reply shows as words and code panels; while a hint streams, its code sta
   assert.equal(hideCode("Try `print(1)` like\n```python\nprint(2)\n```\nok"), "Try ⌛ like\n\n⌛\n\nok");
   assert.equal(hideCode("Almost: ```python\nprint(\"Hel"), "Almost: \n⌛\n");
   assert.equal(hideCode("half `pri"), "half ⌛"); assert.equal(hideCode("no code here"), "no code here");
+});
+
+test("a finished reply for a screen reader: its words and code as plain text, without the backticks", () => {
+  assert.equal(spoken("Look here:\n\n```python\nprint(\"hi\")\n```\n\nThen try `x = 1`."), 'Look here:\nprint("hi")\nThen try x = 1.');
+  assert.equal(spoken("Just words."), "Just words.");
 });
 
 test("a code block opens with 3 or more backticks and anything on that line, and closes with the same backticks", () => {

@@ -168,6 +168,8 @@ export function replyParts(text) {
   add("text", text.slice(at).replace(/^\n+|\n+$/g, ""));
   return out;
 }
+// A finished reply as a screen reader hears it: its words and code as plain text, without the backticks.
+export const spoken = text => replyParts(text).map(p => p.text.replace(/`/g, "")).join("\n");
 // Plain lines of a reply that look like code. A >>> or ... prompt from the Python shell, or a list marker ("- ",
 // "1. "), is dropped first. Then: a name followed by (, [, .name, = or +=, names = (a, b = …), a Capital name = or
 // call, a # comment, or a statement like for, if, else, def, return, del or import. A line that reads as a sentence

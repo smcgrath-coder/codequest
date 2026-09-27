@@ -39,6 +39,7 @@ The old Tutor mode called Anthropic straight from the browser with the key in th
   - The kid types a question of up to about 300 characters. Byte already has the task, the current code, the real output or error, and the grader's hint.
   - The chat lasts for the room.
   - The panel works in both light and dark mode.
+  - A screen reader hears "Byte is thinking…", then the whole checked reply (not each piece as it streams), and why Byte couldn't answer.
 - **How Byte behaves, by mode:**
   - **Hint mode** (in a room, and the victory screen after "Mark it done"): guiding questions, pointing at the line or kind of mistake, and explaining the idea behind the syntax. Never the fix.
   - **Open mode** (the victory screen after a real pass): explains the kid's own code and why it works, and may show another way to write it.

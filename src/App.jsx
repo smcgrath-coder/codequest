@@ -10,7 +10,7 @@ import { runStopGuard, CODE_TEXTAREA_PROPS } from "./editor.js";
 import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
-import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
+import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, spoken, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2713,24 +2713,27 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
   const waiting=replyPending(chat);   // from the shared chat, so the room's panel and the victory screen's agree
   const [note,setNote]=useState(null);   // {say,tone}: why Byte couldn't answer
   const [left,setLeft]=useState(null);   // questions left today, when there's a cap
+  const [said,setSaid]=useState("");   // what a screen reader hears instead of the log: see the hidden line below
   const abortRef=useRef(null),logRef=useRef(null);
   useEffect(()=>()=>abortRef.current?.abort(),[]);   // leaving stops the request
   useEffect(()=>{const el=logRef.current;if(el)el.scrollTop=el.scrollHeight},[chat]);
   const start=()=>{abortRef.current?.abort();const ac=new AbortController();abortRef.current=ac;return ac};
+  // Why Byte couldn't answer. The status line reads it out, so the hidden line goes quiet rather than say it twice.
+  const tell=s=>{setSaid("");setNote(s)};
 
   const unlock=async()=>{const c=code.trim();if(!c||checking)return;
     const ac=start();setChecking(true);setNote(null);
     const state=await checkTutorCode(c,{signal:ac.signal});
     if(ac.signal.aborted)return;
     setChecking(false);
-    if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else setNote(onTutorState(state));
+    if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else tell(onTutorState(state));
   };
   // A hint-mode reply shows its code only after the leak guard, which also joins it with Byte's earlier code in this chat
   // and the kid's program. However the question ends, its reply stops waiting: one that doesn't come (it failed, the
   // kid hid Byte or left, or something broke) goes, and its question stays on screen but out of the history.
   const ask=async()=>{const q=draft.trim();if(!q||waiting||busy)return;
     const ac=start(),id=`${Date.now()}-${Math.random()}`;
-    onAsk?.();setDraft("");setNote(null);
+    onAsk?.();setDraft("");setNote(null);setSaid("Byte is thinking…");
     setChat(c=>asked(c,id,q));
     const put=m=>setChat(c=>c.map(x=>x.id===id?{...x,...m}:x));
     let answered=false;
@@ -2739,9 +2742,9 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
       const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
       if(ac.signal.aborted)return;
       if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade,earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;
-        put({content:text,pending:false});answered=true;setLeft(r.remaining)}
-      else{const s=onTutorState(r.state);setNote(s);if(s.needCode){setNeedCode(true);setCode("")}}
-    }catch{if(!ac.signal.aborted)setNote(onTutorState("busy"))}   // a stopped question needs no note: the kid left
+        put({content:text,pending:false});answered=true;setLeft(r.remaining);setSaid(spoken(text))}
+      else{const s=onTutorState(r.state);tell(s);if(s.needCode){setNeedCode(true);setCode("")}}
+    }catch{if(!ac.signal.aborted)tell(onTutorState("busy"))}   // a stopped question needs no note: the kid left
     finally{if(!answered)setChat(c=>dropReply(c,id))}
   };
 
@@ -2764,11 +2767,11 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
         <Btn onClick={unlock} disabled={!code.trim()||checking} style={small}>{checking?"…":"Unlock"}</Btn>
       </div>
     </div>:<>
-      <div ref={logRef} className="max-h-56 overflow-y-auto flex flex-col gap-2 text-xs leading-relaxed" aria-live="polite">
+      <div ref={logRef} className="max-h-56 overflow-y-auto flex flex-col gap-2 text-xs leading-relaxed">
         {chat.length===0&&<div style={{color:DIM}}>{mode==="open"?"You did it! Ask me how your code works, or for another way to write it.":"Stuck? Tell me what's confusing you, and I'll help you find the problem."}</div>}
         {chat.map(m=>m.role==="user"
           ?<div key={m.id} className="self-end max-w-[85%] px-2 py-1 rounded whitespace-pre-wrap" style={{background:`${ACCENT}11`,color:ACCENT}}>{m.content}</div>
-          :<div key={m.id} style={{color:TEXT}}>{m.content&&<ByteSays text={m.content}/>}{m.pending&&<span aria-label="Byte is thinking" style={{color:ACCENT,animation:"blink 0.8s infinite"}}>▊</span>}</div>)}
+          :<div key={m.id} style={{color:TEXT}}>{m.content&&<ByteSays text={m.content}/>}{m.pending&&<span aria-hidden="true" style={{color:ACCENT,animation:"blink 0.8s infinite"}}>▊</span>}</div>)}
       </div>
       <div className="flex gap-2 mt-2">
         <input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")ask()}} maxLength={LIMITS.question} autoFocus
@@ -2776,7 +2779,10 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
         <Btn onClick={ask} disabled={!draft.trim()||waiting||busy} style={small}>Ask</Btn>
       </div>
     </>}
-    {note&&<div role="status" className="text-xs mt-2" style={{color:note.tone==="err"?ERR:note.tone==="gold"?GOLD:DIM}}>{note.say}</div>}
+    {/* Always there, so a screen reader catches its words when they appear */}
+    <div role="status" className={`text-xs${note?" mt-2":""}`} style={{color:note?.tone==="err"?ERR:note?.tone==="gold"?GOLD:DIM}}>{note?.say}</div>
+    {/* The log isn't read out as it streams (its pieces, its ⌛). This is: "Byte is thinking…", then the whole checked reply */}
+    <div className="sr-only" aria-live="polite">{said}</div>
   </div>;
 }
 
