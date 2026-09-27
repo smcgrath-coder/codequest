@@ -355,6 +355,22 @@ test("the missing last line of the kid's program is caught; if their program alr
   assert.equal(g2.calls, 2, "x = 1, and the program alone");
 });
 
+// A mention that could be code breaks the joins after the kid's program too, so they also leave out each piece and
+// each plain line in turn.
+test("one stray mention (`else:`, `x == 5`, an `if x > 5:` block, an example line) doesn't hide the lines the kid's program is missing", async () => {
+  const inline = ls => ls.map(l => "`" + l + "`").join(", then ");
+  const cases = [["ch1_r5", 2, ls => `You don't need an \`else:\` here. At the end add ${inline(ls)}.`, "`else:`"],
+    ...["ch1_r2", "ch2_r1"].flatMap(id => [[id, 2, ls => `Remember \`x == 5\` asks, it doesn't store. At the end add ${inline(ls)}.`, "`x == 5`"],
+      [id, 2, ls => `An if line looks like:\n${block("if x > 5:")}\nAt the end add:\n${ls.map(block).join("\nthen\n")}`, block("if x > 5:")]]),
+    ...["ch2_r2", "ch3_r1"].map(id => [id, 1, ls => `Adding works like this:\nprint(3 + 4)\nSo at the end add:\n${ls.join("\n")}`, "\nprint(3 + 4)\n"])];
+  for (const [id, k, say, mention] of cases) {
+    const ls = codeLinesOf(id), rest = ls.slice(-k), program = ls.slice(0, -k).join("\n") + "\n";
+    const shown = await guardReply(say(rest), { mode: "hint", grade: graderOf(id), program });
+    assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, rest), `${id}: ${shown}`);
+    assert.ok(shown.includes(mention), `${id}: the mention itself still shows: ${shown}`);
+  }
+});
+
 test("a wrong attempt that already has every line of the solution doesn't let Byte show the fixed program, split up", async () => {
   for (const [id, wrong] of [["ch1_r2", "wrong_order"], ["ch4_s3", "granted_after_loop"], ["ch6_r1", "loop_inside"]]) {
     const program = fixture(`wrong/${id}__${wrong}.py`), ls = codeLinesOf(id), two = [];

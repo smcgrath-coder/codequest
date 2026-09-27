@@ -414,7 +414,8 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   // has the answer), or doesn't reach its end (a crash, or a loop that never stops: lines added after it never run).
   // An unfinished program (it doesn't parse, like an else: with nothing under it) may be finished by a copy of one of
   // the kid's own lines, so there their own code counts too. A lone symbol isn't joined to it: a hint may well point
-  // at the `)` a line is missing.
+  // at the `)` a line is missing. A mention that could be code breaks these joins too, so they also leave out each
+  // piece, and each plain line, in turn.
   const own = !blind && live().length && program.trim() && !reachesIntoPython(program) ? await graded(program) : null;
   const unfinished = /SyntaxError/.test(own?.feedback), toEnd = own && (unfinished || own.failures?.[0]?.group !== "run");
   const mine = toEnd && !own.passed && !own.stopped && !own.timedOut && !own.internal ? [program] : null;
@@ -431,7 +432,8 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     sets.push(...befores.filter(b => clean.length + b.length > 1).map(b => [clean, b]));
     if (mine) {
       const mps = ps.filter(p => !SYMBOL.test(p.visible));
-      sets.push(...[mps, ...(mps.length > 1 ? mps.map(p => [p]) : []), ls, now.filter(x => !SYMBOL.test(x.visible))]
+      sets.push(...[mps, ...(mps.length > 1 ? mps.map(p => [p]) : []), ...(mps.length > 2 ? allButOne(mps) : []), ls,
+        ...(ls.length > 1 && ls.length <= REINDENTS ? allButOne(ls) : []), now.filter(x => !SYMBOL.test(x.visible))]
         .map(unfinished ? set => set : fresh).filter(set => set.length).map(set => [set, mine]));
     }
     again = false;

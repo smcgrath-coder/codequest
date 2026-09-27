@@ -70,6 +70,8 @@ test("the checks use the guard's analysis: a leak split into pieces (with a stra
   assert.deepEqual(await checkReply(later, room, "Now add `print(a + b)`.", py), GIVES);
   // The last line of the kid's own program.
   assert.deepEqual(await checkReply({ ...s, program: "a = 15\nb = 27\n" }, room, "The last line is `print(a + b)`.", py), GIVES);
+  // Its last two lines, with a stray mention.
+  assert.deepEqual(await checkReply({ ...s, program: "a = 15\n" }, room, "You don't need an `else:` here. At the end add `b = 27`, then `print(a + b)`.", py), GIVES);
 });
 
 test("a scenario's mustNotSay words, like the kid's name, are checked in any case", async () => {
