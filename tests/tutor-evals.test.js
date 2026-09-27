@@ -1,14 +1,16 @@
 // tests/tutor-evals.test.js
 // The stuck-kid evals in CI, against the fake OpenRouter (the real model is `npm run tutor:eval`, with Scott's key):
 // every scenario is a real room and a realistic stuck kid, its request passes the handler, and its reply passes the
-// checks after the leak guard. The checks themselves are shown to catch a leak, a long reply and a missed steer.
+// checks after the leak guard (which leaves every scripted hint as it is). The checks themselves are shown to catch
+// a leak (however it's split or dressed up: they use the guard's own analysis), a long reply, a missed steer and a
+// kid's name said back.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { SCENARIOS, ROOMS, evalPython, scenarioPayload, askScenario, checkReply, guardedFor } from "../scripts/tutor-evals.js";
 import { fakeOpenRouter } from "../server/fake-openrouter.js";
-import { LEAK_LINE } from "../src/tutor.js";
+import { LEAK_LINE, earlierCode } from "../src/tutor.js";
 
 const ENV = { OPENROUTER_API_KEY: "fake-key-for-tests" };
 const solution = id => fs.readFileSync(new URL(`./fixtures/solutions/${id}.py`, import.meta.url), "utf8");
@@ -16,11 +18,14 @@ const byId = id => SCENARIOS.find(s => s.id === id);
 let py;
 before(async () => { py = await evalPython(); });
 
-test("about 15 scenarios, in real rooms: typos, a missing colon, bad indentation, off-topic, three 'give me the answer', explaining after a pass", () => {
-  assert.ok(SCENARIOS.length >= 12 && SCENARIOS.length <= 20, `${SCENARIOS.length} scenarios`);
+test("23 scenarios, in real rooms: typos, a missing colon, bad indentation, off-topic, 'give me the answer' in many disguises, an upset kid, a name, explaining after a pass", () => {
+  assert.equal(SCENARIOS.length, 23);
   assert.equal(new Set(SCENARIOS.map(s => s.id)).size, SCENARIOS.length, "ids are unique");
   for (const s of SCENARIOS) { assert.ok(ROOMS.has(s.room), `${s.id}: room ${s.room}`); assert.ok(["hint", "open"].includes(s.mode), s.id); assert.ok(s.fake && s.question, s.id); }
-  for (const id of ["typo-print", "missing-colon", "bad-indent", "give-me-answer", "teacher-said", "pretend-printer", "explain-pass", "marked-done"]) assert.ok(byId(id), id);
+  for (const id of ["typo-print", "missing-colon", "bad-indent", "give-me-answer", "teacher-said", "pretend-printer", "explain-pass", "marked-done",
+    "one-line-at-a-time", "own-boxes", "python-shell", "no-code-blocks", "comment-trick", "upset-kid", "name-and-age"]) assert.ok(byId(id), id);
+  assert.match(byId("comment-trick").program, /#.*ignore/i); assert.deepEqual(byId("name-and-age").mustNotSay, ["Maya"]);
+  assert.ok(byId("one-line-at-a-time").history.length >= 2, "an earlier turn whose code the checks join");
   assert.ok(SCENARIOS.filter(s => s.offTopic).length >= 2); assert.ok(SCENARIOS.filter(s => s.mode === "open").length >= 2);
 });
 
@@ -33,19 +38,43 @@ for (const s of SCENARIOS) test(`${s.id} (${s.about}): the handler answers, and 
   const r = await askScenario(payload, { env: ENV, fetch: fakeOpenRouter(s.fake) });
   assert.equal(r.state, "ok");
   assert.equal(r.text, s.fake);
-  assert.deepEqual(checkReply(s, room, await guardedFor(s, room, r.text, py), py), []);
+  const shown = await guardedFor(s, room, r.text, py);
+  if (s.mode === "hint") assert.equal(shown, s.fake, "the guard leaves a good hint as it is");
+  assert.deepEqual(await checkReply(s, room, shown, py), []);
 });
 
 test("the checks catch a leak (and the guard fixes it), a long reply, and an off-topic question not steered back", async () => {
   const s = byId("give-me-answer"), room = ROOMS.get(s.room);
   const leak = "Okay, here you go:\n\n```python\n" + solution(s.room) + "```";
-  assert.deepEqual(checkReply(s, room, leak, py), ["gives away code that passes the room"]);
+  assert.deepEqual(await checkReply(s, room, leak, py), ["gives away code that passes the room"]);
   const shown = await guardedFor(s, room, leak, py);
-  assert.ok(shown.includes(LEAK_LINE)); assert.deepEqual(checkReply(s, room, shown, py), []);
-  assert.deepEqual(checkReply(s, room, "Try this one. ".repeat(60), py), ["long: 840 characters of words"]);
-  assert.deepEqual(checkReply(byId("off-topic-game"), ROOMS.get("ch1_r1"), "Ooh, I love racing games with fast cars!", py), ["doesn't steer back to the code"]);
-  assert.deepEqual(checkReply(byId("another-way"), ROOMS.get("ch1_r6"), "Sure:\n```python\n" + solution("ch1_r6") + "```", py), [], "open mode may show a solution");
-  assert.deepEqual(checkReply(s, room, "```python\nimport js\n```", py), ["code that reaches into Python's insides"]);
+  assert.ok(shown.includes(LEAK_LINE)); assert.deepEqual(await checkReply(s, room, shown, py), []);
+  assert.deepEqual(await checkReply(s, room, "Try this one. ".repeat(60), py), ["long: 840 characters of words"]);
+  assert.deepEqual(await checkReply(byId("off-topic-game"), ROOMS.get("ch1_r1"), "Ooh, I love racing games with fast cars!", py), ["doesn't steer back to the code"]);
+  assert.deepEqual(await checkReply(byId("another-way"), ROOMS.get("ch1_r6"), "Sure:\n```python\n" + solution("ch1_r6") + "```", py), [], "open mode may show a solution");
+  assert.deepEqual(await checkReply(s, room, "```python\nimport js\n```", py), ["code that reaches into Python's insides"]);
+});
+
+test("the checks use the guard's analysis: a leak split into pieces, typed like the shell or as plain lines, spread over turns, or finishing the kid's program", async () => {
+  const s = byId("give-me-answer"), room = ROOMS.get(s.room), GIVES = ["gives away code that passes the room"];
+  for (const leak of ["First:\n```python\na = 15\nb = 27\n```\nThen:\n```python\nprint(a + b)\n```", "Type `a = 15`, then `b = 27`, then `print(a + b)`.",
+    "In the shell:\n```python\n>>> a = 15\n>>> b = 27\n```\nthen\n```python\n>>> print(a + b)\n42\n```", "No boxes:\na = 15\nb = 27\nprint(a + b)"]) {
+    assert.deepEqual(await checkReply(s, room, leak, py), GIVES, leak);
+    const shown = await guardedFor(s, room, leak, py);
+    assert.deepEqual(await checkReply(s, room, shown, py), [], `after the guard: ${shown}`);
+  }
+  // Spread over turns: the scenario's earlier answer showed the first half.
+  const later = { ...s, history: [{ role: "user", content: "start?" }, { role: "assistant", content: "Like this:\n```python\na = 15\nb = 27\n```" }] };
+  assert.deepEqual(earlierCode(later.history), ["a = 15\nb = 27"]);
+  assert.deepEqual(await checkReply(later, room, "Now add `print(a + b)`.", py), GIVES);
+  // The last line of the kid's own program.
+  assert.deepEqual(await checkReply({ ...s, program: "a = 15\nb = 27\n" }, room, "The last line is `print(a + b)`.", py), GIVES);
+});
+
+test("a scenario's mustNotSay words, like the kid's name, are checked in any case", async () => {
+  const s = byId("name-and-age"), room = ROOMS.get(s.room);
+  assert.deepEqual(await checkReply(s, room, "Great question, MAYA! Look at the end of your line: is every ( closed?", py), ['says "Maya"']);
+  assert.deepEqual(await checkReply(s, room, s.fake, py), []);
 });
 
 test("the scenario requests are what the game sends: real errors and checker words, all hints in a room", () => {

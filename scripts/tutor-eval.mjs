@@ -2,8 +2,9 @@
 // The stuck-kid evals against the real model, for Scott to run with his own key:
 //   OPENROUTER_API_KEY=sk-or-... npm run tutor:eval            (add -- --show to print each reply)
 // TUTOR_MODEL picks another model. Each scenario goes through the game's own handler, then the checks: no code that
-// passes the room in hint mode, a short reply, and staying on topic. Each line is what a kid would see (after the
-// leak guard), with what the guard caught from the model's raw reply. Exits 1 if a kid would see a problem.
+// passes the room in hint mode (however it's split or dressed up), a short reply, staying on topic, and not saying
+// what a scenario's mustNotSay lists. Each line is what a kid would see (after the leak guard), with what the guard
+// caught from the model's raw reply. Exits 1 if a kid would see a problem.
 // Without OPENROUTER_API_KEY it sends nothing.
 import { SCENARIOS, evalPython, scenarioPayload, askScenario, checkReply, guardedFor } from "./tutor-evals.js";
 import { DEFAULT_MODEL } from "../server/tutor.js";
@@ -19,7 +20,7 @@ for (const s of SCENARIOS) {
   const { room, payload } = scenarioPayload(s, py);
   const r = await askScenario(payload, { env: process.env, fetch: globalThis.fetch });
   if (r.state !== "ok") { failed++; console.log(`✗ ${s.id}: no reply (${r.state})`); continue; }
-  const raw = checkReply(s, room, r.text, py), kid = checkReply(s, room, await guardedFor(s, room, r.text, py), py);
+  const raw = await checkReply(s, room, r.text, py), kid = await checkReply(s, room, await guardedFor(s, room, r.text, py), py);
   if (kid.length) failed++;
   console.log(`${kid.length ? "✗" : "✓"} ${s.id}${kid.length ? `: ${kid.join("; ")}` : ""}${raw.length && !kid.length ? ` (the guard caught: ${raw.join("; ")})` : ""}`);
   if (process.argv.includes("--show")) console.log(r.text.replace(/^/gm, "    "), "\n");
