@@ -102,6 +102,7 @@ class MusicPlayer {
     if (!audio) return;
 
     audio.volume = this._muted ? 0 : this._volume;
+    audio.muted = this._muted;   // iPad and iPhone Safari ignore volume, so mute needs muted too
     audio.currentTime = 0;
     
     // Browser requires user interaction before playing audio
@@ -126,6 +127,7 @@ class MusicPlayer {
     if (!victory) { if (callback) callback(); return; }
 
     victory.volume = this._muted ? 0 : this._volume;
+    victory.muted = this._muted;
     victory.currentTime = 0;
     
     victory.onended = () => {
@@ -158,10 +160,12 @@ class MusicPlayer {
   }
 
   // Mutes or unmutes, including the track playing now; tracks started later read _muted. Returns the new state.
+  // Sets muted as well as volume: iPad and iPhone Safari treat volume as read-only.
   setMuted(muted) {
     this._muted = !!muted;
     if (this._current) {
       this._current.volume = this._muted ? 0 : this._volume;
+      this._current.muted = this._muted;
     }
     return this._muted;
   }
