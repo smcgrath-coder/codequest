@@ -3,14 +3,15 @@
 // would pass the room is replaced, even split into pieces, dressed up (>>> prompts, indents, its output), typed as
 // plain lines, spread over answers (with stray mentions around it), named out of order or added to the kid's program;
 // a one-line syntax example, a hint pointing at a missing `)`, the kid's own wrong code and the starter aren't. Long
-// blocks are cut, and when the grader can't say (at all, or partway) it fails closed. Open mode is left alone.
+// blocks are cut, and when the grader can't say (at all, or partway) it fails closed. A stopped question's grades
+// stop too. Open mode is left alone.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { makeCore } from "./helpers/python.js";
 import { CHECKS } from "../src/checks.js";
 import { CHAPTERS } from "../src/content.js";
-import { guardReply, leakCheck, earlierCode, graderFor, codeIn, replyParts, hideCode, LEAK_LINE, UNCHECKED_LINE, HINT_BLOCK_LINES, MAX_PIECES } from "../src/tutor.js";
+import { guardReply, leakCheck, earlierCode, graderFor, untilStopped, codeIn, replyParts, hideCode, LEAK_LINE, UNCHECKED_LINE, HINT_BLOCK_LINES, MAX_PIECES } from "../src/tutor.js";
 
 const ROOMS = new Map(CHAPTERS.flatMap(c => [...c.rooms, c.boss]).map(c => [c.id, c]));
 const fixture = p => fs.readFileSync(new URL(`./fixtures/${p}`, import.meta.url), "utf8");
@@ -160,6 +161,17 @@ test("graderFor waits for the kid's program to finish, and grades again when the
   // A grade stopped some other way (not by the kid's Run) is returned as it is, so the guard fails closed.
   const stopped = { available: () => true, grade: async () => ({ passed: false, stopped: true }) };
   assert.deepEqual(await graderFor({ runner: stopped, rule: { out: 1 } })("x"), { passed: false, stopped: true });
+});
+
+test("untilStopped grades until the question stops, then the guard skips every grade after the one in flight", async () => {
+  const text = `First:\n${block("x = 1")}\nthen:\n${block("print(x)")}\nRun it!`;
+  const slow = ac => { const grade = async () => { grade.calls++; ac?.abort(); await new Promise(r => setTimeout(r, 20)); return { passed: false }; }; grade.calls = 0; return grade; };
+  const on = slow(), ac = new AbortController(), off = slow(ac);
+  await guardReply(text, { mode: "hint", grade: untilStopped(on, new AbortController().signal) });
+  assert.ok(on.calls > 1, "a reply takes several grades");
+  // The kid hid Byte during the first grade: its answer is thrown away, so nothing more is graded (and it fails closed).
+  assert.equal(await guardReply(text, { mode: "hint", grade: untilStopped(off, ac.signal) }), `First:\n${UNCHECKED_LINE}\nthen:\n…\nRun it!`);
+  assert.equal(off.calls, 1);
 });
 
 // The shapes a whole solution can take in a reply, each a trivial edit away from pasting: split into blocks or inline

@@ -10,7 +10,7 @@ import { runStopGuard, CODE_TEXTAREA_PROPS } from "./editor.js";
 import { runAndGrade, countsAsStuck, STUCK_TRIES_TO_MARK_DONE } from "./python/flow.js";
 import { stopCode, answerInput, onPythonStatus, pythonStatus, warmUp } from "./python/runner.js";
 import { CHECKS } from "./checks.js";
-import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, hideCode, replyParts, spoken, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
+import { shouldOfferTutor, tutorMode, tutorReady, loadTutorCode, saveTutorCode, checkTutorCode, askTutor, tutorPayload, onTutorState, guardReply, earlierCode, graderFor, untilStopped, hideCode, replyParts, spoken, asked, replyPending, dropReply, LIMITS } from "./tutor.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SOUND FX SYSTEM (Chiptune via Tone.js)
@@ -2729,7 +2729,8 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
     if(state==="ready"){saveTutorCode(c);setNeedCode(false)}else tell(onTutorState(state));
   };
   // A hint-mode reply shows its code only after the leak guard, which also joins it with Byte's earlier code in this chat
-  // and the kid's program. However the question ends, its reply stops waiting: one that doesn't come (it failed, the
+  // and the kid's program; its grades stop with the question, so a kid who hid Byte doesn't wait on Run for checks
+  // nobody will see. However the question ends, its reply stops waiting: one that doesn't come (it failed, the
   // kid hid Byte or left, or something broke) goes, and its question stays on screen but out of the history.
   const ask=async()=>{const q=draft.trim();if(!q||waiting||busy)return;
     const ac=start(),id=`${Date.now()}-${Math.random()}`;
@@ -2741,7 +2742,7 @@ function TutorPanel({mode,chat,setChat,context,grade,busy=false,onAsk}){
       const payload=tutorPayload({...context,tutorCode:code,mode,chat,question:q});
       const r=await askTutor(payload,{signal:ac.signal,onText:t=>put({content:mode==="hint"?hideCode(t):t})});
       if(ac.signal.aborted)return;
-      if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade,earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;
+      if(r.state==="ok"){const text=await guardReply(r.text,{mode,grade:untilStopped(grade,ac.signal),earlier:earlierCode(chat),program:context.program});if(ac.signal.aborted)return;
         put({content:text,pending:false});answered=true;setLeft(r.remaining);setSaid(spoken(text))}
       else{const s=onTutorState(r.state);tell(s);if(s.needCode){setNeedCode(true);setCode("")}}
     }catch{if(!ac.signal.aborted)tell(onTutorState("busy"))}   // a stopped question needs no note: the kid left

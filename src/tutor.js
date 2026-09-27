@@ -480,3 +480,7 @@ export function graderFor({ runner, rule, starter = "", busy = () => false, wait
     }
   };
 }
+
+// A grade(code) that refuses once the question is stopped (the kid hid Byte or left). The guard then goes blind and
+// skips every grade after the one in flight: its answer would be thrown away, and the kid shouldn't wait on Run for it.
+export const untilStopped = (grade, signal) => code => (signal.aborted ? Promise.reject(new Error("stopped")) : grade(code));
