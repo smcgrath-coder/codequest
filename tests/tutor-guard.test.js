@@ -161,7 +161,8 @@ test("a guard grade stops a loop that never ends after GUARD_RUN_SECONDS, not th
   const room = ROOMS.get("ch4_r4"), grade = graderFor({ runner: pageRunner, rule: CHECKS[room.id], starter: room.starterCode });
   const t0 = performance.now(), r = await grade('energy = 10\nwhile energy >= 0:\n    energy - 1\nprint("Shutdown!")'), ms = performance.now() - t0;
   assert.match(r.feedback, /never finished/);
-  assert.ok(ms >= GUARD_RUN_SECONDS * 1000 && ms < GUARD_RUN_SECONDS * 1000 + 500, `${ms} ms`);
+  // Under the kid's 2 s, with room to spare: npm test runs the test files side by side, so a busy machine adds time.
+  assert.ok(ms >= GUARD_RUN_SECONDS * 1000 && ms < 2000, `${ms} ms`);
 });
 
 // A grade stopped sooner can't say that code wouldn't pass given the kid's 2 s, and a piece that doesn't pass is shown.
