@@ -1,6 +1,7 @@
 // scripts/tutor-eval.mjs: `npm run tutor:eval`
 // The stuck-kid evals against the real model, for Scott to run with his own key:
-//   OPENROUTER_API_KEY=sk-or-... npm run tutor:eval            (add -- --show to print each reply)
+//   read -rs OPENROUTER_API_KEY && export OPENROUTER_API_KEY   (paste the key; it stays out of shell history)
+//   npm run tutor:eval                                         (add -- --show to print each reply)
 // TUTOR_MODEL picks another model. Each scenario goes through the game's own handler, then the checks: no code that
 // passes the room in hint mode (however it's split or dressed up), a short reply, staying on topic, and not saying
 // what a scenario's mustNotSay lists. Each line is what a kid would see (after the leak guard), with what the guard
@@ -10,7 +11,7 @@ import { SCENARIOS, evalPython, scenarioPayload, askScenario, checkReply, guarde
 import { DEFAULT_MODEL } from "../server/tutor.js";
 
 if (!process.env.OPENROUTER_API_KEY) {
-  console.log("Set OPENROUTER_API_KEY to run the evals against the real model:\n  OPENROUTER_API_KEY=sk-or-... npm run tutor:eval\nNothing was sent.");
+  console.log("Set OPENROUTER_API_KEY to run the evals against the real model (the questions are billed to that key):\n  read -rs OPENROUTER_API_KEY && export OPENROUTER_API_KEY\n  npm run tutor:eval\nNothing was sent.");
   process.exit(1);
 }
 const py = await evalPython();

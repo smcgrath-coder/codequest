@@ -5,10 +5,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { LIMITS } from "../src/tutor-limits.js";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
-// Reasoning shares max_tokens with the reply. At effort "low" a Claude model gets a thinking budget of at least 1024
-// tokens (it can use less), and max_tokens must be above that, so 2000 leaves about 976 or more for a 2-4 sentence
-// reply. It is also the real cost bound: stopping a stream doesn't stop billing on the zero-retention providers
-// (Bedrock, Vertex).
+// Thinking shares max_tokens with the reply, and both are billed as output. Sonnet 5 thinks adaptively: effort "low"
+// sets how hard it thinks, not a budget, so nothing is set aside for the reply. Older Claude models, such as Haiku 4.5,
+// get a budget instead: 20% of max_tokens, at least 1024. 2000 is also the real cost bound: stopping a stream doesn't
+// stop billing on the zero-retention providers (Bedrock, Vertex).
 export const MAX_TOKENS = 2000;
 export const DEFAULT_DAILY_LIMIT = 40;
 
