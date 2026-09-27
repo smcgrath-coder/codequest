@@ -156,11 +156,30 @@ export function replyParts(text) {
 }
 // Plain lines of a reply that look like code. A >>> or ... prompt from the Python shell, or a list marker ("- ",
 // "1. "), is dropped first. Then: a name followed by (, [, .name, = or +=, names = (a, b = …), a Capital name = or
-// call, a # comment, or a statement like for, if, else, def, return, del or import. A line ending in "?" is a
-// question, not code.
+// call, a # comment, or a statement like for, if, else, def, return, del or import. A line that reads as a sentence
+// isn't code (see prose).
 const PROMPT = /^[ \t]*(?:>>>|\.\.\.) ?/, BULLET = /^[ \t]*(?:[-*•]|\d+[.)])[ \t]/;
 const CODE_LINE = /^(?:[a-z_]\w*\s*(?:\(|\[|\.[a-z_]|[-+*/%]?=(?!=))|[a-z_]\w*(?:\s*,\s*[a-z_]\w*)+\s*=(?!=)|[A-Z]\w*(?:\s*[-+*/%]?=(?!=)|\()|#|(?:for|while|if|elif|def|class|with|except)\b.*:|(?:else|try|finally)\s*:|(?:return|break|continue|pass|raise|del|global|nonlocal|assert|yield)\b|import\s+\w|from\s+\w+\s+import\b)/;
-const looksLikeCode = line => { const l = line.replace(PROMPT, "").replace(BULLET, "").trim(); return CODE_LINE.test(l) && !l.endsWith("?"); };
+// Python's own words: only these may follow a name or a closing bracket (x in y, a if b else c).
+const KEYWORDS = new Set("and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield".split(" "));
+// A line of code without its # comment (a # in quotes stays).
+const uncomment = line => line.replace(/^((?:[^#"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*)#.*$/, "$1");
+// A line that reads as a sentence, not code: it ends in "?", "!" or a word's ".", or has a word right after a name,
+// number or bracket ("print() shows the sum", "return the total"). A comment at its end doesn't count; a comment
+// line is a sentence only if it asks something.
+function prose(line) {
+  const l = uncomment(line).trim();
+  if (!l) return line.trim().endsWith("?");
+  if (/[?!]$|[^\d.]\.$/.test(l)) return true;
+  let value = false;   // the last token ends a value: a name, number, string or closing bracket
+  for (const [tok] of l.matchAll(/"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[A-Za-z_]\w*|\d[\w.]*|\S/g)) {
+    const word = /^[A-Za-z_]/.test(tok) && !KEYWORDS.has(tok);
+    if (word && value) return true;
+    value = word || /^["'\d)\]}]/.test(tok);
+  }
+  return false;
+}
+const looksLikeCode = line => { const l = line.replace(PROMPT, "").replace(BULLET, "").trim(); return CODE_LINE.test(l) && !prose(l); };
 // A line of code that opens a block (ends in ":", maybe with a comment).
 const opens = line => /:[ \t]*(?:#.*)?$/.test(line);
 // The brackets and """ string a line of code leaves open, from those open before it (strings and comments skipped).
@@ -177,8 +196,8 @@ function carry(line, depth, triple) {
 }
 // Those lines, outside the reply's code pieces: { at, end, code, run }. code is the line without its prompt or marker
 // (its indent kept, for a loop's body); run numbers lines that follow one another. A line that carries on the code
-// above it counts too: inside its open brackets or """ string (indented, or closing them), or deeper than a block
-// it opened (a body line like 10 / 0).
+// above it counts too: inside its open brackets or """ string (indented, or closing them), or deeper than a block it
+// opened (a body line like 10 / 0). Not a sentence, though, unless it's inside a """ string.
 function codeLines(text, pieces = piecesOf(text)) {
   const out = [], gaps = [];
   let from = 0, run = 0;
@@ -189,7 +208,7 @@ function codeLines(text, pieces = piecesOf(text)) {
     for (const line of text.slice(a, b).split("\n")) {
       const code = line.replace(PROMPT, "").replace(BULLET, ""), bare = code.trim(), ind = code.length - code.trimStart().length;
       const inside = (depth || triple) && (ind > 0 || /^[)\]}]/.test(bare) || (triple && bare.includes(triple)));
-      const more = bare && (inside || (body >= 0 && ind > body));
+      const more = bare && (inside || (body >= 0 && ind > body)) && (triple || !prose(code));
       if (more || looksLikeCode(line)) {
         if (!out.length || out[out.length - 1].end !== at - 1) run++;
         out.push({ at, end: at + line.length, code, run });
@@ -262,17 +281,21 @@ function reindents(head, lines, max) {
   walk(0, Math.floor(last.match(/^ */)[0].length / 4), last, []);
   return out;
 }
-// Code that could be a statement of a program, not a lone name or a line of output.
-const statementy = code => /[(=:]/.test(code) || /^\s*(?:return|break|continue|pass|import|from)\b/.test(code);
-// A lone name or symbol, like `print` or `==`: it can't be a program that passes a room.
-const LONE = /^\s*(?:\w+|[^\w\s]{1,3})\s*$/;
+// A lone name or symbol, like `print` or `==`: it can't be a program that passes a room. A lone symbol, like the `)`
+// a hint points at, is never joined with the kid's program either.
+const LONE = /^\s*(?:\w+|[^\w\s]{1,3})\s*$/, SYMBOL = /^\s*[^\w\s]{1,3}\s*$/;
+// Code that could be a line of a program (a comment or a docstring too): not a lone name or symbol (unless it's
+// return, break, continue or pass), and not a line of output. A mention like `==` or `:` would break every join it's in.
+const statementy = code => (LONE.test(code) ? /^\s*(?:return|break|continue|pass)\s*$/.test(code)
+  : /[(=:]/.test(code) || /^\s*(?:(?:return|break|continue|pass|import|from)\b|[#"'])/.test(code));
 // Why a piece gives the room away: it passes on its own (or cut short), after a trivial edit, joined with Byte's other
 // code (in this reply or earlier ones), or added to the kid's program.
 const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 
 // Would this reply give the room away? One analysis for the guard and the evals (scripts/tutor-evals.js).
 // grade(code) resolves to the room grader's { passed, stopped?, timedOut?, internal? }, and may reject.
-// earlier: the code Byte showed earlier in this chat (earlierCode). program: the kid's code now.
+// earlier: the code Byte showed in its earlier answers in this chat, one entry an answer (earlierCode), each a list of
+// { code, plain } (a string is a piece, and a lone string an answer of one piece). program: the kid's code now.
 // Resolves to { pieces, lines, passes, grades }: each code piece ({ inline, at, end, code, shown }) and each plain line
 // that looks like code ({ at, end, code }), with caught: "" or why, and passes: whether anything gives it away.
 // Each piece fails closed on its own: "passes" (alone, or cut short), "unsure" (its grade didn't finish) or "unsafe"
@@ -283,7 +306,7 @@ const GIVES_AWAY = new Set(["passes", "edited", "joined", "program"]);
 // "too many": more than MAX_PIECES pieces, so nothing was graded. grades: how many grades it took.
 export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   const cache = new Map();
-  let blind = false, grades = 0;
+  let blind = false, grades = 0, slow = false;
   // One grade per code string; null when the grader can't answer. After that nothing more is graded.
   const graded = async code => {
     if (!cache.has(code)) {
@@ -302,10 +325,12 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
     return !r ? "unchecked" : r.passed ? "passes" : r.stopped || r.timedOut || r.internal ? "unsure" : "";
   };
   // Only a real pass counts. A grade that was stopped (the kid pressed Run) or broke is no answer, like none at all.
-  const passes = async code => {
-    if (blind || !code.trim() || reachesIntoPython(code)) return false;
+  // A guess at indents that never finishes (grading.py's "never finished") ends the guessing: the rest may loop too.
+  const passes = async (code, guess = false) => {
+    if (blind || (guess && slow) || !code.trim() || reachesIntoPython(code)) return false;
     const r = await graded(code);
     if (r?.stopped || r?.internal) blind = true;
+    if (guess && /never finished/.test(r?.feedback)) slow = true;
     return !!r?.passed;
   };
 
@@ -325,43 +350,64 @@ export async function leakCheck(text, { grade, earlier = [], program = "" }) {
   }
   for (const p of pieces) if (!p.caught) for (const e of edits(p.visible)) if (await passes(e)) { p.caught = "edited"; break; }
 
-  // Joined, in order: as shown (a loop body keeps its indent), with each piece tidied, and, when a line opens a block,
-  // indented the ways a kid could (at most REINDENTS of those per reply). Earlier answers come first, unless their
-  // code passes alone (the kid had it already). A join needs some code the kid doesn't have: quoting their own lines
-  // back gives nothing away (and indenting them might just fix their program). If a join passes, every piece of this
-  // reply in it is caught, and the rest is tried again.
+  // Joined, in order: as shown (a loop body keeps its indent) and with each piece tidied. Guesses too, but not for a
+  // set of nothing but the kid's own lines quoted back (a guess might just fix their program): when a line opens a
+  // block, the indents a kid could add (at most REINDENTS of those per reply), and the first piece moved last ("put
+  // this after that"). If a join passes, every piece of this reply in it is caught, and the rest is tried again.
   const have = new Set(program.split("\n").map(l => l.trim()));
   const fresh = set => set.filter(x => x.visible.split("\n").some(l => l.trim() && !have.has(l.replace(PROMPT, "").trim())));
   let budget = REINDENTS;
-  const join = async (set, before) => {
-    if (!(before === mine && unfinished) && !fresh(set).length) return false;
+  const join = async (set, before, guess = false) => {
+    const own = !(before === mine && unfinished) && !fresh(set).length;
+    if (own && (guess || before === mine)) return false;
     const why = before === mine ? "program" : !before.length && set.every(x => x.plain) ? "passes" : "joined";
     const tidied = set.map(x => tidy(x.visible)), bare = tidied.join("\n").split("\n").map(l => l.trim()).filter(Boolean);
     const tries = [[...before, ...set.map(x => x.visible)].join("\n"), [...before.map(tidy), ...tidied].join("\n")];
-    if (bare.slice(0, -1).some(opens) || opens(before.join("\n").trimEnd())) tries.push(...reindents(before.join("\n"), bare, budget));
+    if (!own && (bare.slice(0, -1).some(opens) || opens(before.join("\n").trimEnd()))) tries.push(...reindents(before.join("\n"), bare, budget));
     for (const [i, code] of tries.entries()) {
-      if (i > 1 && !tries.slice(0, 2).includes(code)) budget--;
-      if (await passes(code)) { for (const x of set) x.caught ||= why; return true; }
+      const indents = i > 1 && !tries.slice(0, 2).includes(code);
+      if (indents) budget--;
+      if (await passes(code, indents)) { for (const x of set) x.caught ||= why; return true; }
     }
     return false;
   };
-  if (!blind && live().length && earlier.length && await passes(earlier.join("\n"))) earlier = [];
+  // Byte's earlier answers come first, unless their code passes alone (the kid had it already). One item there that
+  // isn't part of the answer (an `else:` mentioned, an example, a line of prose that looks like code) would break
+  // every join it's in, so the joins also try cleaner earlier code: only its statements, and of those none, only the
+  // latest answer's, only its pieces, all but the lines that open a block with nothing under them, and all but one
+  // (each in turn).
+  const answers = earlier.map(a => (Array.isArray(a) ? a : [a]).map(x => (typeof x === "string" ? { code: x, plain: false } : x)).filter(x => x.code.trim()));
+  let all = answers.flat().map(x => x.code);
+  if (!blind && live().length && all.length && await passes(all.join("\n"))) { all = []; answers.length = 0; }
+  const kept = answers.map(a => a.filter(x => statementy(x.code))), said = kept.flat(), early = said.map(x => x.code), key = b => b.join("\n");
+  const hangs = (x, next) => !x.code.includes("\n") && opens(x.code) && !/^\s/.test(next?.code ?? "");
+  const befores = [[], kept[kept.length - 1] ?? [], said.filter(x => !x.plain), kept.flatMap(a => a.filter((x, i) => !hangs(x, a[i + 1]))),
+    ...(said.length > 1 && said.length <= MAX_PIECES ? said.map((_, i) => said.filter((_, j) => j !== i)) : [])]
+    .map(b => b.map(x => x.code)).filter((b, i, bs) => early.length && key(b) !== key(early) && bs.findIndex(c => key(c) === key(b)) === i);
   // The kid's program comes first in the last joins: the line it's missing, say. Not when it already passes (the kid
   // has the answer), or doesn't reach its end (a crash, or a loop that never stops: lines added after it never run).
   // An unfinished program (it doesn't parse, like an else: with nothing under it) may be finished by a copy of one of
-  // the kid's own lines, so there their own code counts too.
-  const early = earlier.filter(statementy), own = !blind && live().length && program.trim() && !reachesIntoPython(program) ? await graded(program) : null;
+  // the kid's own lines, so there their own code counts too. A lone symbol isn't joined to it: a hint may well point
+  // at the `)` a line is missing.
+  const own = !blind && live().length && program.trim() && !reachesIntoPython(program) ? await graded(program) : null;
   const unfinished = /SyntaxError/.test(own?.feedback), toEnd = own && (unfinished || own.failures?.[0]?.group !== "run");
   const mine = toEnd && !own.passed && !own.stopped && !own.timedOut && !own.internal ? [program] : null;
   for (let again = true; again && !blind;) {
     const now = live(), ps = now.filter(x => !x.plain), ls = now.filter(x => x.plain);
     const runs = [...new Set(ls.map(l => l.run))], blocks = ps.filter(p => !p.inline), stmts = ps.filter(p => statementy(p.visible));
-    const sets = [[ps, earlier], [blocks, early], [stmts, early]].filter(([set, before]) => set.length && set.length + before.length > 1);
+    const sets = [[ps, all], [blocks, early], [stmts, early]].filter(([set, before]) => set.length && set.length + before.length > 1);
+    if (stmts.length > 1) sets.push([[...stmts.slice(1), stmts[0]], early, true]);
     if (ls.length) sets.push([ls, []], ...(runs.length > 1 ? runs.map(r => [ls.filter(l => l.run === r), []]) : []));
-    if (ls.length && (ps.length || earlier.length)) sets.push([now, earlier]);
-    if (mine) sets.push(...[ps, ...(ps.length > 1 ? ps.map(p => [p]) : []), ls, now].map(unfinished ? set => set : fresh).filter(set => set.length).map(set => [set, mine]));
+    if (ls.length && (ps.length || all.length)) sets.push([now, all]);
+    const clean = now.filter(x => x.plain || statementy(x.visible));
+    sets.push(...befores.filter(b => clean.length + b.length > 1).map(b => [clean, b]));
+    if (mine) {
+      const mps = ps.filter(p => !SYMBOL.test(p.visible));
+      sets.push(...[mps, ...(mps.length > 1 ? mps.map(p => [p]) : []), ls, now.filter(x => !SYMBOL.test(x.visible))]
+        .map(unfinished ? set => set : fresh).filter(set => set.length).map(set => [set, mine]));
+    }
     again = false;
-    for (const [set, before] of sets) if (await join(set, before)) { again = true; break; }
+    for (const [set, before, guess] of sets) if (await join(set, before, guess)) { again = true; break; }
   }
   // The grader stopped answering before every check was done: nothing it didn't finish checking is shown.
   if (blind) for (const x of items) if (!x.caught && !(x.inline && LONE.test(x.code))) x.caught = "unchecked";
@@ -389,14 +435,15 @@ export async function guardReply(text, { mode, grade, earlier = [], program = ""
   return tail && !out.includes(end) ? `${out.trimEnd()}\n\n${end}` : out;
 }
 
-// The code Byte showed earlier in a chat, oldest first, for the guard's joins: each finished answer's code as the kid
-// saw it (a cut block's first lines) and its plain lines that look like code. The guard's own `…` and lines aren't code.
+// The code Byte showed earlier in a chat, for the guard's joins: one list for each finished answer, oldest first, of
+// its code as the kid saw it (a cut block's first lines) and its plain lines that look like code ({ code, plain }).
+// The guard's own `…` and lines aren't code.
 export function earlierCode(chat) {
-  return chat.filter(m => m.role === "assistant" && !m.pending && !m.failed && m.content).flatMap(m => {
+  return chat.filter(m => m.role === "assistant" && !m.pending && !m.failed && m.content).map(m => {
     const ps = piecesOf(m.content);
-    return [...ps.filter(p => p.code.trim() && p.code !== "…").map(p => ({ at: p.at, code: visibleOf(p) })), ...codeLines(m.content, ps)]
-      .sort((a, b) => a.at - b.at).map(x => x.code);
-  });
+    return [...ps.filter(p => p.code.trim() && p.code !== "…").map(p => ({ at: p.at, code: visibleOf(p), plain: false })),
+      ...codeLines(m.content, ps).map(l => ({ at: l.at, code: l.code, plain: true }))].sort((a, b) => a.at - b.at).map(({ code, plain }) => ({ code, plain }));
+  }).filter(a => a.length);
 }
 
 // How long the guard's grader waits for the kid's own program to finish (it may be waiting at an input()).

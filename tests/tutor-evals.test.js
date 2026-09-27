@@ -58,14 +58,15 @@ test("the checks catch a leak (and the guard fixes it), a long reply, and an off
 test("the checks use the guard's analysis: a leak split into pieces, typed like the shell or as plain lines, spread over turns, or finishing the kid's program", async () => {
   const s = byId("give-me-answer"), room = ROOMS.get(s.room), GIVES = ["gives away code that passes the room"];
   for (const leak of ["First:\n```python\na = 15\nb = 27\n```\nThen:\n```python\nprint(a + b)\n```", "Type `a = 15`, then `b = 27`, then `print(a + b)`.",
-    "In the shell:\n```python\n>>> a = 15\n>>> b = 27\n```\nthen\n```python\n>>> print(a + b)\n42\n```", "No boxes:\na = 15\nb = 27\nprint(a + b)"]) {
+    "In the shell:\n```python\n>>> a = 15\n>>> b = 27\n```\nthen\n```python\n>>> print(a + b)\n42\n```", "No boxes:\na = 15\nb = 27\nprint(a + b)",
+    "Type `a = 15`, then `b = 27`, then `print(a + b)`. Remember `=` is not `==`."]) {
     assert.deepEqual(await checkReply(s, room, leak, py), GIVES, leak);
     const shown = await guardedFor(s, room, leak, py);
     assert.deepEqual(await checkReply(s, room, shown, py), [], `after the guard: ${shown}`);
   }
   // Spread over turns: the scenario's earlier answer showed the first half.
   const later = { ...s, history: [{ role: "user", content: "start?" }, { role: "assistant", content: "Like this:\n```python\na = 15\nb = 27\n```" }] };
-  assert.deepEqual(earlierCode(later.history), ["a = 15\nb = 27"]);
+  assert.deepEqual(earlierCode(later.history), [[{ code: "a = 15\nb = 27", plain: false }]]);
   assert.deepEqual(await checkReply(later, room, "Now add `print(a + b)`.", py), GIVES);
   // The last line of the kid's own program.
   assert.deepEqual(await checkReply({ ...s, program: "a = 15\nb = 27\n" }, room, "The last line is `print(a + b)`.", py), GIVES);

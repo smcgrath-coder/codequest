@@ -1,9 +1,9 @@
 // tests/tutor-guard.test.js
 // The leak guard (guardReply and leakCheck in src/tutor.js) with real grading in Pyodide: in hint mode code that
 // would pass the room is replaced, even split into pieces, dressed up (>>> prompts, indents, its output), typed as
-// plain lines, spread over two answers or added to the kid's program; a one-line syntax example, the kid's own wrong
-// code and the starter aren't. Long blocks are cut, and when the grader can't say (at all, or partway) it fails
-// closed. Open mode is left alone.
+// plain lines, spread over answers (with stray mentions around it), named out of order or added to the kid's program;
+// a one-line syntax example, a hint pointing at a missing `)`, the kid's own wrong code and the starter aren't. Long
+// blocks are cut, and when the grader can't say (at all, or partway) it fails closed. Open mode is left alone.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -18,6 +18,8 @@ const solution = id => fixture(`solutions/${id}.py`);
 const block = code => "```python\n" + code.trimEnd() + "\n```";
 // A solution's lines of code, without comments or blank lines.
 const codeLinesOf = id => solution(id).split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));
+// Every line of a solution is on screen, in order: the kid could copy them all.
+const allSeen = (shown, lines) => { let at = 0; for (const l of lines) { const i = shown.indexOf(l.trim(), at); if (i < 0) return false; at = i + l.trim().length; } return true; };
 
 let t;
 before(async () => { t = await makeCore(); });
@@ -190,6 +192,19 @@ test("a solution split up or dressed up is still caught, and none of its lines a
     }
 });
 
+test("one stray mention like `==`, `=` or `:` doesn't hide a split solution from the joins (comments and docstrings count)", async () => {
+  // A solution's lines, less the starter's comments (a kid has those already).
+  const linesOf = id => solution(id).split("\n").filter(l => l.trim() && !(ROOMS.get(id).starterCode || "").includes(l));
+  for (const id of ["ch1_r5", "ch1_r3", "ch6_s2"]) {
+    const ls = linesOf(id), inline = ls.map(l => "`" + l + "`").join(", then ");
+    for (const text of [`Type ${inline}. Remember \`=\` is not \`==\`.`, `Type ${inline}. No \`:\` needed.`, `Mind the \`=\`:\n${ls.map(block).join("\nthen\n")}`]) {
+      const shown = await guardReply(text, { mode: "hint", grade: graderOf(id) });
+      assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
+      assert.match(shown, /`=`|`:`/, "the mention itself still shows");
+    }
+  }
+});
+
 test("a long block cut to two lines that can't pass is kept, even dressed up", async () => {
   for (const name of [">>> with output", "indented"]) {
     const reply = shapes("ch1_r5")[name], shown = await guardReply(reply, { mode: "hint", grade: graderOf("ch1_r5") });
@@ -211,7 +226,37 @@ test("a solution spread over two answers is caught in the second, joined with th
   assert.equal(await guardReply(idea, { mode: "hint", grade, earlier: [codeLinesOf("ch1_r5").join("\n")] }), idea);
 });
 
-test("earlierCode: the code Byte showed in earlier answers, oldest first, as the kid saw it", () => {
+// Each turn guarded as TutorPanel does, with the code of the turns before it. Returns what the kid saw.
+async function chatOf(id, turns) {
+  const chat = [], shown = [];
+  for (const text of turns) {
+    const out = await guardReply(text, { mode: "hint", grade: graderOf(id), earlier: earlierCode(chat) });
+    chat.push({ role: "user", content: "and then?" }, { role: "assistant", content: out }); shown.push(out);
+  }
+  return shown;
+}
+
+test("noise in earlier answers (a lone `:`, an `else:`, an example, a prose line) doesn't hide a solution spread over them", async () => {
+  for (const id of ["ch1_r5", "ch4_r4"]) {
+    // The solution two lines an answer (all a block shows), after some noise.
+    const ls = codeLinesOf(id), parts = [];
+    for (let i = 0; i < ls.length; i += 2) parts.push(block(ls.slice(i, i + 2).join("\n")));
+    const [first, ...rest] = parts;
+    for (const turns of [
+      ["What happens in the `else:` part?", ...parts],
+      ["An if line ends with a `:`. Does yours?", ...parts],
+      [`Adding works like \`print(3 + 4)\`. Start with:\n${first}`, ...rest],
+      [`print() shows things.\nStart with:\n${first}`, ...rest],
+      [`Remember each \`:\`! Start with:\n${first}`, ...rest],
+    ]) {
+      const shown = await chatOf(id, turns);
+      assert.ok(!allSeen(shown.join("\n"), ls), `${id}: ${JSON.stringify(shown)}`);
+      assert.ok(shown[shown.length - 1].includes(LEAK_LINE), `${id}: caught in the last answer`);
+    }
+  }
+});
+
+test("earlierCode: the code Byte showed in earlier answers, oldest first, one list an answer, as the kid saw it", () => {
   const chat = [
     { role: "user", content: "help" },
     { role: "assistant", content: "Try `x = 1`. Then:\n```python\na = 1\nb = 2\n# …\n```\ntotal = a + b\nWhat does it print?" },
@@ -221,7 +266,8 @@ test("earlierCode: the code Byte showed in earlier answers, oldest first, as the
     { role: "assistant", content: "```python\nlost = 1\n```", failed: true },
     { role: "user", content: "```python\nmine = 1\n```" },
   ];
-  assert.deepEqual(earlierCode(chat), ["x = 1", "a = 1\nb = 2", "total = a + b", "print(total)"]);
+  const piece = code => ({ code, plain: false }), line = code => ({ code, plain: true });
+  assert.deepEqual(earlierCode(chat), [[piece("x = 1"), piece("a = 1\nb = 2"), line("total = a + b")], [line("print(total)")]]);
   assert.deepEqual(earlierCode([]), []);
 });
 
@@ -242,6 +288,23 @@ test("the missing last line of the kid's program is caught; if their program alr
   assert.equal(g2.calls, 2, "x = 1, and the program alone");
 });
 
+test("a wrong attempt that already has every line of the solution doesn't let Byte show the fixed program, split up", async () => {
+  for (const [id, wrong] of [["ch1_r2", "wrong_order"], ["ch4_s3", "granted_after_loop"], ["ch6_r1", "loop_inside"]]) {
+    const program = fixture(`wrong/${id}__${wrong}.py`), ls = codeLinesOf(id), two = [];
+    for (let i = 0; i < ls.length; i += 2) two.push(ls.slice(i, i + 2).join("\n"));
+    for (const text of [ls.map(block).join("\nthen\n"), two.map(block).join("\nthen\n"), ls.map(l => "`" + l + "`").join(", then ")]) {
+      const shown = await guardReply(`Here:\n${text}`, { mode: "hint", grade: graderOf(id), program });
+      assert.ok(shown.includes(LEAK_LINE) && !allSeen(shown, ls), `${id}: ${shown}`);
+    }
+  }
+});
+
+test("pointing at a missing `)` isn't a leak, even though adding one would finish the kid's program", async () => {
+  for (const [id, program] of [["ch1_r1", 'print("Hello, World!"'], ["ch1_r5", "a = 15\nb = 27\nprint(a + b"]])
+    for (const text of ["Every `(` needs a `)` to close it. Is yours there?", "Count your brackets: every `(` needs a `)`.", "Look at the end of that line. Is a `)` missing?"])
+      assert.equal(await guardReply(text, { mode: "hint", grade: graderOf(id), program }), text, `${id}: ${text}`);
+});
+
 test("plain lines that look like code are graded; if they pass they become … and prose is left alone", async () => {
   const grade = graderOf("ch1_r5");
   assert.equal(await guardReply("No boxes, okay:\na = 15\nb = 27\nprint(a + b)\nThat's it!", { mode: "hint", grade }),
@@ -253,6 +316,12 @@ test("plain lines that look like code are graded; if they pass they become … a
   // A plain line that doesn't pass stays, and one idea line is graded once.
   const g3 = graderOf("ch1_r5"), idea = "Numbers add like this:\nprint(3 + 4)\nNow your turn!";
   assert.equal(await guardReply(idea, { mode: "hint", grade: g3 }), idea); assert.equal(g3.calls, 1);
+  // A sentence that starts like code, right after the lines, is prose: it doesn't join them and hide the answer.
+  assert.equal(await guardReply("Type these:\na = 15\nb = 27\nprint(a + b)\nprint() shows the sum.", { mode: "hint", grade }),
+    `Type these:\n…\n…\n…\nprint() shows the sum.\n\n${LEAK_LINE}`);
+  // A comment ending in "?" doesn't make a line of code a question.
+  assert.equal(await guardReply("Here:\na = 15  # first?\nb = 27  # second?\nprint(a + b)  # sum?\nDone!", { mode: "hint", grade }),
+    `Here:\n…\n…\n…\nDone!\n\n${LEAK_LINE}`);
 });
 
 test("code shown without its indents is caught too: the guard tries the indents a kid would add", async () => {
@@ -262,6 +331,20 @@ test("code shown without its indents is caught too: the guard tries the indents 
   // The loop's body, after the kid's loop line.
   const body = await guardReply('Inside it, put `print(f"Step {i}")`.', { mode: "hint", grade: graderOf("ch4_r1"), program: "for i in range(5):" });
   assert.equal(body, `Inside it, put \`…\`.\n\n${LEAK_LINE}`);
+});
+
+test("indent guesses stop once one never finishes, so a loop reply can't keep the kid waiting", async () => {
+  const real = graderOf("ch4_r4"); let slow = 0;
+  const grade = async code => { const r = await real(code); if (/never finished/.test(r.feedback)) slow++; return r; };
+  const pieces = ["n = 0", "while n < 3:", "a = n", "b = a", "c = b", "d = c", "n = d + 1"];
+  await guardReply(`Try ${pieces.map(p => "`" + p + "`").join(", ")}.`, { mode: "hint", grade });
+  assert.equal(slow, 1);
+});
+
+test("pieces named in another order (the last line first) are caught too", async () => {
+  const grade = graderOf("ch1_r5");
+  assert.equal(await guardReply("Last line: `print(a + b)`. Above it: `a = 15` and `b = 27`.", { mode: "hint", grade }), `Last line: \`…\`. Above it: \`…\` and \`…\`.\n\n${LEAK_LINE}`);
+  assert.equal(await guardReply(`Put this:\n${block("print(a + b)")}\nafter this:\n${block("a = 15\nb = 27")}`, { mode: "hint", grade }), `Put this:\n${LEAK_LINE}\nafter this:\n…`);
 });
 
 test("the kid's own lines quoted back aren't blamed, even when indenting them another way would fix the program", async () => {
@@ -280,13 +363,16 @@ test("plain lines that carry on the code above them count too: a dict over sever
     for (const l of solution(id).split("\n").filter(l => l.trim())) assert.ok(!shown.includes(l.trim()), `${id}: ${l.trim()} is still shown`);
   }
   assert.equal(hideCode('world = {\n    "cave": 8,\n}\ntry:\n    10 / 0\nexcept ZeroDivisionError:\n    pass\n# the end\nThat\'s it.'), "⌛\n⌛\n⌛\n⌛\n⌛\n⌛\n⌛\n⌛\nThat's it.");
-  assert.equal(hideCode("print(x (the box\nThis is words.\n    Still words."), "⌛\nThis is words.\n    Still words.", "an open bracket doesn't swallow prose");
+  assert.equal(hideCode("print(x,\nThis is words.\n    Still words."), "⌛\nThis is words.\n    Still words.", "an open bracket doesn't swallow prose");
 });
 
 test("while a hint streams in, plain lines that look like code are hidden too, and prose isn't", () => {
   assert.equal(hideCode("Look at line 2: what does it print?\nTry print on the last line\nIf you add a colon…\ntotal = 5\n>>> print(total)\n1. x += 1\nfor i in range(3):\n    print(i)\nelse:\nimport math"),
     "Look at line 2: what does it print?\nTry print on the last line\nIf you add a colon…\n⌛\n⌛\n⌛\n⌛\n⌛\n⌛\n⌛");
-  assert.equal(hideCode("x == 5 is a question\nnums[0] is the first\nname.upper() shouts\nprint(x)?"), "x == 5 is a question\n⌛\n⌛\nprint(x)?");
+  assert.equal(hideCode("x == 5 is a question\nnums[0] = 1\nname.upper()\nprint(x)?\nx = 5  # why?"), "x == 5 is a question\n⌛\n⌛\nprint(x)?\n⌛");
+  // Code followed by words, or ending like a sentence, is prose.
+  const prose = "nums[0] is the first\nname.upper() shouts\nprint() shows the sum.\nreturn the total\nfor loops: they repeat\nx = 5 means x holds 5\nprint(x)!";
+  assert.equal(hideCode(prose), prose);
 });
 
 test(`a reply with more than ${MAX_PIECES} pieces of code isn't graded: every piece is hidden, with LEAK_LINE once`, async () => {
