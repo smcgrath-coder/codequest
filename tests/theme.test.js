@@ -94,11 +94,15 @@ for (const [name, p] of Object.entries(PALETTES)) test(`${name}: an earned troph
   for (const s of SURFACES) { const r = ratio(rgb(p.DIM), over(p.ORANGE, 0x15 / 255, rgb(p[s]))); assert.ok(r >= 4.5, `over ${s}: ${r.toFixed(2)}`); }
 });
 
-test("light: a selected Codex chapter keeps its ink title and its count readable on its tint (11) over a white card", () => {
+// The Codex draws a chapter's ink over the raw colour's 11 tint: on a white card for the selected tile, and
+// straight on the page (PANEL to DARK) for the header and the open concept card. The header's count is DIM; the
+// tile's is VDIM, which only ever sits on the tile's white card.
+test("light: a Codex chapter's ink title and its count are readable on its tint (11) over every light surface", () => {
   const p = PALETTES.light, low = [];
-  for (const [raw, ink] of Object.entries(LIGHT_INK)) {
-    const bg = over(raw, 0x11 / 255, rgb(p.PANEL2));
-    for (const [what, c] of [["title", ink], ["count", p.VDIM]]) { const r = ratio(rgb(c), bg); if (r < 4.5) low.push(`${raw} ${what}: ${r.toFixed(2)}`); }
+  for (const [raw, ink] of Object.entries(LIGHT_INK)) for (const s of SURFACES) {
+    const bg = over(raw, 0x11 / 255, rgb(p[s]));
+    const colours = [["title", ink], ["count", p.DIM], ...(s === "PANEL2" ? [["tile count", p.VDIM]] : [])];
+    for (const [what, c] of colours) { const r = ratio(rgb(c), bg); if (r < 4.5) low.push(`${raw} ${what} over ${s}: ${r.toFixed(2)}`); }
   }
   assert.deepEqual(low, []);
 });

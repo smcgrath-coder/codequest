@@ -83,17 +83,19 @@ The light text tokens score at least 4.5:1 on DARK, PANEL and PANEL2, and on the
 | Dark | Light |
 |---|---|
 | #9b59b6 | #8e44ad |
-| #2ecc71 | #1b7943 |
-| #3498db | #1d6fa5 |
-| #1abc9c | #107762 |
+| #2ecc71 | #1a7541 |
+| #3498db | #1c6a9e |
+| #1abc9c | #10735f |
 | #e74c3c | #b0301f |
-| #f39c12 | #925d07 |
-| #e91e63 | #c2185b |
-| #ff5722 | #c43000 |
-| #ff9800 | #995b00 |
+| #f39c12 | #905c07 |
+| #e91e63 | #bf185a |
+| #ff5722 | #be2f00 |
+| #ff9800 | #945800 |
 | #00e676 | #00783e |
 | #64ffda | light ACCENT |
 | #ffd700 | light GOLD |
+
+Each ink scores at least 4.5:1 on the light surfaces, and also on its raw colour's 11 tint over DARK, PANEL and PANEL2, because the Codex header and the open concept card lay that tint straight on the page. Seven inks were darkened for this in the final review (#2ecc71, #3498db, #1abc9c, #f39c12, #e91e63, #ff5722, #ff9800); the first values dropped to 4.33–4.45:1 over DARK.
 
 ## 3. How it works
 

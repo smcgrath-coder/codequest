@@ -40,12 +40,14 @@ export const BOSS_PURPLE = "#1a0d2a", POP_CLEAR = "#0a1a14", POP_TROPHY = "#2a1a
 export const bossGlow = theme => theme === "light" ? "#fff2cc" : BOSS_PURPLE;
 export const MONO = "'Courier New', monospace";
 
-// Darker versions of the NPC and chapter colours, for names and headings drawn as text in light mode.
+// Darker versions of the NPC and chapter colours, for names and headings drawn as text in light mode. Dark
+// enough to stay readable on their own colour's 11 tint laid straight on the page (the Codex header), not just
+// on plain surfaces.
 export const LIGHT_INK = {
   "#64ffda": PALETTES.light.ACCENT, "#ffd700": PALETTES.light.GOLD,
-  "#9b59b6": "#8e44ad", "#2ecc71": "#1b7943", "#3498db": "#1d6fa5", "#1abc9c": "#107762",
-  "#e74c3c": "#b0301f", "#f39c12": "#925d07", "#e91e63": "#c2185b", "#ff5722": "#c43000",
-  "#ff9800": "#995b00", "#00e676": "#00783e",
+  "#9b59b6": "#8e44ad", "#2ecc71": "#1a7541", "#3498db": "#1c6a9e", "#1abc9c": "#10735f",
+  "#e74c3c": "#b0301f", "#f39c12": "#905c07", "#e91e63": "#bf185a", "#ff5722": "#be2f00",
+  "#ff9800": "#945800", "#00e676": "#00783e",
 };
 export const inkFor = (theme, c) => (theme === "light" && LIGHT_INK[String(c).toLowerCase()]) || c;
 
