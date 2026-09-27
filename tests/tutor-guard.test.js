@@ -8,7 +8,7 @@ import fs from "node:fs";
 import { makeCore } from "./helpers/python.js";
 import { CHECKS } from "../src/checks.js";
 import { CHAPTERS } from "../src/content.js";
-import { guardReply, graderFor, codeIn, LEAK_LINE, HINT_BLOCK_LINES } from "../src/tutor.js";
+import { guardReply, graderFor, codeIn, replyParts, LEAK_LINE, HINT_BLOCK_LINES } from "../src/tutor.js";
 
 const ROOMS = new Map(CHAPTERS.flatMap(c => [...c.rooms, c.boss]).map(c => [c.id, c]));
 const solution = id => fs.readFileSync(new URL(`./fixtures/solutions/${id}.py`, import.meta.url), "utf8");
@@ -72,7 +72,31 @@ test("open mode, and a reply with no code, are left alone (and nothing is graded
 });
 
 test("codeIn finds every block and inline piece", () => {
-  assert.deepEqual(codeIn("a `x` b\n```python\nprint(1)\n```\nc ```y```"), ["x", "print(1)\n", "y"]);
+  assert.deepEqual(codeIn("a `x` b\n```python\nprint(1)\n```\nc ```y```"), ["x", "print(1)", "y"]);
+});
+
+// Replies whose code is easy to miscount: odd language lines, four backticks, a cut-off block, inline code.
+const TRICKY = ["Look:\n```python\nprint(1)\n```\nok", "Look:\n```python \nprint(2)\n```", "``` py\nx = 3\n```", "```Python3\nx = 4\n```",
+  "```\nx = 5\n```", "````python\nprint(6)\n````", "````\n```\nprint(7)\n```\n````", "```print(8)```", "Cut off:\n```python\nx = 9\ny = 10",
+  "Use `print` and `x = 11` here.\n```python\nprint(12)\n```\nthen `y`", "Two:\n```python\na = 13\n```\nand\n```\nb = 14\n```",
+  "Long:\n```python\na = 1\nb = 2\nc = 3\n```", "Four then three: ````python\nprint(15)\n```\nprint(16)"];
+
+test("one rule for code: the guard grades exactly what the kid sees as code, and shows only what it graded", async () => {
+  for (const text of TRICKY) {
+    const graded = new Set(), grade = async code => { graded.add(code); return { passed: false }; };
+    const shown = await guardReply(text, { mode: "hint", grade });
+    const parts = replyParts(text), blocks = parts.filter(p => p.kind === "code").map(p => p.text);
+    const inline = parts.filter(p => p.kind === "text").flatMap(p => [...p.text.matchAll(/`([^`\n]+)`/g)].map(m => m[1]));
+    assert.deepEqual([...codeIn(text)].sort(), [...blocks, ...inline].sort(), text);
+    for (const code of codeIn(text)) assert.ok(graded.has(code), `${text}: ${code}`);
+    for (const p of replyParts(shown).filter(p => p.kind === "code")) assert.ok(graded.has(p.text), `${text}: shows ${p.text}`);
+  }
+});
+
+test("a solution behind a language line with a space, or four backticks, is still caught", async () => {
+  const grade = graderOf("ch1_r5"), code = solution("ch1_r5").trimEnd();
+  for (const text of ["```python \n" + code + "\n```", "``` python\n" + code + "\n```", "````python\n" + code + "\n````"])
+    assert.equal(await guardReply(`Here:\n${text}\nRun it!`, { mode: "hint", grade }), `Here:\n${LEAK_LINE}\nRun it!`, text);
 });
 
 test("graderFor uses the page's Python with the room's rule, and refuses when it can't grade safely", async () => {

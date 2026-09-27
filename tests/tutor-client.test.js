@@ -124,3 +124,10 @@ test("a reply shows as words and code panels; while a hint streams, its code sta
   assert.equal(hideCode("Almost: ```python\nprint(\"Hel"), "Almost: \n⌛\n");
   assert.equal(hideCode("half `pri"), "half ⌛"); assert.equal(hideCode("no code here"), "no code here");
 });
+
+test("a code block opens with 3 or more backticks and anything on that line, and closes with the same backticks", () => {
+  for (const open of ["```python ", "``` py", "```Python3", "```", "````python"])
+    assert.deepEqual(replyParts(`See:\n${open}\nx = 1\n${open.match(/^`+/)[0]}\nok`), [{ kind: "text", text: "See:" }, { kind: "code", text: "x = 1" }, { kind: "text", text: "ok" }], open);
+  assert.deepEqual(replyParts("````\n```\nx = 1\n```\n````"), [{ kind: "code", text: "```\nx = 1\n```" }], "three backticks inside four");
+  assert.equal(hideCode("See:\n````python\nx = 1\n```\nstill code"), "See:\n\n⌛\n", "a four-backtick block isn't closed by three");
+});

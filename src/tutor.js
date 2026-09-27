@@ -135,32 +135,44 @@ export async function askTutor(payload, { fetch, onText = () => {}, signal } = {
 }
 
 // ── Showing a reply ──────────────────────────────────────────────────
-// A code block: ``` with an optional language, up to the closing ``` (or the end, if the reply was cut off).
-const FENCE = /```(?:[\w+-]*\n)?([\s\S]*?)(?:```|$)/g;
-// A reply as pieces to draw: [{ kind: "text" | "code", text }].
+// Code in a reply, one rule for showing it and for the leak guard. A block: a run of 3 or more backticks, anything
+// else on that line (a language: "python", " py", "Python3" or nothing), then the code up to the same run of
+// backticks, or the end if the reply was cut off. Inline code: `…` within one line.
+const PIECE = /(`{3,})(?:[^`\n]*\n)?([\s\S]*?)(?:\1|$)|`([^`\n]+)`/g;
+// Every piece of code in a reply, in order: { inline, at, end, code } (a block's code without its last newlines).
+const piecesOf = text => [...text.matchAll(PIECE)].map(m => ({ inline: m[3] !== undefined, at: m.index, end: m.index + m[0].length,
+  code: m[3] ?? m[2].replace(/\n+$/, "") }));
+// A reply as pieces to draw: [{ kind: "text" | "code", text }]. Inline code stays in the words.
 export function replyParts(text) {
   const out = [], add = (kind, t) => { if (t) out.push({ kind, text: t }); };
   let at = 0;
-  for (const m of text.matchAll(FENCE)) {
-    add("text", text.slice(at, m.index).replace(/^\n+|\n+$/g, ""));
-    add("code", m[1].replace(/\n+$/, ""));
-    at = m.index + m[0].length;
+  for (const p of piecesOf(text)) if (!p.inline) {
+    add("text", text.slice(at, p.at).replace(/^\n+|\n+$/g, ""));
+    add("code", p.code);
+    at = p.end;
   }
   add("text", text.slice(at).replace(/^\n+|\n+$/g, ""));
   return out;
 }
 // While a hint-mode reply streams in, its code (blocks and `inline`, finished or not) shows as ⌛ until the leak
 // guard has checked it.
-export const hideCode = text => text.replace(FENCE, "\n⌛\n").replace(/`[^`\n]*(?:`|$)/g, "⌛");
+export function hideCode(text) {
+  let out = "", at = 0;
+  for (const p of piecesOf(text)) { out += text.slice(at, p.at) + (p.inline ? "⌛" : "\n⌛\n"); at = p.end; }
+  return out + text.slice(at).replace(/`[^`\n]*$/, "⌛");
+}
+// A code block around code, with more backticks than any run inside it, so it shows as exactly that code.
+const fenced = code => {
+  const ticks = "`".repeat(Math.max(3, ...(code.match(/`+/g) ?? []).map(r => r.length + 1)));
+  return `${ticks}python\n${code}\n${ticks}`;
+};
 
 // ── The leak guard ───────────────────────────────────────────────────
 export const LEAK_LINE = "I almost gave that away — try changing just the part we talked about!";
 // In hint mode a code example is at most this many lines; a longer block is cut to them, with a "# …" line.
 export const HINT_BLOCK_LINES = 2;
-// A code block (as FENCE) or `inline` code.
-const PIECE = /```(?:[\w+-]*\n)?([\s\S]*?)(?:```|$)|`([^`\n]+)`/g;
-// Every piece of code in a reply: blocks and `inline` code.
-export const codeIn = text => [...text.matchAll(PIECE)].map(m => m[1] ?? m[2]);
+// Every piece of code in a reply, as the guard grades it: blocks and `inline` code.
+export const codeIn = text => piecesOf(text).map(p => p.code);
 
 // Would this code give the room away? Yes if it passes the room's grader. Also yes when the grader can't say
 // (no Python, stopped, too slow, crashed) and when the code reaches into Python's insides, which isn't safe to
@@ -179,13 +191,12 @@ export async function guardReply(text, { mode, grade }) {
   if (mode !== "hint") return text;
   const verdicts = new Map(), leaks = code => { if (!verdicts.has(code)) verdicts.set(code, wouldLeak(code, grade)); return verdicts.get(code); };
   let out = "", at = 0, caught = false;
-  for (const m of text.matchAll(PIECE)) {
-    out += text.slice(at, m.index); at = m.index + m[0].length;
-    if (m[1] === undefined) { if (await leaks(m[2])) { out += "`…`"; caught = true; } else out += m[0]; continue; }
-    const lines = m[1].replace(/\n+$/, "").split("\n"), long = lines.length > HINT_BLOCK_LINES;
-    const shown = long ? [...lines.slice(0, HINT_BLOCK_LINES), "# …"].join("\n") : lines.join("\n");
-    if ((await leaks(lines.join("\n"))) || (long && (await leaks(shown)))) out += LEAK_LINE;
-    else out += "```python\n" + shown + "\n```";
+  for (const p of piecesOf(text)) {
+    out += text.slice(at, p.at); at = p.end;
+    if (p.inline) { if (await leaks(p.code)) { out += "`…`"; caught = true; } else out += text.slice(p.at, p.end); continue; }
+    const lines = p.code.split("\n"), long = lines.length > HINT_BLOCK_LINES;
+    const shown = long ? [...lines.slice(0, HINT_BLOCK_LINES), "# …"].join("\n") : p.code;
+    out += (await leaks(p.code)) || (long && (await leaks(shown))) ? LEAK_LINE : fenced(shown);
   }
   out += text.slice(at);
   return caught && !out.includes(LEAK_LINE) ? `${out.trimEnd()}\n\n${LEAK_LINE}` : out;
